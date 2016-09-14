@@ -451,7 +451,7 @@ namespace PakViewer
     private void tsmExport_Click(object sender, EventArgs e)
     {
       foreach (ListViewItem selectedItem in this.lvIndexInfo.SelectedItems)
-        this.ExportSelected((string) null, selectedItem);
+        this.ExportSelected(Path.GetDirectoryName(this._PackFileName), selectedItem);
     }
 
     private void tsmExportTo_Click(object sender, EventArgs e)
@@ -469,7 +469,7 @@ namespace PakViewer
       foreach (ListViewItem checkedItem in this.lvIndexInfo.CheckedItems)
       {
         object data = this.LoadPakData(fs, checkedItem);
-        this.ExportData((string) null, checkedItem, data);
+        this.ExportData(Path.GetDirectoryName(this._PackFileName), checkedItem, data);
       }
       fs.Close();
     }
