@@ -207,6 +207,7 @@ namespace PakViewer
       {
         int index2 = num + index1 * 28;
         indexRecordArray[index1] = new L1PakTools.IndexRecord(IndexData, index2);
+        //Console.WriteLine(index1+":"+indexRecordArray[index1].FileName + ":" + indexRecordArray[index1].FileSize + ":" + indexRecordArray[index1].Offset);
         this.tssProgress.Increment(1);
       }
       this.tssProgressName.Text = "";
@@ -231,7 +232,7 @@ namespace PakViewer
       this.lvIndexInfo.Items.Clear();
       this.lvIndexInfo.Items.AddRange(listViewItemList.ToArray());
       this.lvIndexInfo.ResumeLayout();
-      this.tssRecordCount.Text = string.Format("All items:{0}", (object) Records.Length);
+      this.tssRecordCount.Text = string.Format("All:{0}", (object) Records.Length);
       this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this.lvIndexInfo.Items.Count);
     }
 
@@ -378,6 +379,11 @@ namespace PakViewer
       };
       int index = Array.IndexOf<string>(array, Path.GetExtension(IdxRec.FileName).ToLower());
       this._InviewData = index != -1 ? inviewDataTypeArray[index] : frmMain.InviewDataType.Empty;
+
+      if(IdxRec.FileName.IndexOf("list.spr") != -1)
+      {
+         this._InviewData = frmMain.InviewDataType.Text;
+      }
       byte[] numArray = new byte[IdxRec.FileSize];
       fs.Seek((long) IdxRec.Offset, SeekOrigin.Begin);
       fs.Read(numArray, 0, IdxRec.FileSize);
@@ -507,8 +513,9 @@ namespace PakViewer
         for (int index = 0; index < frameArray.Length; ++index)
         {
           if (frameArray[index].image != null)
-            frameArray[index].image.Save(str.Replace(".spr", string.Format("-{0:D2}.bmp", (object) index)), ImageFormat.Bmp);
+            frameArray[index].image.Save(str.Replace(".spr", string.Format("-{0:D2}(view).bmp", (object) index)), ImageFormat.Bmp);
         }
+        File.WriteAllBytes(str, (byte[]) data);
       }
       else
         File.WriteAllBytes(str, (byte[]) data);
@@ -572,7 +579,7 @@ namespace PakViewer
           // Console.WriteLine("found deleted item:" + index1);
         }
       }
-      Array.Sort<int, L1PakTools.IndexRecord>(keys, items);
+      //Array.Sort<int, L1PakTools.IndexRecord>(keys, items);
       this._IndexRecords = items;
       this.tssProgressName.Text = "Creating new PAK file...";
       this.tssProgress.Maximum = length;
@@ -687,12 +694,11 @@ namespace PakViewer
       this.dlgAddFiles.FileName = "";
       if (this.dlgAddFiles.ShowDialog((IWin32Window) this) != DialogResult.OK)
         return;
-      int length = this._IndexRecords.Length;
-      Array.Resize<L1PakTools.IndexRecord>(ref this._IndexRecords, this._IndexRecords.Length + this.dlgAddFiles.FileNames.Length);
       FileStream fileStream1 = File.OpenWrite(this._PackFileName.Replace(".idx", ".pak"));
       FileStream fileStream2 = File.OpenWrite(this._PackFileName);
       foreach (string fileName in this.dlgAddFiles.FileNames)
       {
+         
         byte[] numArray = File.ReadAllBytes(fileName);
         if (this._IsPackFileProtected)
         {
@@ -702,20 +708,37 @@ namespace PakViewer
         }
         int offset = (int) fileStream1.Seek(0L, SeekOrigin.End);
         fileStream1.Write(numArray, 0, numArray.Length);
-        if (!this._IsPackFileProtected)
-        {
-          fileStream2.Seek((long) (4 + length * 28), SeekOrigin.Begin);
-          fileStream2.Write(BitConverter.GetBytes(this._IndexRecords[length].Offset), 0, 4);
-        }
+
         string filename = fileName.Substring(fileName.LastIndexOf('\\') + 1);
-        this._IndexRecords[length] = new L1PakTools.IndexRecord(filename, numArray.Length, offset);
-        this.lvIndexInfo.Items.Add(this.CreatListViewItem(length, this._IndexRecords[length])).EnsureVisible();
-        ++length;
+
+        bool replace = false;
+        int index = -1;
+        for (int i = 0; i < this._IndexRecords.Length; ++i)
+        {
+            L1PakTools.IndexRecord record = this._IndexRecords[i];
+            if (record.FileName.Equals(filename))
+            {
+                replace = true;
+                index = i;
+            }
+        }
+        
+        L1PakTools.IndexRecord record2 = new L1PakTools.IndexRecord(filename, numArray.Length, offset);
+
+        if (replace)
+        {
+             this._IndexRecords[index] = record2;
+        }
+        else
+        {
+            Array.Resize<L1PakTools.IndexRecord>(ref this._IndexRecords, this._IndexRecords.Length + 1);
+            this._IndexRecords[this._IndexRecords.Length -1] = record2;
+        }
+         this.ShowRecords(this._IndexRecords);
       }
       if (this._IsPackFileProtected)
       {
         fileStream2.Close();
-        this.RebuildIndex();
       }
       else
       {
@@ -723,7 +746,9 @@ namespace PakViewer
         fileStream2.Write(BitConverter.GetBytes(this._IndexRecords.Length), 0, 4);
         fileStream2.Close();
       }
-      fileStream1.Close();
+        this.RebuildIndex();
+        fileStream1.Close();
+
     }
 
     private void txtSearch_KeyPress(object sender, KeyPressEventArgs e)
@@ -731,14 +756,24 @@ namespace PakViewer
       if ((int) e.KeyChar != 13)
         return;
       TextBox textBox = (TextBox) sender;
-      if (this._IndexRecords.Length <= 0)
+      if (this._IndexRecords == null || this._IndexRecords.Length <= 0)
         return;
       List<ListViewItem> listViewItemList = new List<ListViewItem>();
       for (int ID = 0; ID < this._IndexRecords.Length; ++ID)
       {
         L1PakTools.IndexRecord indexRecord = this._IndexRecords[ID];
-        if (!(textBox.Text != "") || indexRecord.FileName.IndexOf(textBox.Text, StringComparison.CurrentCultureIgnoreCase) != -1)
-          listViewItemList.Add(this.CreatListViewItem(ID, indexRecord));
+        if ((textBox.Text != "") )
+        {
+            if (textBox.Text.StartsWith("^")) {
+                if(indexRecord.FileName.IndexOf(textBox.Text.Substring(1), StringComparison.CurrentCultureIgnoreCase) == 0)
+                {
+                    listViewItemList.Add(this.CreatListViewItem(ID, indexRecord));
+                }
+            }
+            else if (indexRecord.FileName.IndexOf(textBox.Text, StringComparison.CurrentCultureIgnoreCase) != -1){
+                listViewItemList.Add(this.CreatListViewItem(ID, indexRecord));
+            }
+        }
       }
       if (listViewItemList.Count > 0)
         listViewItemList[0].Selected = true;
@@ -747,7 +782,7 @@ namespace PakViewer
       this.lvIndexInfo.Items.AddRange(listViewItemList.ToArray());
       this.lvIndexInfo.ResumeLayout();
       this.lvIndexInfo.Focus();
-      this.tssRecordCount.Text = string.Format("All items:{0}", (object) this._IndexRecords.Length);
+      this.tssRecordCount.Text = string.Format("All:{0}", (object) this._IndexRecords.Length);
       this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this.lvIndexInfo.Items.Count);
     }
 
