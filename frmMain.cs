@@ -141,7 +141,7 @@ namespace PakViewer
       this._IndexRecords = this.CreatIndexRecords(this.LoadIndexData(this._PackFileName));
       if (this._IndexRecords == null)
       {
-        int num2 = (int) MessageBox.Show("這個檔案無法正確解析或載入, 可能是檔案已經毀損或它不是正確的索引檔案.");
+        int num2 = (int) MessageBox.Show("The file can't be parsed. It might be broken or not correct idx file.");
         this.mnuFiller.Enabled = false;
         this.mnuRebuild.Enabled = false;
       }
@@ -231,8 +231,8 @@ namespace PakViewer
       this.lvIndexInfo.Items.Clear();
       this.lvIndexInfo.Items.AddRange(listViewItemList.ToArray());
       this.lvIndexInfo.ResumeLayout();
-      this.tssRecordCount.Text = string.Format("總筆數:{0}", (object) Records.Length);
-      this.tssShowInListView.Text = string.Format("顯示中:{0}", (object) this.lvIndexInfo.Items.Count);
+      this.tssRecordCount.Text = string.Format("All items:{0}", (object) Records.Length);
+      this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this.lvIndexInfo.Items.Count);
     }
 
     private ListViewItem CreatListViewItem(int ID, L1PakTools.IndexRecord IdxRec)
@@ -747,8 +747,8 @@ namespace PakViewer
       this.lvIndexInfo.Items.AddRange(listViewItemList.ToArray());
       this.lvIndexInfo.ResumeLayout();
       this.lvIndexInfo.Focus();
-      this.tssRecordCount.Text = string.Format("總筆數:{0}", (object) this._IndexRecords.Length);
-      this.tssShowInListView.Text = string.Format("顯示中:{0}", (object) this.lvIndexInfo.Items.Count);
+      this.tssRecordCount.Text = string.Format("All items:{0}", (object) this._IndexRecords.Length);
+      this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this.lvIndexInfo.Items.Count);
     }
 
     private void tsmCompare_Click(object sender, EventArgs e)
@@ -927,7 +927,7 @@ namespace PakViewer
       this.toolStripSeparator1.Size = new Size((int) sbyte.MaxValue, 6);
       this.mnuCreatResource.Name = "mnuCreatResource";
       this.mnuCreatResource.Size = new Size(130, 22);
-      this.mnuCreatResource.Text = "建立資源檔";
+      this.mnuCreatResource.Text = "create new source file ";
       this.mnuCreatResource.Visible = false;
       this.mnuRebuild.Enabled = false;
       this.mnuRebuild.Name = "mnuRebuild";
@@ -1050,7 +1050,7 @@ namespace PakViewer
       this.mnuLanguage_TW.CheckState = CheckState.Checked;
       this.mnuLanguage_TW.Name = "mnuLanguage_TW";
       this.mnuLanguage_TW.Size = new Size(133, 22);
-      this.mnuLanguage_TW.Text = "繁體中文(T)";
+      this.mnuLanguage_TW.Text = "繁體中文(zh_tw)";
       this.mnuLanguage_EN.Name = "mnuLanguage_EN";
       this.mnuLanguage_EN.Size = new Size(133, 22);
       this.mnuLanguage_EN.Text = "&English";
@@ -1074,13 +1074,13 @@ namespace PakViewer
       this.mnuTools_Export.Name = "mnuTools_Export";
       this.mnuTools_Export.Size = new Size((int) sbyte.MaxValue, 22);
       this.mnuTools_Export.Text = "&Export";
-      this.mnuTools_Export.ToolTipText = "匯出已勾選的檔案至pak檔所在目錄";
+      this.mnuTools_Export.ToolTipText = "Export selected file to the pak folder";
       this.mnuTools_Export.Click += new EventHandler(this.mnuTools_Export_Click);
       this.mnuTools_ExportTo.Enabled = false;
       this.mnuTools_ExportTo.Name = "mnuTools_ExportTo";
       this.mnuTools_ExportTo.Size = new Size((int) sbyte.MaxValue, 22);
       this.mnuTools_ExportTo.Text = "Export &To...";
-      this.mnuTools_ExportTo.ToolTipText = "匯出已勾選的檔案至指定資料夾";
+      this.mnuTools_ExportTo.ToolTipText = "Export selected file to specific folder";
       this.mnuTools_ExportTo.Click += new EventHandler(this.mnuTools_ExportTo_Click);
       this.mnuTools_Delete.Enabled = false;
       this.mnuTools_Delete.Image = (Image) Resources.Trashcan_empty;
@@ -1099,7 +1099,7 @@ namespace PakViewer
       this.mnuTools_Update.Name = "mnuTools_Update";
       this.mnuTools_Update.Size = new Size((int) sbyte.MaxValue, 22);
       this.mnuTools_Update.Text = "&Update";
-      this.mnuTools_Update.ToolTipText = "這項功能只有在文字型態的資料才可以使用.";
+      this.mnuTools_Update.ToolTipText = "The function only work in text file.";
       this.mnuTools_Update.Click += new EventHandler(this.mnuTools_Update_Click);
       this.toolStripSeparator9.Name = "toolStripSeparator9";
       this.toolStripSeparator9.Size = new Size(124, 6);
@@ -1215,12 +1215,12 @@ namespace PakViewer
       this.tsmExport.Name = "tsmExport";
       this.tsmExport.Size = new Size(136, 22);
       this.tsmExport.Text = "&Export";
-      this.tsmExport.ToolTipText = "匯出此檔案至pak檔所在目錄";
+      this.tsmExport.ToolTipText = "export the file to the pak folder ";
       this.tsmExport.Click += new EventHandler(this.tsmExport_Click);
       this.tsmExportTo.Name = "tsmExportTo";
       this.tsmExportTo.Size = new Size(136, 22);
       this.tsmExportTo.Text = "Export &To...";
-      this.tsmExportTo.ToolTipText = "匯出此檔案至指定目錄夾";
+      this.tsmExportTo.ToolTipText = "Export the file to specific folder";
       this.tsmExportTo.Click += new EventHandler(this.tsmExportTo_Click);
       this.toolStripSeparator6.Name = "toolStripSeparator6";
       this.toolStripSeparator6.Size = new Size(133, 6);
@@ -1294,7 +1294,7 @@ namespace PakViewer
       this.tssCheckedCount.BorderSides = ToolStripStatusLabelBorderSides.Right;
       this.tssCheckedCount.Name = "tssCheckedCount";
       this.tssCheckedCount.Size = new Size(54, 20);
-      this.tssCheckedCount.Text = "已選取:0";
+      this.tssCheckedCount.Text = "Selected :0";
       this.tssCheckedCount.Visible = false;
       this.tssMessage.Name = "tssMessage";
       this.tssMessage.Size = new Size(671, 17);
