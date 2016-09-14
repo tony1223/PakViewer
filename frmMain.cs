@@ -635,6 +635,7 @@ namespace PakViewer
         int ID = int.Parse(current.Text) - 1;
         FileStream fileStream1 = File.OpenWrite(this._PackFileName.Replace(".idx", ".pak"));
         this._IndexRecords[ID].Offset = (int) fileStream1.Seek(0L, SeekOrigin.End);
+        this._IndexRecords[ID].FileSize = numArray.Length;
         fileStream1.Write(numArray, 0, numArray.Length);
         fileStream1.Close();
         if (this._IsPackFileProtected)
