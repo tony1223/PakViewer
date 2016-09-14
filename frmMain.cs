@@ -343,6 +343,60 @@ namespace PakViewer
       return this.LoadPakData_(fs, indexRecord);
     }
 
+    private byte[] LoadPakBytes_(FileStream fs, ListViewItem lvItem) { 
+        L1PakTools.IndexRecord IdxRec = this._IndexRecords[int.Parse(lvItem.Text) - 1];
+        string[] array = new string[13]
+        {
+    ".img",
+    ".png",
+    ".tbt",
+    ".til",
+    ".html",
+    ".tbl",
+    ".spr",
+    ".bmp",
+    ".h",
+    ".ht",
+    ".htm",
+    ".txt",
+    ".def"
+        };
+        frmMain.InviewDataType[] inviewDataTypeArray = new frmMain.InviewDataType[13]
+        {
+    frmMain.InviewDataType.IMG,
+    frmMain.InviewDataType.BMP,
+    frmMain.InviewDataType.TBT,
+    frmMain.InviewDataType.Empty,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.SPR,
+    frmMain.InviewDataType.BMP,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.Text
+        };
+        int index = Array.IndexOf<string>(array, Path.GetExtension(IdxRec.FileName).ToLower());
+        this._InviewData = index != -1 ? inviewDataTypeArray[index] : frmMain.InviewDataType.Empty;
+
+        if (IdxRec.FileName.IndexOf("list.spr") != -1)
+        {
+            this._InviewData = frmMain.InviewDataType.Text;
+        }
+        byte[] numArray = new byte[IdxRec.FileSize];
+        fs.Seek((long)IdxRec.Offset, SeekOrigin.Begin);
+        fs.Read(numArray, 0, IdxRec.FileSize);
+        if (this._IsPackFileProtected)
+        {
+            this.tssProgressName.Text = "Decoding...";
+            numArray = L1PakTools.Decode(numArray, 0);
+            this.tssProgressName.Text = "";
+            if (this._InviewData == frmMain.InviewDataType.SPR)
+                this._InviewData = frmMain.InviewDataType.Text;
+        }
+         return numArray;
+    }
     private object LoadPakData_(FileStream fs, L1PakTools.IndexRecord IdxRec)
     {
       string[] array = new string[13]
@@ -475,7 +529,7 @@ namespace PakViewer
       foreach (ListViewItem checkedItem in this.lvIndexInfo.CheckedItems)
       {
         object data = this.LoadPakData(fs, checkedItem);
-        this.ExportData(Path.GetDirectoryName(this._PackFileName), checkedItem, data);
+        this.ExportData(Path.GetDirectoryName(this._PackFileName), checkedItem, data,this.LoadPakBytes_(fs,checkedItem));
       }
       fs.Close();
     }
@@ -489,12 +543,12 @@ namespace PakViewer
       foreach (ListViewItem checkedItem in this.lvIndexInfo.CheckedItems)
       {
         object data = this.LoadPakData(fs, checkedItem);
-        this.ExportData(selectedPath, checkedItem, data);
+        this.ExportData(selectedPath, checkedItem, data,this.LoadPakBytes_(fs,checkedItem));
       }
       fs.Close();
     }
 
-    private void ExportData(string Path, ListViewItem lvItem, object data)
+    private void ExportData(string Path, ListViewItem lvItem, object data,byte[] origin_bytes)
     {
       string str = this._IndexRecords[int.Parse(lvItem.Text) - 1].FileName;
       if (Path != null)
@@ -509,36 +563,44 @@ namespace PakViewer
         ((Image) data).Save(str.Replace(".tbt", ".gif"), ImageFormat.Gif);
       else if (this._InviewData == frmMain.InviewDataType.SPR)
       {
-        L1Spr.Frame[] frameArray = L1Spr.Load((byte[]) data);
+
+        L1Spr.Frame[] frameArray = null;
+        if(data is byte[])
+        {
+            frameArray = L1Spr.Load((byte[])data);
+        }else if(data is L1Spr.Frame[])
+        {
+            frameArray = (L1Spr.Frame[])data;
+        }
         for (int index = 0; index < frameArray.Length; ++index)
         {
           if (frameArray[index].image != null)
             frameArray[index].image.Save(str.Replace(".spr", string.Format("-{0:D2}(view).bmp", (object) index)), ImageFormat.Bmp);
         }
-        File.WriteAllBytes(str, (byte[]) data);
+        File.WriteAllBytes(str, (byte[])origin_bytes);
       }
       else
-        File.WriteAllBytes(str, (byte[]) data);
+        File.WriteAllBytes(str, (byte[])origin_bytes);
     }
 
     private void ExportSelected(string Path, ListViewItem lvItem)
     {
+       FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
       if (this._InviewData == frmMain.InviewDataType.Text)
-        this.ExportData(Path, lvItem, (object) this.TextViewer.Text);
+        this.ExportData(Path, lvItem, (object) this.TextViewer.Text, this.LoadPakBytes_(fs, lvItem));
       else if (this._InviewData == frmMain.InviewDataType.IMG || this._InviewData == frmMain.InviewDataType.BMP)
       {
-        this.ExportData(Path, lvItem, (object) this.ImageViewer.Image);
+        this.ExportData(Path, lvItem, (object) this.ImageViewer.Image, this.LoadPakBytes_(fs, lvItem));
       }
       else
       {
         L1PakTools.IndexRecord indexRecord = this._IndexRecords[int.Parse(lvItem.Text) - 1];
         byte[] buffer = new byte[indexRecord.FileSize];
-        FileStream fileStream = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
-        fileStream.Seek((long) indexRecord.Offset, SeekOrigin.Begin);
-        fileStream.Read(buffer, 0, indexRecord.FileSize);
-        this.ExportData(Path, lvItem, (object) buffer);
-        fileStream.Close();
+        fs.Seek((long) indexRecord.Offset, SeekOrigin.Begin);
+        fs.Read(buffer, 0, indexRecord.FileSize);
+        this.ExportData(Path, lvItem, (object) buffer,buffer);
       }
+      fs.Close();
     }
 
     private void mnuTools_Delete_Click(object sender, EventArgs e)
@@ -774,7 +836,12 @@ namespace PakViewer
                 listViewItemList.Add(this.CreatListViewItem(ID, indexRecord));
             }
         }
-      }
+        else
+        {
+            listViewItemList.Add(this.CreatListViewItem(ID, indexRecord));
+
+        }
+    }
       if (listViewItemList.Count > 0)
         listViewItemList[0].Selected = true;
       this.lvIndexInfo.SuspendLayout();
