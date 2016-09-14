@@ -540,8 +540,9 @@ namespace PakViewer
         return;
       int[] DeleteID = new int[this.lvIndexInfo.CheckedItems.Count];
       int num = 0;
-      foreach (ListViewItem checkedItem in this.lvIndexInfo.CheckedItems)
-        DeleteID[num++] = int.Parse(checkedItem.Text);
+      foreach (ListViewItem checkedItem in this.lvIndexInfo.CheckedItems) { 
+        DeleteID[num++] = int.Parse(checkedItem.Text) -1; // -1 because showed index is beginning with 1 not zero.
+      }
       this.RebuildAll(DeleteID);
       this.ShowRecords(this._IndexRecords);
     }
@@ -565,6 +566,10 @@ namespace PakViewer
           items[index2] = this._IndexRecords[index1];
           keys[index2] = this._IndexRecords[index1].Offset;
           ++index2;
+        }
+        else
+        {
+          // Console.WriteLine("found deleted item:" + index1);
         }
       }
       Array.Sort<int, L1PakTools.IndexRecord>(keys, items);
