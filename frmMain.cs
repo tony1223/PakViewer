@@ -1423,7 +1423,7 @@ namespace PakViewer
       this.MainMenuStrip = this.menuStrip1;
       this.Name = "frmMain";
       this.Text = "Lineage I Pack File Viewer";
-      this.WindowState = FormWindowState.Maximized;
+      this.WindowState = FormWindowState.Normal;
       this.menuStrip1.ResumeLayout(false);
       this.menuStrip1.PerformLayout();
       this.splitContainer1.Panel1.ResumeLayout(false);
