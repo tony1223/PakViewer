@@ -523,7 +523,7 @@ namespace PakViewer
 
       try
       {
-        FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read);
+        FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         object obj = this.LoadPakData_(fs, record);
         fs.Close();
         this.ViewerSwitch();
@@ -878,7 +878,7 @@ namespace PakViewer
 
     private void mnuTools_Export_Click(object sender, EventArgs e)
     {
-      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
+      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
       foreach (int realIndex in this._CheckedIndexes)
       {
         L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
@@ -893,7 +893,7 @@ namespace PakViewer
       if (this.dlgOpenFolder.ShowDialog((IWin32Window) this) != DialogResult.OK)
         return;
       string selectedPath = this.dlgOpenFolder.SelectedPath;
-      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
+      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
       foreach (int realIndex in this._CheckedIndexes)
       {
         L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
@@ -906,7 +906,7 @@ namespace PakViewer
     private void ExportSelectedByIndex(string path, int realIndex)
     {
       L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
-      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
+      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
       object data = this.LoadPakData_(fs, record);
       this.ExportDataByIndex(path, realIndex, data, this.LoadPakBytes_(fs, record));
       fs.Close();
@@ -983,7 +983,7 @@ namespace PakViewer
 
     private void ExportSelected(string Path, ListViewItem lvItem)
     {
-       FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
+       FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
       if (this._InviewData == frmMain.InviewDataType.Text)
         this.ExportData(Path, lvItem, (object) this.TextViewer.Text, this.LoadPakBytes_(fs, lvItem));
       else if (this._InviewData == frmMain.InviewDataType.IMG || this._InviewData == frmMain.InviewDataType.BMP)
@@ -1602,6 +1602,16 @@ namespace PakViewer
           this.tssMessage.Text = "Saved: " + record.FileName + (this._IsCurrentFileXmlEncrypted ? " [XML Encrypted]" : "");
         }
       }
+      catch (IOException ex)
+      {
+        MessageBox.Show(
+          "無法寫入檔案，檔案可能正被其他程式使用中。\n\n" +
+          "請先關閉天堂遊戲或其他編輯器後再試一次。\n\n" +
+          "Error: " + ex.Message,
+          "檔案鎖定 - Save Error",
+          MessageBoxButtons.OK,
+          MessageBoxIcon.Warning);
+      }
       catch (Exception ex)
       {
         MessageBox.Show("Error saving file: " + ex.Message, "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1613,7 +1623,7 @@ namespace PakViewer
       ToolStripMenuItem toolStripMenuItem = (ToolStripMenuItem) sender;
       this.TextCompViewer.Visible = true;
       this.TextCompViewer.SourceText = this.TextViewer.Text;
-      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
+      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
       this.TextCompViewer.TargetText = (string) this.LoadPakData_(fs, (L1PakTools.IndexRecord) toolStripMenuItem.Tag);
       fs.Close();
     }

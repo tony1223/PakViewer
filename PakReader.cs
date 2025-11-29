@@ -241,7 +241,7 @@ namespace PakViewer
 
             // Read PAK data
             byte[] pakData;
-            using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read))
+            using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
                 pakData = new byte[rec.FileSize];
                 fs.Seek(rec.Offset, SeekOrigin.Begin);
@@ -320,7 +320,7 @@ namespace PakViewer
 
             // Read PAK data
             byte[] pakData;
-            using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read))
+            using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
                 pakData = new byte[rec.FileSize];
                 fs.Seek(rec.Offset, SeekOrigin.Begin);
@@ -396,7 +396,7 @@ namespace PakViewer
             if (Path.GetExtension(targetFile).ToLower() == ".xml")
             {
                 byte[] originalData;
-                using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read))
+                using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 {
                     originalData = new byte[rec.FileSize];
                     fs.Seek(rec.Offset, SeekOrigin.Begin);
@@ -446,14 +446,24 @@ namespace PakViewer
             }
 
             // Write to PAK
-            using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Write))
+            try
             {
-                fs.Seek(rec.Offset, SeekOrigin.Begin);
-                fs.Write(dataToWrite, 0, dataToWrite.Length);
-            }
+                using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Write))
+                {
+                    fs.Seek(rec.Offset, SeekOrigin.Begin);
+                    fs.Write(dataToWrite, 0, dataToWrite.Length);
+                }
 
-            Console.WriteLine();
-            Console.WriteLine($"Success! Imported {inputFile} -> {targetFile}");
+                Console.WriteLine();
+                Console.WriteLine($"Success! Imported {inputFile} -> {targetFile}");
+            }
+            catch (IOException ex)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Error: Cannot write to file. The file may be in use by another program.");
+                Console.WriteLine("Please close Lineage game or other editors and try again.");
+                Console.WriteLine($"Details: {ex.Message}");
+            }
         }
 
         static void RebuildPakWithNewSize(string idxFile, string pakFile, L1PakTools.IndexRecord[] records, int targetIndex, byte[] newData, bool isProtected)
