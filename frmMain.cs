@@ -87,7 +87,7 @@ namespace PakViewer
     private ToolStripMenuItem mnuLanguage_TW;
     private ToolStripMenuItem mnuLanguage_EN;
     private ucSprViewer SprViewer;
-    private FlowLayoutPanel palSearch;
+    private Panel palSearch;
     private Label label1;
     private TextBox txtSearch;
     private SplitContainer splitContainer2;
@@ -111,7 +111,11 @@ namespace PakViewer
     private ComboBox cmbExtFilter;
     private Label lblLangFilter;
     private ComboBox cmbLangFilter;
+    private Button btnSaveText;
+    private CheckBox chkSkipSaveConfirm;
     private System.ComponentModel.BackgroundWorker bgSearchWorker;
+    private int _CurrentEditingRealIndex = -1;
+    private bool _TextModified = false;
     private string _SelectedFolder;
     private List<int> _FilteredIndexes;
     private HashSet<int> _CheckedIndexes;
@@ -474,6 +478,31 @@ namespace PakViewer
       this.tssMessage.Text = "";
       this.ImageViewer.Image = (Image) null;
 
+      // 檢查是否有未儲存的變更
+      if (this._TextModified && this._CurrentEditingRealIndex >= 0)
+      {
+        L1PakTools.IndexRecord oldRecord = this._IndexRecords[this._CurrentEditingRealIndex];
+        DialogResult result = MessageBox.Show(
+          "You have unsaved changes to \"" + oldRecord.FileName + "\".\n\nDo you want to save before switching?",
+          "Unsaved Changes",
+          MessageBoxButtons.YesNoCancel,
+          MessageBoxIcon.Warning);
+
+        if (result == DialogResult.Yes)
+        {
+          this.btnSaveText_Click(sender, e);
+        }
+        else if (result == DialogResult.Cancel)
+        {
+          return;
+        }
+      }
+
+      // 重置編輯狀態
+      this._TextModified = false;
+      this.btnSaveText.Enabled = false;
+      this._CurrentEditingRealIndex = -1;
+
       int selectedVirtualIndex = this.lvIndexInfo.SelectedIndices[0];
       if (this._FilteredIndexes == null || selectedVirtualIndex >= this._FilteredIndexes.Count)
         return;
@@ -498,11 +527,21 @@ namespace PakViewer
         this.ViewerSwitch();
         if (this._InviewData == frmMain.InviewDataType.Text || this._InviewData == frmMain.InviewDataType.Empty)
         {
+          // 暫時移除 TextChanged 事件避免觸發
+          this.TextViewer.TextChanged -= new EventHandler(this.TextViewer_TextChanged);
+
           if (obj is string)
             this.TextViewer.Text = (string) obj;
           else if (obj is byte[])
             this.TextViewer.Text = Encoding.GetEncoding("big5").GetString((byte[]) obj);
           this.TextViewer.Tag = (object) (realIndex + 1).ToString();
+
+          // 設定當前編輯的檔案索引
+          this._CurrentEditingRealIndex = realIndex;
+
+          // 重新綁定 TextChanged 事件
+          this.TextViewer.TextChanged += new EventHandler(this.TextViewer_TextChanged);
+
           // 如果是 Empty 類型，強制顯示 TextViewer
           if (this._InviewData == frmMain.InviewDataType.Empty)
           {
@@ -1418,6 +1457,95 @@ namespace PakViewer
       }
     }
 
+    private void chkSkipSaveConfirm_CheckedChanged(object sender, EventArgs e)
+    {
+      Settings.Default.SkipSaveConfirmation = this.chkSkipSaveConfirm.Checked;
+      Settings.Default.Save();
+    }
+
+    private void TextViewer_TextChanged(object sender, EventArgs e)
+    {
+      if (this._CurrentEditingRealIndex >= 0 && this._InviewData == frmMain.InviewDataType.Text)
+      {
+        this._TextModified = true;
+        this.btnSaveText.Enabled = true;
+      }
+    }
+
+    private Encoding GetEncodingForFile(string fileName)
+    {
+      string fileNameLower = fileName.ToLower();
+      if (fileNameLower.IndexOf("-k.") >= 0)
+        return Encoding.GetEncoding("euc-kr");
+      else if (fileNameLower.IndexOf("-j.") >= 0)
+        return Encoding.GetEncoding("shift_jis");
+      else if (fileNameLower.IndexOf("-h.") >= 0)
+        return Encoding.GetEncoding("gb2312");
+      else
+        return Encoding.GetEncoding("big5");
+    }
+
+    private void btnSaveText_Click(object sender, EventArgs e)
+    {
+      if (this._CurrentEditingRealIndex < 0 || !this._TextModified)
+        return;
+
+      L1PakTools.IndexRecord record = this._IndexRecords[this._CurrentEditingRealIndex];
+
+      // 確認對話框
+      if (!Settings.Default.SkipSaveConfirmation)
+      {
+        DialogResult result = MessageBox.Show(
+          "Save changes to \"" + record.FileName + "\"?\n\nThis will modify the PAK file directly.",
+          "Confirm Save",
+          MessageBoxButtons.YesNo,
+          MessageBoxIcon.Question);
+
+        if (result != DialogResult.Yes)
+          return;
+      }
+
+      try
+      {
+        string pakFile = this._PackFileName.Replace(".idx", ".pak");
+        Encoding encoding = this.GetEncodingForFile(record.FileName);
+        byte[] newData = encoding.GetBytes(this.TextViewer.Text);
+
+        // 如果是加密的檔案，需要先編碼
+        if (this._IsPackFileProtected)
+        {
+          newData = L1PakTools.Encode(newData, 0);
+        }
+
+        // 檢查新資料大小是否與原始大小相同
+        if (newData.Length != record.FileSize)
+        {
+          MessageBox.Show(
+            "File size changed (" + record.FileSize + " -> " + newData.Length + " bytes).\n" +
+            "Cannot save directly to PAK. Please export the file instead.",
+            "Size Mismatch",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+          return;
+        }
+
+        // 寫入 PAK 檔案
+        using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Write, FileShare.Read))
+        {
+          fs.Seek(record.Offset, SeekOrigin.Begin);
+          fs.Write(newData, 0, newData.Length);
+        }
+
+        this._TextModified = false;
+        this.btnSaveText.Enabled = false;
+        this.tssMessage.Text = "Saved: " + record.FileName;
+      }
+      catch (Exception ex)
+      {
+        MessageBox.Show("Error saving file: " + ex.Message, "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+      }
+    }
+
     private void tsmCompare_Click(object sender, EventArgs e)
     {
       ToolStripMenuItem toolStripMenuItem = (ToolStripMenuItem) sender;
@@ -1521,7 +1649,7 @@ namespace PakViewer
       this.dlgOpenFile = new OpenFileDialog();
       this.splitContainer1 = new SplitContainer();
       this.splitContainer2 = new SplitContainer();
-      this.palSearch = new FlowLayoutPanel();
+      this.palSearch = new Panel();
       this.label1 = new Label();
       this.txtSearch = new TextBox();
       this.lvIndexInfo = new ListView();
@@ -1563,6 +1691,8 @@ namespace PakViewer
       this.cmbExtFilter = new ComboBox();
       this.lblLangFilter = new Label();
       this.cmbLangFilter = new ComboBox();
+      this.btnSaveText = new Button();
+      this.chkSkipSaveConfirm = new CheckBox();
       this.palToolbar.SuspendLayout();
       this.palContentSearch.SuspendLayout();
       this.menuStrip1.SuspendLayout();
@@ -1814,26 +1944,25 @@ namespace PakViewer
       this.splitContainer2.Panel1.Controls.Add((Control) this.palSearch);
       this.splitContainer2.Panel2.Controls.Add((Control) this.lvIndexInfo);
       this.splitContainer2.Size = new Size(297, 520);
-      this.splitContainer2.SplitterDistance = 25;
+      this.splitContainer2.SplitterDistance = 65;
       this.splitContainer2.TabIndex = 2;
-      this.palSearch.AutoSize = true;
+      this.palSearch.AutoSize = false;
       this.palSearch.Controls.Add((Control) this.label1);
       this.palSearch.Controls.Add((Control) this.txtSearch);
       this.palSearch.Dock = DockStyle.Top;
       this.palSearch.Location = new Point(0, 0);
       this.palSearch.Name = "palSearch";
-      this.palSearch.Size = new Size(297, 28);
+      this.palSearch.Size = new Size(297, 60);
       this.palSearch.TabIndex = 1;
-      this.palSearch.WrapContents = false;
-      this.label1.Location = new Point(3, 0);
+      this.label1.Location = new Point(3, 7);
       this.label1.Name = "label1";
-      this.label1.Size = new Size(62, 25);
+      this.label1.Size = new Size(40, 20);
       this.label1.TabIndex = 0;
-      this.label1.Text = "Condition : ";
+      this.label1.Text = "Filter:";
       this.label1.TextAlign = ContentAlignment.MiddleLeft;
-      this.txtSearch.Location = new Point(71, 3);
+      this.txtSearch.Location = new Point(45, 7);
       this.txtSearch.Name = "txtSearch";
-      this.txtSearch.Size = new Size(223, 22);
+      this.txtSearch.Size = new Size(245, 22);
       this.txtSearch.TabIndex = 1;
       this.txtSearch.KeyPress += new KeyPressEventHandler(this.txtSearch_KeyPress);
       this.lvIndexInfo.CheckBoxes = true;
@@ -2027,18 +2156,22 @@ namespace PakViewer
       this.palContentSearch.Controls.Add((Control) this.cmbExtFilter);
       this.palContentSearch.Controls.Add((Control) this.lblLangFilter);
       this.palContentSearch.Controls.Add((Control) this.cmbLangFilter);
+      this.palContentSearch.Controls.Add((Control) this.btnSaveText);
+      this.palContentSearch.Controls.Add((Control) this.chkSkipSaveConfirm);
       this.palContentSearch.Dock = DockStyle.Top;
       this.palContentSearch.Location = new Point(0, 0);
       this.palContentSearch.Name = "palContentSearch";
-      this.palContentSearch.Size = new Size(491, 35);
+      this.palContentSearch.Size = new Size(491, 60);
       this.palContentSearch.TabIndex = 10;
+      // 第一排：內容搜尋 (Y=7 對齊左邊)
       // lblContentSearch
-      this.lblContentSearch.AutoSize = true;
-      this.lblContentSearch.Location = new Point(5, 10);
+      this.lblContentSearch.AutoSize = false;
+      this.lblContentSearch.Location = new Point(3, 7);
       this.lblContentSearch.Name = "lblContentSearch";
-      this.lblContentSearch.Size = new Size(50, 12);
+      this.lblContentSearch.Size = new Size(50, 20);
       this.lblContentSearch.TabIndex = 0;
       this.lblContentSearch.Text = "Search:";
+      this.lblContentSearch.TextAlign = ContentAlignment.MiddleLeft;
       // txtContentSearch
       this.txtContentSearch.Location = new Point(55, 7);
       this.txtContentSearch.Name = "txtContentSearch";
@@ -2048,53 +2181,74 @@ namespace PakViewer
       // btnContentSearch
       this.btnContentSearch.Location = new Point(180, 5);
       this.btnContentSearch.Name = "btnContentSearch";
-      this.btnContentSearch.Size = new Size(55, 25);
+      this.btnContentSearch.Size = new Size(50, 25);
       this.btnContentSearch.TabIndex = 2;
-      this.btnContentSearch.Text = "Search";
+      this.btnContentSearch.Text = "Go";
       this.btnContentSearch.UseVisualStyleBackColor = true;
       this.btnContentSearch.Click += new EventHandler(this.btnContentSearch_Click);
       // btnClearSearch
-      this.btnClearSearch.Location = new Point(240, 5);
+      this.btnClearSearch.Location = new Point(235, 5);
       this.btnClearSearch.Name = "btnClearSearch";
       this.btnClearSearch.Size = new Size(50, 25);
       this.btnClearSearch.TabIndex = 3;
       this.btnClearSearch.Text = "Clear";
       this.btnClearSearch.UseVisualStyleBackColor = true;
       this.btnClearSearch.Click += new EventHandler(this.btnClearSearch_Click);
+      // 第二排：過濾與儲存 (Y=35)
       // lblExtFilter
-      this.lblExtFilter.AutoSize = true;
-      this.lblExtFilter.Location = new Point(300, 10);
+      this.lblExtFilter.AutoSize = false;
+      this.lblExtFilter.Location = new Point(3, 35);
       this.lblExtFilter.Name = "lblExtFilter";
-      this.lblExtFilter.Size = new Size(25, 12);
+      this.lblExtFilter.Size = new Size(28, 20);
       this.lblExtFilter.TabIndex = 4;
       this.lblExtFilter.Text = "Ext:";
+      this.lblExtFilter.TextAlign = ContentAlignment.MiddleLeft;
       // cmbExtFilter
       this.cmbExtFilter.DropDownStyle = ComboBoxStyle.DropDownList;
       this.cmbExtFilter.FormattingEnabled = true;
       this.cmbExtFilter.Items.AddRange(new object[] { "All", ".html", ".tbl", ".txt", ".h", ".ht", ".htm", ".def", ".til", ".spr", ".img", ".png", ".tbt" });
-      this.cmbExtFilter.Location = new Point(328, 6);
+      this.cmbExtFilter.Location = new Point(32, 35);
       this.cmbExtFilter.Name = "cmbExtFilter";
       this.cmbExtFilter.Size = new Size(60, 20);
       this.cmbExtFilter.TabIndex = 5;
       this.cmbExtFilter.SelectedIndex = 0;
       this.cmbExtFilter.SelectedIndexChanged += new EventHandler(this.cmbExtFilter_SelectedIndexChanged);
       // lblLangFilter
-      this.lblLangFilter.AutoSize = true;
-      this.lblLangFilter.Location = new Point(395, 10);
+      this.lblLangFilter.AutoSize = false;
+      this.lblLangFilter.Location = new Point(97, 35);
       this.lblLangFilter.Name = "lblLangFilter";
-      this.lblLangFilter.Size = new Size(35, 12);
+      this.lblLangFilter.Size = new Size(35, 20);
       this.lblLangFilter.TabIndex = 6;
       this.lblLangFilter.Text = "Lang:";
+      this.lblLangFilter.TextAlign = ContentAlignment.MiddleLeft;
       // cmbLangFilter
       this.cmbLangFilter.DropDownStyle = ComboBoxStyle.DropDownList;
       this.cmbLangFilter.FormattingEnabled = true;
       this.cmbLangFilter.Items.AddRange(new object[] { "All", "-c (TW)", "-h (CN)", "-j (JP)", "-k (KR)" });
-      this.cmbLangFilter.Location = new Point(433, 6);
+      this.cmbLangFilter.Location = new Point(135, 35);
       this.cmbLangFilter.Name = "cmbLangFilter";
       this.cmbLangFilter.Size = new Size(70, 20);
       this.cmbLangFilter.TabIndex = 7;
       this.cmbLangFilter.SelectedIndex = 1;
       this.cmbLangFilter.SelectedIndexChanged += new EventHandler(this.cmbLangFilter_SelectedIndexChanged);
+      // btnSaveText (第二排右側)
+      this.btnSaveText.Location = new Point(220, 33);
+      this.btnSaveText.Name = "btnSaveText";
+      this.btnSaveText.Size = new Size(50, 25);
+      this.btnSaveText.TabIndex = 8;
+      this.btnSaveText.Text = "Save";
+      this.btnSaveText.UseVisualStyleBackColor = true;
+      this.btnSaveText.Enabled = false;
+      this.btnSaveText.Click += new EventHandler(this.btnSaveText_Click);
+      // chkSkipSaveConfirm (第二排右側)
+      this.chkSkipSaveConfirm.AutoSize = true;
+      this.chkSkipSaveConfirm.Location = new Point(275, 38);
+      this.chkSkipSaveConfirm.Name = "chkSkipSaveConfirm";
+      this.chkSkipSaveConfirm.Size = new Size(100, 16);
+      this.chkSkipSaveConfirm.TabIndex = 9;
+      this.chkSkipSaveConfirm.Text = "Skip Confirm";
+      this.chkSkipSaveConfirm.Checked = Settings.Default.SkipSaveConfirmation;
+      this.chkSkipSaveConfirm.CheckedChanged += new EventHandler(this.chkSkipSaveConfirm_CheckedChanged);
       this.AutoScaleDimensions = new SizeF(6f, 12f);
       this.AutoScaleMode = AutoScaleMode.Font;
       this.ClientSize = new Size(792, 616);

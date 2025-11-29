@@ -71,6 +71,21 @@ namespace PakViewer.Properties
       }
     }
 
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("False")]
+    [UserScopedSetting]
+    public bool SkipSaveConfirmation
+    {
+      get
+      {
+        return (bool) this["SkipSaveConfirmation"];
+      }
+      set
+      {
+        this["SkipSaveConfirmation"] = (object) value;
+      }
+    }
+
     private void SettingChangingEventHandler(object sender, SettingChangingEventArgs e)
     {
     }
