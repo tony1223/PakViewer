@@ -13,9 +13,12 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
+using System.Collections.Concurrent;
+using System.Threading.Tasks;
 
 namespace PakViewer
 {
@@ -99,11 +102,31 @@ namespace PakViewer
     private ComboBox cmbIdxFiles;
     private Label lblFolder;
     private Panel palToolbar;
+    private Panel palContentSearch;
+    private Label lblContentSearch;
+    private TextBox txtContentSearch;
+    private Button btnContentSearch;
+    private Button btnClearSearch;
+    private Label lblExtFilter;
+    private ComboBox cmbExtFilter;
+    private Label lblLangFilter;
+    private ComboBox cmbLangFilter;
+    private System.ComponentModel.BackgroundWorker bgSearchWorker;
     private string _SelectedFolder;
+    private List<int> _FilteredIndexes;
+    private HashSet<int> _CheckedIndexes;
 
     public frmMain()
     {
       this.InitializeComponent();
+      this._CheckedIndexes = new HashSet<int>();
+      // 初始化背景搜尋 Worker
+      this.bgSearchWorker = new System.ComponentModel.BackgroundWorker();
+      this.bgSearchWorker.WorkerReportsProgress = true;
+      this.bgSearchWorker.WorkerSupportsCancellation = true;
+      this.bgSearchWorker.DoWork += new System.ComponentModel.DoWorkEventHandler(this.bgSearchWorker_DoWork);
+      this.bgSearchWorker.ProgressChanged += new System.ComponentModel.ProgressChangedEventHandler(this.bgSearchWorker_ProgressChanged);
+      this.bgSearchWorker.RunWorkerCompleted += new System.ComponentModel.RunWorkerCompletedEventHandler(this.bgSearchWorker_RunWorkerCompleted);
       this.TextViewer.Dock = DockStyle.Fill;
       this.ImageViewer.Dock = DockStyle.Fill;
       this.SprViewer.Dock = DockStyle.Fill;
@@ -113,6 +136,10 @@ namespace PakViewer
       this.mnuFiller_Text_H.Checked = defaultLang.Contains("-h");
       this.mnuFiller_Text_J.Checked = defaultLang.Contains("-j");
       this.mnuFiller_Text_K.Checked = defaultLang.Contains("-k");
+      // 啟用 DoubleBuffered 減少閃爍
+      this.lvIndexInfo.GetType().GetProperty("DoubleBuffered",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        .SetValue(this.lvIndexInfo, true, null);
       this.lvIndexInfo.Columns.Add("No.", 70, HorizontalAlignment.Right);
       this.lvIndexInfo.Columns.Add("FileName", 150, HorizontalAlignment.Left);
       this.lvIndexInfo.Columns.Add("Size", 70, HorizontalAlignment.Right);
@@ -120,24 +147,77 @@ namespace PakViewer
       this.splitContainer1.SplitterDistance = 390;
       this.mnuTools.Click += (EventHandler) ((sender, e) =>
       {
-        this.mnuTools_Export.Enabled = this.lvIndexInfo.CheckedItems.Count > 0;
+        this.mnuTools_Export.Enabled = this._CheckedIndexes.Count > 0;
         this.mnuTools_ExportTo.Enabled = this.mnuTools_Export.Enabled;
         this.mnuTools_Delete.Enabled = this.mnuTools_Export.Enabled;
-        this.mnuTools_Add.Enabled = this.lvIndexInfo.Items.Count > 0;
+        this.mnuTools_Add.Enabled = this._FilteredIndexes != null && this._FilteredIndexes.Count > 0;
         this.mnuTools_Update.Enabled = this._InviewData == frmMain.InviewDataType.Text && this.TextViewer.Modified;
       });
       this.mnuQuit.Click += (EventHandler) ((sender, e) => this.Close());
       L1PakTools.ShowProgress(this.tssProgress);
+
+      // 啟動時自動載入上次的資料夾和 idx 檔案
+      this.LoadLastSession();
+    }
+
+    private void LoadLastSession()
+    {
+      string lastFolder = Settings.Default.LastFolder;
+      string lastIdxFile = Settings.Default.LastIdxFile;
+
+      if (string.IsNullOrEmpty(lastFolder) || !Directory.Exists(lastFolder))
+        return;
+
+      this._SelectedFolder = lastFolder;
+      this.lblFolder.Text = "Folder: " + this._SelectedFolder;
+
+      // 掃描 idx 檔案
+      string[] idxFiles = Directory.GetFiles(this._SelectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
+      this.cmbIdxFiles.Items.Clear();
+      foreach (string file in idxFiles)
+      {
+        this.cmbIdxFiles.Items.Add(Path.GetFileName(file));
+      }
+
+      if (this.cmbIdxFiles.Items.Count == 0)
+        return;
+
+      // 選擇上次的 idx 檔案，或預設選擇 text.idx
+      int selectIndex = -1;
+      if (!string.IsNullOrEmpty(lastIdxFile))
+      {
+        selectIndex = this.cmbIdxFiles.Items.IndexOf(lastIdxFile);
+      }
+      if (selectIndex < 0)
+      {
+        selectIndex = this.cmbIdxFiles.Items.IndexOf("text.idx");
+      }
+      if (selectIndex < 0)
+      {
+        selectIndex = 0;
+      }
+      this.cmbIdxFiles.SelectedIndex = selectIndex;
     }
 
     private void mnuOpen_Click(object sender, EventArgs e)
     {
       this.dlgOpenFolder.Description = "Select Lineage Client Folder";
+      // 設定上次的資料夾位置
+      string lastFolder = Settings.Default.LastFolder;
+      if (!string.IsNullOrEmpty(lastFolder) && Directory.Exists(lastFolder))
+      {
+        this.dlgOpenFolder.SelectedPath = lastFolder;
+      }
+
       if (this.dlgOpenFolder.ShowDialog((IWin32Window) this) != DialogResult.OK)
         return;
 
       this._SelectedFolder = this.dlgOpenFolder.SelectedPath;
       this.lblFolder.Text = "Folder: " + this._SelectedFolder;
+
+      // 儲存資料夾位置
+      Settings.Default.LastFolder = this._SelectedFolder;
+      Settings.Default.Save();
 
       // Scan for .idx files
       string[] idxFiles = Directory.GetFiles(this._SelectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
@@ -169,21 +249,33 @@ namespace PakViewer
 
     private void LoadIdxFile(string idxFileName)
     {
-      this._PackFileName = Path.Combine(this._SelectedFolder, idxFileName).ToLower();
+      this._PackFileName = Path.Combine(this._SelectedFolder, idxFileName);
       this.Cursor = Cursors.WaitCursor;
-      this.lvIndexInfo.Items.Clear();
-      this._IndexRecords = this.CreatIndexRecords(this.LoadIndexData(this._PackFileName));
+      this.lvIndexInfo.VirtualListSize = 0;
+
+      var sw = System.Diagnostics.Stopwatch.StartNew();
+      byte[] indexData = this.LoadIndexData(this._PackFileName);
+      long loadMs = sw.ElapsedMilliseconds;
+
+      sw.Restart();
+      this._IndexRecords = this.CreatIndexRecords(indexData);
+      long createMs = sw.ElapsedMilliseconds;
+
+      sw.Restart();
       if (this._IndexRecords == null)
       {
         int num2 = (int) MessageBox.Show("The file can't be parsed. It might be broken or not correct idx file.");
         this.mnuFiller.Enabled = false;
         this.mnuRebuild.Enabled = false;
+        this.tssMessage.Text = "";
       }
       else
       {
         this.ShowRecords(this._IndexRecords);
+        long showMs = sw.ElapsedMilliseconds;
         this.mnuFiller.Enabled = true;
         this.mnuRebuild.Enabled = true;
+        this.tssMessage.Text = string.Format("Load:{0}ms | Parse:{1}ms | Show:{2}ms", loadMs, createMs, showMs);
       }
       this.Cursor = Cursors.Default;
     }
@@ -192,7 +284,11 @@ namespace PakViewer
     {
       if (this.cmbIdxFiles.SelectedItem != null && !string.IsNullOrEmpty(this._SelectedFolder))
       {
-        this.LoadIdxFile(this.cmbIdxFiles.SelectedItem.ToString());
+        string idxFile = this.cmbIdxFiles.SelectedItem.ToString();
+        this.LoadIdxFile(idxFile);
+        // 儲存選擇的 idx 檔案
+        Settings.Default.LastIdxFile = idxFile;
+        Settings.Default.Save();
       }
     }
 
@@ -243,39 +339,97 @@ namespace PakViewer
       int num = this._IsPackFileProtected ? 0 : 4;
       int length = (IndexData.Length - num) / 28;
       L1PakTools.IndexRecord[] indexRecordArray = new L1PakTools.IndexRecord[length];
-      this.tssProgressName.Text = "Loading...";
-      this.tssProgress.Maximum = length;
+
+      // 直接解析，不更新進度條（速度快很多）
       for (int index1 = 0; index1 < length; ++index1)
       {
         int index2 = num + index1 * 28;
         indexRecordArray[index1] = new L1PakTools.IndexRecord(IndexData, index2);
-        //Console.WriteLine(index1+":"+indexRecordArray[index1].FileName + ":" + indexRecordArray[index1].FileSize + ":" + indexRecordArray[index1].Offset);
-        this.tssProgress.Increment(1);
       }
-      this.tssProgressName.Text = "";
       return indexRecordArray;
     }
 
     private void ShowRecords(L1PakTools.IndexRecord[] Records)
     {
-      List<ListViewItem> listViewItemList = new List<ListViewItem>();
+      // 使用 VirtualMode - 只建立過濾後的索引列表
+      this._FilteredIndexes = new List<int>(Records.Length);
+      this._CheckedIndexes.Clear();
+
+      // 取得副檔名過濾條件
+      string extFilter = this.cmbExtFilter != null && this.cmbExtFilter.SelectedIndex > 0
+        ? this.cmbExtFilter.SelectedItem.ToString()
+        : null;
+
+      // 取得語言過濾條件
+      string langFilter = null;
+      if (this.cmbLangFilter != null && this.cmbLangFilter.SelectedIndex > 0)
+      {
+        string selected = this.cmbLangFilter.SelectedItem.ToString();
+        langFilter = selected.Substring(0, 2); // 取得 "-c", "-h", "-j", "-k"
+      }
+
       for (int ID = 0; ID < Records.Length; ++ID)
       {
         L1PakTools.IndexRecord record = Records[ID];
-        string extension = Path.GetExtension(record.FileName.ToLower());
-        if ((!(extension == "html") || this.mnuFiller_Text_html.Checked) && (!(extension == "spr") || this.mnuFiller_Sprite_spr.Checked) && ((!(extension == "til") || this.mnuFiller_Tile_til.Checked) && (!(extension == "img") || this.mnuFiller_Sprite_img.Checked)) && ((!(extension == "png") || this.mnuFiller_Sprite_png.Checked) && (!(extension == "tbt") || this.mnuFiller_Sprite_tbt.Checked)))
+        string extension = Path.GetExtension(record.FileName).ToLower();
+
+        // 副檔名過濾
+        if (extFilter != null && extension != extFilter)
+          continue;
+
+        // 語言過濾
+        if (langFilter != null)
         {
-          string withoutExtension = Path.GetFileNameWithoutExtension(record.FileName.ToLower());
-          if (withoutExtension.LastIndexOf("-") < 0 || withoutExtension.Length < 2 || this._TextLanguage.Contains(withoutExtension.Substring(withoutExtension.Length - 2)))
-            listViewItemList.Add(this.CreatListViewItem(ID, record));
+          string withoutExtension = Path.GetFileNameWithoutExtension(record.FileName).ToLower();
+          int dashIndex = withoutExtension.LastIndexOf("-");
+          if (dashIndex >= 0 && withoutExtension.Length >= 2)
+          {
+            string fileLang = withoutExtension.Substring(withoutExtension.Length - 2);
+            if (fileLang != langFilter)
+              continue;
+          }
         }
+
+        this._FilteredIndexes.Add(ID);
       }
-      this.lvIndexInfo.SuspendLayout();
-      this.lvIndexInfo.Items.Clear();
-      this.lvIndexInfo.Items.AddRange(listViewItemList.ToArray());
-      this.lvIndexInfo.ResumeLayout();
+      this.lvIndexInfo.VirtualListSize = this._FilteredIndexes.Count;
+      this.lvIndexInfo.Invalidate();
       this.tssRecordCount.Text = string.Format("All:{0}", (object) Records.Length);
-      this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this.lvIndexInfo.Items.Count);
+      this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this._FilteredIndexes.Count);
+      this.tssCheckedCount.Text = string.Format("Checked:{0}", (object) this._CheckedIndexes.Count);
+    }
+
+    private void lvIndexInfo_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
+    {
+      // 必須設定 e.Item，否則會報錯
+      if (this._FilteredIndexes == null || e.ItemIndex < 0 || e.ItemIndex >= this._FilteredIndexes.Count)
+      {
+        // 建立空白項目避免錯誤
+        e.Item = new ListViewItem("");
+        return;
+      }
+      try
+      {
+        int realIndex = this._FilteredIndexes[e.ItemIndex];
+        e.Item = this.CreatListViewItem(realIndex, this._IndexRecords[realIndex]);
+        e.Item.Checked = this._CheckedIndexes.Contains(realIndex);
+      }
+      catch
+      {
+        e.Item = new ListViewItem("");
+      }
+    }
+
+    private void lvIndexInfo_ItemCheck(object sender, ItemCheckEventArgs e)
+    {
+      if (this._FilteredIndexes == null || e.Index >= this._FilteredIndexes.Count)
+        return;
+      int realIndex = this._FilteredIndexes[e.Index];
+      if (e.NewValue == CheckState.Checked)
+        this._CheckedIndexes.Add(realIndex);
+      else
+        this._CheckedIndexes.Remove(realIndex);
+      this.tssCheckedCount.Text = string.Format("Checked:{0}", (object) this._CheckedIndexes.Count);
     }
 
     private ListViewItem CreatListViewItem(int ID, L1PakTools.IndexRecord IdxRec)
@@ -315,42 +469,61 @@ namespace PakViewer
 
     private void lvIndexInfo_SelectedIndexChanged(object sender, EventArgs e)
     {
-      if (this.lvIndexInfo.SelectedItems.Count > 1)
+      if (this.lvIndexInfo.SelectedIndices.Count != 1)
         return;
       this.tssMessage.Text = "";
       this.ImageViewer.Image = (Image) null;
-      IEnumerator enumerator = this.lvIndexInfo.SelectedItems.GetEnumerator();
+
+      int selectedVirtualIndex = this.lvIndexInfo.SelectedIndices[0];
+      if (this._FilteredIndexes == null || selectedVirtualIndex >= this._FilteredIndexes.Count)
+        return;
+      if (string.IsNullOrEmpty(this._PackFileName))
+        return;
+
+      int realIndex = this._FilteredIndexes[selectedVirtualIndex];
+      L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
+
+      string pakFile = this._PackFileName.Replace(".idx", ".pak");
+      if (!File.Exists(pakFile))
+      {
+        this.tssMessage.Text = "PAK file not found: " + pakFile;
+        return;
+      }
+
       try
       {
-        if (!enumerator.MoveNext())
-          return;
-        ListViewItem current = (ListViewItem) enumerator.Current;
-        FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
-        object obj = this.LoadPakData(fs, current);
+        FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read);
+        object obj = this.LoadPakData_(fs, record);
         fs.Close();
         this.ViewerSwitch();
-        if (this._InviewData == frmMain.InviewDataType.Text)
+        if (this._InviewData == frmMain.InviewDataType.Text || this._InviewData == frmMain.InviewDataType.Empty)
         {
-          this.TextViewer.Text = (string) obj;
-          this.TextViewer.Tag = (object) current.Text;
+          if (obj is string)
+            this.TextViewer.Text = (string) obj;
+          else if (obj is byte[])
+            this.TextViewer.Text = Encoding.GetEncoding("big5").GetString((byte[]) obj);
+          this.TextViewer.Tag = (object) (realIndex + 1).ToString();
+          // 如果是 Empty 類型，強制顯示 TextViewer
+          if (this._InviewData == frmMain.InviewDataType.Empty)
+          {
+            this.TextViewer.Visible = true;
+            this.ImageViewer.Visible = false;
+            this.SprViewer.Visible = false;
+          }
         }
         else if (this._InviewData == frmMain.InviewDataType.IMG || this._InviewData == frmMain.InviewDataType.BMP || (this._InviewData == frmMain.InviewDataType.TBT || this._InviewData == frmMain.InviewDataType.TIL))
         {
           this.ImageViewer.Image = (Image) obj;
         }
-        else
+        else if (this._InviewData == frmMain.InviewDataType.SPR)
         {
-          if (this._InviewData != frmMain.InviewDataType.SPR)
-            return;
           this.SprViewer.SprFrames = (L1Spr.Frame[]) obj;
           this.SprViewer.Start();
         }
       }
-      finally
+      catch (Exception ex)
       {
-        IDisposable disposable = enumerator as IDisposable;
-        if (disposable != null)
-          disposable.Dispose();
+        this.tssMessage.Text = "Error: " + ex.Message;
       }
     }
 
@@ -439,6 +612,61 @@ namespace PakViewer
         }
          return numArray;
     }
+
+    private byte[] LoadPakBytes_(FileStream fs, L1PakTools.IndexRecord IdxRec) {
+        string[] array = new string[13]
+        {
+    ".img",
+    ".png",
+    ".tbt",
+    ".til",
+    ".html",
+    ".tbl",
+    ".spr",
+    ".bmp",
+    ".h",
+    ".ht",
+    ".htm",
+    ".txt",
+    ".def"
+        };
+        frmMain.InviewDataType[] inviewDataTypeArray = new frmMain.InviewDataType[13]
+        {
+    frmMain.InviewDataType.IMG,
+    frmMain.InviewDataType.BMP,
+    frmMain.InviewDataType.TBT,
+    frmMain.InviewDataType.Empty,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.SPR,
+    frmMain.InviewDataType.BMP,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.Text,
+    frmMain.InviewDataType.Text
+        };
+        int index = Array.IndexOf<string>(array, Path.GetExtension(IdxRec.FileName).ToLower());
+        this._InviewData = index != -1 ? inviewDataTypeArray[index] : frmMain.InviewDataType.Empty;
+
+        if (IdxRec.FileName.IndexOf("list.spr") != -1)
+        {
+            this._InviewData = frmMain.InviewDataType.Text;
+        }
+        byte[] numArray = new byte[IdxRec.FileSize];
+        fs.Seek((long)IdxRec.Offset, SeekOrigin.Begin);
+        fs.Read(numArray, 0, IdxRec.FileSize);
+        if (this._IsPackFileProtected)
+        {
+            this.tssProgressName.Text = "Decoding...";
+            numArray = L1PakTools.Decode(numArray, 0);
+            this.tssProgressName.Text = "";
+            if (this._InviewData == frmMain.InviewDataType.SPR)
+                this._InviewData = frmMain.InviewDataType.Text;
+        }
+         return numArray;
+    }
+
     private object LoadPakData_(FileStream fs, L1PakTools.IndexRecord IdxRec)
     {
       string[] array = new string[13]
@@ -497,7 +725,16 @@ namespace PakViewer
         switch (this._InviewData)
         {
           case frmMain.InviewDataType.Text:
-            obj = IdxRec.FileName.ToLower().IndexOf("-k.") < 0 ? (IdxRec.FileName.ToLower().IndexOf("-j.") < 0 ? (IdxRec.FileName.ToLower().IndexOf("-h.") < 0 ? (IdxRec.FileName.ToLower().IndexOf("-c.") < 0 ? (object) Encoding.Default.GetString(numArray) : (object) Encoding.GetEncoding("big5").GetString(numArray)) : (object) Encoding.GetEncoding("euc-cn").GetString(numArray)) : (object) Encoding.GetEncoding("shift_jis").GetString(numArray)) : (object) Encoding.GetEncoding("euc-kr").GetString(numArray);
+            // -k: Korean (euc-kr), -j: Japanese (shift_jis), -h: Simplified Chinese (euc-cn/gb2312), -c or default: Traditional Chinese (big5)
+            string fileNameLower = IdxRec.FileName.ToLower();
+            if (fileNameLower.IndexOf("-k.") >= 0)
+              obj = (object) Encoding.GetEncoding("euc-kr").GetString(numArray);
+            else if (fileNameLower.IndexOf("-j.") >= 0)
+              obj = (object) Encoding.GetEncoding("shift_jis").GetString(numArray);
+            else if (fileNameLower.IndexOf("-h.") >= 0)
+              obj = (object) Encoding.GetEncoding("gb2312").GetString(numArray);
+            else
+              obj = (object) Encoding.GetEncoding("big5").GetString(numArray);
             break;
           case frmMain.InviewDataType.IMG:
             obj = (object) ImageConvert.Load_IMG(numArray);
@@ -552,26 +789,33 @@ namespace PakViewer
 
     private void tsmExport_Click(object sender, EventArgs e)
     {
-      foreach (ListViewItem selectedItem in this.lvIndexInfo.SelectedItems)
-        this.ExportSelected(Path.GetDirectoryName(this._PackFileName), selectedItem);
+      if (this.lvIndexInfo.SelectedIndices.Count == 0 || this._FilteredIndexes == null)
+        return;
+      int virtualIndex = this.lvIndexInfo.SelectedIndices[0];
+      int realIndex = this._FilteredIndexes[virtualIndex];
+      this.ExportSelectedByIndex(Path.GetDirectoryName(this._PackFileName), realIndex);
     }
 
     private void tsmExportTo_Click(object sender, EventArgs e)
     {
       if (this.dlgOpenFolder.ShowDialog((IWin32Window) this) != DialogResult.OK)
         return;
+      if (this.lvIndexInfo.SelectedIndices.Count == 0 || this._FilteredIndexes == null)
+        return;
       string selectedPath = this.dlgOpenFolder.SelectedPath;
-      foreach (ListViewItem selectedItem in this.lvIndexInfo.SelectedItems)
-        this.ExportSelected(selectedPath, selectedItem);
+      int virtualIndex = this.lvIndexInfo.SelectedIndices[0];
+      int realIndex = this._FilteredIndexes[virtualIndex];
+      this.ExportSelectedByIndex(selectedPath, realIndex);
     }
 
     private void mnuTools_Export_Click(object sender, EventArgs e)
     {
       FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
-      foreach (ListViewItem checkedItem in this.lvIndexInfo.CheckedItems)
+      foreach (int realIndex in this._CheckedIndexes)
       {
-        object data = this.LoadPakData(fs, checkedItem);
-        this.ExportData(Path.GetDirectoryName(this._PackFileName), checkedItem, data,this.LoadPakBytes_(fs,checkedItem));
+        L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
+        object data = this.LoadPakData_(fs, record);
+        this.ExportDataByIndex(Path.GetDirectoryName(this._PackFileName), realIndex, data, this.LoadPakBytes_(fs, record));
       }
       fs.Close();
     }
@@ -582,12 +826,56 @@ namespace PakViewer
         return;
       string selectedPath = this.dlgOpenFolder.SelectedPath;
       FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
-      foreach (ListViewItem checkedItem in this.lvIndexInfo.CheckedItems)
+      foreach (int realIndex in this._CheckedIndexes)
       {
-        object data = this.LoadPakData(fs, checkedItem);
-        this.ExportData(selectedPath, checkedItem, data,this.LoadPakBytes_(fs,checkedItem));
+        L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
+        object data = this.LoadPakData_(fs, record);
+        this.ExportDataByIndex(selectedPath, realIndex, data, this.LoadPakBytes_(fs, record));
       }
       fs.Close();
+    }
+
+    private void ExportSelectedByIndex(string path, int realIndex)
+    {
+      L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
+      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read);
+      object data = this.LoadPakData_(fs, record);
+      this.ExportDataByIndex(path, realIndex, data, this.LoadPakBytes_(fs, record));
+      fs.Close();
+    }
+
+    private void ExportDataByIndex(string path, int realIndex, object data, byte[] origin_bytes)
+    {
+      string str = this._IndexRecords[realIndex].FileName;
+      if (path != null)
+        str = path + "\\" + str;
+      if (this._InviewData == frmMain.InviewDataType.Text)
+        File.WriteAllText(str, (string) data);
+      else if (this._InviewData == frmMain.InviewDataType.IMG)
+        ((Image) data).Save(str.Replace(".img", ".bmp"), ImageFormat.Bmp);
+      else if (this._InviewData == frmMain.InviewDataType.BMP)
+        ((Image) data).Save(str, ImageFormat.Png);
+      else if (this._InviewData == frmMain.InviewDataType.TBT)
+        ((Image) data).Save(str.Replace(".tbt", ".gif"), ImageFormat.Gif);
+      else if (this._InviewData == frmMain.InviewDataType.SPR)
+      {
+        L1Spr.Frame[] frameArray = null;
+        if(data is byte[])
+        {
+            frameArray = L1Spr.Load((byte[])data);
+        }else if(data is L1Spr.Frame[])
+        {
+            frameArray = (L1Spr.Frame[])data;
+        }
+        for (int index = 0; index < frameArray.Length; ++index)
+        {
+          if (frameArray[index].image != null)
+            frameArray[index].image.Save(str.Replace(".spr", string.Format("-{0:D2}(view).bmp", (object) index)), ImageFormat.Bmp);
+        }
+        File.WriteAllBytes(str, (byte[])origin_bytes);
+      }
+      else
+        File.WriteAllBytes(str, (byte[])origin_bytes);
     }
 
     private void ExportData(string Path, ListViewItem lvItem, object data,byte[] origin_bytes)
@@ -649,11 +937,7 @@ namespace PakViewer
     {
       if (MessageBox.Show("Please delete the former backup of your original PAK files!\n\nAre you sure to delete ?", "Warning!", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) == DialogResult.No)
         return;
-      int[] DeleteID = new int[this.lvIndexInfo.CheckedItems.Count];
-      int num = 0;
-      foreach (ListViewItem checkedItem in this.lvIndexInfo.CheckedItems) { 
-        DeleteID[num++] = int.Parse(checkedItem.Text) -1; // -1 because showed index is beginning with 1 not zero.
-      }
+      int[] DeleteID = this._CheckedIndexes.ToArray();
       this.RebuildAll(DeleteID);
       this.ShowRecords(this._IndexRecords);
     }
@@ -862,7 +1146,9 @@ namespace PakViewer
       TextBox textBox = (TextBox) sender;
       if (this._IndexRecords == null || this._IndexRecords.Length <= 0)
         return;
-      List<ListViewItem> listViewItemList = new List<ListViewItem>();
+
+      // 使用 VirtualMode
+      this._FilteredIndexes = new List<int>(this._IndexRecords.Length);
       for (int ID = 0; ID < this._IndexRecords.Length; ++ID)
       {
         L1PakTools.IndexRecord indexRecord = this._IndexRecords[ID];
@@ -871,28 +1157,265 @@ namespace PakViewer
             if (textBox.Text.StartsWith("^")) {
                 if(indexRecord.FileName.IndexOf(textBox.Text.Substring(1), StringComparison.CurrentCultureIgnoreCase) == 0)
                 {
-                    listViewItemList.Add(this.CreatListViewItem(ID, indexRecord));
+                    this._FilteredIndexes.Add(ID);
                 }
             }
             else if (indexRecord.FileName.IndexOf(textBox.Text, StringComparison.CurrentCultureIgnoreCase) != -1){
-                listViewItemList.Add(this.CreatListViewItem(ID, indexRecord));
+                this._FilteredIndexes.Add(ID);
             }
         }
         else
         {
-            listViewItemList.Add(this.CreatListViewItem(ID, indexRecord));
-
+            this._FilteredIndexes.Add(ID);
         }
-    }
-      if (listViewItemList.Count > 0)
-        listViewItemList[0].Selected = true;
-      this.lvIndexInfo.SuspendLayout();
-      this.lvIndexInfo.Items.Clear();
-      this.lvIndexInfo.Items.AddRange(listViewItemList.ToArray());
-      this.lvIndexInfo.ResumeLayout();
+      }
+      this.lvIndexInfo.VirtualListSize = this._FilteredIndexes.Count;
+      this.lvIndexInfo.Invalidate();
+      if (this._FilteredIndexes.Count > 0)
+      {
+        this.lvIndexInfo.SelectedIndices.Clear();
+        this.lvIndexInfo.SelectedIndices.Add(0);
+      }
       this.lvIndexInfo.Focus();
       this.tssRecordCount.Text = string.Format("All:{0}", (object) this._IndexRecords.Length);
-      this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this.lvIndexInfo.Items.Count);
+      this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this._FilteredIndexes.Count);
+    }
+
+    private void btnContentSearch_Click(object sender, EventArgs e)
+    {
+      this.SearchContent();
+    }
+
+    private void txtContentSearch_KeyPress(object sender, KeyPressEventArgs e)
+    {
+      if ((int) e.KeyChar == 13)
+      {
+        e.Handled = true;
+        this.SearchContent();
+      }
+    }
+
+    private void SearchContent()
+    {
+      string searchText = this.txtContentSearch.Text;
+      if (string.IsNullOrEmpty(searchText) || this._IndexRecords == null || this._IndexRecords.Length == 0)
+        return;
+
+      // 如果正在搜尋，先取消
+      if (this.bgSearchWorker.IsBusy)
+      {
+        this.bgSearchWorker.CancelAsync();
+        return;
+      }
+
+      string pakFile = this._PackFileName.Replace(".idx", ".pak");
+      if (!File.Exists(pakFile))
+      {
+        this.tssMessage.Text = "PAK file not found";
+        return;
+      }
+
+      // 禁用搜尋按鈕，改變文字
+      this.btnContentSearch.Text = "Stop";
+      this.btnClearSearch.Enabled = false;
+      this.txtContentSearch.Enabled = false;
+      this.lvIndexInfo.Enabled = false;  // 禁用清單避免選取衝突
+      this.tssMessage.Text = "Searching...";
+
+      // 清空左邊清單
+      this._FilteredIndexes = new List<int>();
+      this._CheckedIndexes.Clear();
+      this.lvIndexInfo.VirtualListSize = 0;
+      this.lvIndexInfo.Invalidate();
+      this.tssShowInListView.Text = "Showing:0";
+      this.tssCheckedCount.Text = "Checked:0";
+
+      // 傳遞搜尋參數給背景執行緒
+      var searchParams = new SearchParams
+      {
+        SearchText = searchText,
+        PakFile = pakFile,
+        IndexRecords = this._IndexRecords,
+        IsProtected = this._IsPackFileProtected
+      };
+
+      this.bgSearchWorker.RunWorkerAsync(searchParams);
+    }
+
+    private class SearchParams
+    {
+      public string SearchText;
+      public string PakFile;
+      public L1PakTools.IndexRecord[] IndexRecords;
+      public bool IsProtected;
+    }
+
+    private void bgSearchWorker_DoWork(object sender, System.ComponentModel.DoWorkEventArgs e)
+    {
+      var worker = (System.ComponentModel.BackgroundWorker)sender;
+      var searchParams = (SearchParams)e.Argument;
+
+      // 暫時停用 progressbar，避免多線程衝突
+      L1PakTools.ShowProgress(null);
+
+      // 篩選出需要搜尋的文字類檔案
+      var textFileIndexes = new List<int>();
+      for (int i = 0; i < searchParams.IndexRecords.Length; i++)
+      {
+        string ext = Path.GetExtension(searchParams.IndexRecords[i].FileName).ToLower();
+        if (ext == ".html" || ext == ".tbl" || ext == ".h" || ext == ".ht" || ext == ".htm" || ext == ".txt" || ext == ".def" || ext == ".til")
+        {
+          textFileIndexes.Add(i);
+        }
+      }
+
+      int totalItems = textFileIndexes.Count;
+      int processed = 0;
+      var foundResults = new ConcurrentBag<int>();
+      var encoding = Encoding.GetEncoding("big5");
+
+      // 使用 SafeFileHandle 進行 RandomAccess 平行讀取
+      using (var fileHandle = File.OpenHandle(searchParams.PakFile, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.Asynchronous))
+      {
+        var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
+
+        Parallel.ForEach(textFileIndexes, parallelOptions, (realIndex, state) =>
+        {
+          if (worker.CancellationPending)
+          {
+            state.Stop();
+            return;
+          }
+
+          L1PakTools.IndexRecord record = searchParams.IndexRecords[realIndex];
+
+          // 使用 RandomAccess 讀取指定位置
+          byte[] data = new byte[record.FileSize];
+          RandomAccess.Read(fileHandle, data, record.Offset);
+
+          if (searchParams.IsProtected)
+            data = L1PakTools.Decode(data, 0);
+
+          string content = encoding.GetString(data);
+          if (content.IndexOf(searchParams.SearchText, StringComparison.OrdinalIgnoreCase) >= 0)
+          {
+            foundResults.Add(realIndex);
+            // 找到就回報
+            worker.ReportProgress(realIndex, new SearchProgress { FoundIndex = realIndex, Current = processed, Total = totalItems, FoundCount = foundResults.Count, Phase = "Searching" });
+          }
+
+          int currentProcessed = System.Threading.Interlocked.Increment(ref processed);
+
+          // 每處理一定數量回報進度
+          if (currentProcessed % 50 == 0)
+          {
+            worker.ReportProgress(-1, new SearchProgress { FoundIndex = -1, Current = currentProcessed, Total = totalItems, FoundCount = foundResults.Count, Phase = "Searching" });
+          }
+        });
+      }
+
+      e.Result = new SearchResult { SearchText = searchParams.SearchText, FoundCount = foundResults.Count };
+    }
+
+    private class SearchProgress
+    {
+      public int FoundIndex;
+      public int Current;
+      public int Total;
+      public int FoundCount;
+      public string Phase;
+    }
+
+    private class SearchResult
+    {
+      public string SearchText;
+      public int FoundCount;
+    }
+
+    private void bgSearchWorker_ProgressChanged(object sender, System.ComponentModel.ProgressChangedEventArgs e)
+    {
+      var progress = (SearchProgress)e.UserState;
+
+      // 如果有找到新結果，加入清單
+      if (progress.FoundIndex >= 0)
+      {
+        this._FilteredIndexes.Add(progress.FoundIndex);
+        // 先更新 VirtualListSize 再讓 ListView 知道
+        int count = this._FilteredIndexes.Count;
+        if (this.lvIndexInfo.VirtualListSize != count)
+        {
+          this.lvIndexInfo.VirtualListSize = count;
+        }
+        this.tssShowInListView.Text = string.Format("Showing:{0}", count);
+      }
+
+      this.tssMessage.Text = string.Format("{0}... {1}/{2} (Found: {3})", progress.Phase ?? "Searching", progress.Current, progress.Total, progress.FoundCount);
+    }
+
+    private void bgSearchWorker_RunWorkerCompleted(object sender, System.ComponentModel.RunWorkerCompletedEventArgs e)
+    {
+      // 還原 UI 狀態
+      this.btnContentSearch.Text = "Search";
+      this.btnClearSearch.Enabled = true;
+      this.txtContentSearch.Enabled = true;
+      this.lvIndexInfo.Enabled = true;  // 重新啟用清單
+
+      if (e.Cancelled)
+      {
+        this.tssMessage.Text = string.Format("Search cancelled (Found: {0})", this._FilteredIndexes.Count);
+        return;
+      }
+
+      if (e.Error != null)
+      {
+        this.tssMessage.Text = "Search error: " + e.Error.Message;
+        return;
+      }
+
+      var result = (SearchResult)e.Result;
+
+      this.tssRecordCount.Text = string.Format("All:{0}", (object) this._IndexRecords.Length);
+      this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this._FilteredIndexes.Count);
+      this.tssCheckedCount.Text = string.Format("Checked:{0}", (object) this._CheckedIndexes.Count);
+
+      if (this._FilteredIndexes.Count > 0)
+      {
+        // 搜尋完成後選取第一筆結果
+        this.lvIndexInfo.SelectedIndices.Clear();
+        this.lvIndexInfo.SelectedIndices.Add(0);
+        this.lvIndexInfo.EnsureVisible(0);
+        this.tssMessage.Text = string.Format("Found {0} files containing \"{1}\"", result.FoundCount, result.SearchText);
+      }
+      else
+      {
+        this.tssMessage.Text = "No matches found";
+      }
+    }
+
+    private void btnClearSearch_Click(object sender, EventArgs e)
+    {
+      this.txtContentSearch.Text = "";
+      if (this._IndexRecords != null)
+      {
+        this.ShowRecords(this._IndexRecords);
+        this.tssMessage.Text = "Search cleared";
+      }
+    }
+
+    private void cmbExtFilter_SelectedIndexChanged(object sender, EventArgs e)
+    {
+      if (this._IndexRecords != null)
+      {
+        this.ShowRecords(this._IndexRecords);
+      }
+    }
+
+    private void cmbLangFilter_SelectedIndexChanged(object sender, EventArgs e)
+    {
+      if (this._IndexRecords != null)
+      {
+        this.ShowRecords(this._IndexRecords);
+      }
     }
 
     private void tsmCompare_Click(object sender, EventArgs e)
@@ -1031,7 +1554,17 @@ namespace PakViewer
       this.cmbIdxFiles = new ComboBox();
       this.lblFolder = new Label();
       this.palToolbar = new Panel();
+      this.palContentSearch = new Panel();
+      this.lblContentSearch = new Label();
+      this.txtContentSearch = new TextBox();
+      this.btnContentSearch = new Button();
+      this.btnClearSearch = new Button();
+      this.lblExtFilter = new Label();
+      this.cmbExtFilter = new ComboBox();
+      this.lblLangFilter = new Label();
+      this.cmbLangFilter = new ComboBox();
       this.palToolbar.SuspendLayout();
+      this.palContentSearch.SuspendLayout();
       this.menuStrip1.SuspendLayout();
       this.splitContainer1.Panel1.SuspendLayout();
       this.splitContainer1.Panel2.SuspendLayout();
@@ -1269,6 +1802,7 @@ namespace PakViewer
       this.splitContainer1.Panel2.Controls.Add((Control) this.TextViewer);
       this.splitContainer1.Panel2.Controls.Add((Control) this.ImageViewer);
       this.splitContainer1.Panel2.Controls.Add((Control) this.SprViewer);
+      this.splitContainer1.Panel2.Controls.Add((Control) this.palContentSearch);
       this.splitContainer1.Size = new Size(792, 520);
       this.splitContainer1.SplitterDistance = 297;
       this.splitContainer1.TabIndex = 2;
@@ -1313,9 +1847,11 @@ namespace PakViewer
       this.lvIndexInfo.TabIndex = 0;
       this.lvIndexInfo.UseCompatibleStateImageBehavior = false;
       this.lvIndexInfo.View = View.Details;
+      this.lvIndexInfo.VirtualMode = true;
+      this.lvIndexInfo.RetrieveVirtualItem += new RetrieveVirtualItemEventHandler(this.lvIndexInfo_RetrieveVirtualItem);
+      this.lvIndexInfo.ItemCheck += new ItemCheckEventHandler(this.lvIndexInfo_ItemCheck);
       this.lvIndexInfo.MouseClick += new MouseEventHandler(this.lvIndexInfo_MouseClick);
       this.lvIndexInfo.SelectedIndexChanged += new EventHandler(this.lvIndexInfo_SelectedIndexChanged);
-      this.lvIndexInfo.ColumnClick += new ColumnClickEventHandler(this.lvIndexInfo_ColumnClick);
       this.TextCompViewer.Location = new Point(0, 0);
       this.TextCompViewer.Name = "TextCompViewer";
       this.TextCompViewer.Size = new Size(184, 162);
@@ -1442,8 +1978,8 @@ namespace PakViewer
       this.tssCheckedCount.BorderSides = ToolStripStatusLabelBorderSides.Right;
       this.tssCheckedCount.Name = "tssCheckedCount";
       this.tssCheckedCount.Size = new Size(54, 20);
-      this.tssCheckedCount.Text = "Selected :0";
-      this.tssCheckedCount.Visible = false;
+      this.tssCheckedCount.Text = "Checked:0";
+      this.tssCheckedCount.Visible = true;
       this.tssMessage.Name = "tssMessage";
       this.tssMessage.Size = new Size(671, 17);
       this.tssMessage.Spring = true;
@@ -1482,6 +2018,83 @@ namespace PakViewer
       this.cmbIdxFiles.Size = new Size(280, 20);
       this.cmbIdxFiles.TabIndex = 1;
       this.cmbIdxFiles.SelectedIndexChanged += new EventHandler(this.cmbIdxFiles_SelectedIndexChanged);
+      // palContentSearch
+      this.palContentSearch.Controls.Add((Control) this.lblContentSearch);
+      this.palContentSearch.Controls.Add((Control) this.txtContentSearch);
+      this.palContentSearch.Controls.Add((Control) this.btnContentSearch);
+      this.palContentSearch.Controls.Add((Control) this.btnClearSearch);
+      this.palContentSearch.Controls.Add((Control) this.lblExtFilter);
+      this.palContentSearch.Controls.Add((Control) this.cmbExtFilter);
+      this.palContentSearch.Controls.Add((Control) this.lblLangFilter);
+      this.palContentSearch.Controls.Add((Control) this.cmbLangFilter);
+      this.palContentSearch.Dock = DockStyle.Top;
+      this.palContentSearch.Location = new Point(0, 0);
+      this.palContentSearch.Name = "palContentSearch";
+      this.palContentSearch.Size = new Size(491, 35);
+      this.palContentSearch.TabIndex = 10;
+      // lblContentSearch
+      this.lblContentSearch.AutoSize = true;
+      this.lblContentSearch.Location = new Point(5, 10);
+      this.lblContentSearch.Name = "lblContentSearch";
+      this.lblContentSearch.Size = new Size(50, 12);
+      this.lblContentSearch.TabIndex = 0;
+      this.lblContentSearch.Text = "Search:";
+      // txtContentSearch
+      this.txtContentSearch.Location = new Point(55, 7);
+      this.txtContentSearch.Name = "txtContentSearch";
+      this.txtContentSearch.Size = new Size(120, 22);
+      this.txtContentSearch.TabIndex = 1;
+      this.txtContentSearch.KeyPress += new KeyPressEventHandler(this.txtContentSearch_KeyPress);
+      // btnContentSearch
+      this.btnContentSearch.Location = new Point(180, 5);
+      this.btnContentSearch.Name = "btnContentSearch";
+      this.btnContentSearch.Size = new Size(55, 25);
+      this.btnContentSearch.TabIndex = 2;
+      this.btnContentSearch.Text = "Search";
+      this.btnContentSearch.UseVisualStyleBackColor = true;
+      this.btnContentSearch.Click += new EventHandler(this.btnContentSearch_Click);
+      // btnClearSearch
+      this.btnClearSearch.Location = new Point(240, 5);
+      this.btnClearSearch.Name = "btnClearSearch";
+      this.btnClearSearch.Size = new Size(50, 25);
+      this.btnClearSearch.TabIndex = 3;
+      this.btnClearSearch.Text = "Clear";
+      this.btnClearSearch.UseVisualStyleBackColor = true;
+      this.btnClearSearch.Click += new EventHandler(this.btnClearSearch_Click);
+      // lblExtFilter
+      this.lblExtFilter.AutoSize = true;
+      this.lblExtFilter.Location = new Point(300, 10);
+      this.lblExtFilter.Name = "lblExtFilter";
+      this.lblExtFilter.Size = new Size(25, 12);
+      this.lblExtFilter.TabIndex = 4;
+      this.lblExtFilter.Text = "Ext:";
+      // cmbExtFilter
+      this.cmbExtFilter.DropDownStyle = ComboBoxStyle.DropDownList;
+      this.cmbExtFilter.FormattingEnabled = true;
+      this.cmbExtFilter.Items.AddRange(new object[] { "All", ".html", ".tbl", ".txt", ".h", ".ht", ".htm", ".def", ".til", ".spr", ".img", ".png", ".tbt" });
+      this.cmbExtFilter.Location = new Point(328, 6);
+      this.cmbExtFilter.Name = "cmbExtFilter";
+      this.cmbExtFilter.Size = new Size(60, 20);
+      this.cmbExtFilter.TabIndex = 5;
+      this.cmbExtFilter.SelectedIndex = 0;
+      this.cmbExtFilter.SelectedIndexChanged += new EventHandler(this.cmbExtFilter_SelectedIndexChanged);
+      // lblLangFilter
+      this.lblLangFilter.AutoSize = true;
+      this.lblLangFilter.Location = new Point(395, 10);
+      this.lblLangFilter.Name = "lblLangFilter";
+      this.lblLangFilter.Size = new Size(35, 12);
+      this.lblLangFilter.TabIndex = 6;
+      this.lblLangFilter.Text = "Lang:";
+      // cmbLangFilter
+      this.cmbLangFilter.DropDownStyle = ComboBoxStyle.DropDownList;
+      this.cmbLangFilter.FormattingEnabled = true;
+      this.cmbLangFilter.Items.AddRange(new object[] { "All", "-c (TW)", "-h (CN)", "-j (JP)", "-k (KR)" });
+      this.cmbLangFilter.Location = new Point(433, 6);
+      this.cmbLangFilter.Name = "cmbLangFilter";
+      this.cmbLangFilter.Size = new Size(70, 20);
+      this.cmbLangFilter.TabIndex = 7;
+      this.cmbLangFilter.SelectedIndex = 1;
+      this.cmbLangFilter.SelectedIndexChanged += new EventHandler(this.cmbLangFilter_SelectedIndexChanged);
       this.AutoScaleDimensions = new SizeF(6f, 12f);
       this.AutoScaleMode = AutoScaleMode.Font;
       this.ClientSize = new Size(792, 616);
@@ -1511,6 +2124,8 @@ namespace PakViewer
       this.statusStrip1.PerformLayout();
       this.palToolbar.ResumeLayout(false);
       this.palToolbar.PerformLayout();
+      this.palContentSearch.ResumeLayout(false);
+      this.palContentSearch.PerformLayout();
       this.ResumeLayout(false);
       this.PerformLayout();
     }

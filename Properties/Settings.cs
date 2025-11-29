@@ -41,6 +41,36 @@ namespace PakViewer.Properties
       }
     }
 
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("")]
+    [UserScopedSetting]
+    public string LastFolder
+    {
+      get
+      {
+        return (string) this["LastFolder"];
+      }
+      set
+      {
+        this["LastFolder"] = (object) value;
+      }
+    }
+
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("")]
+    [UserScopedSetting]
+    public string LastIdxFile
+    {
+      get
+      {
+        return (string) this["LastIdxFile"];
+      }
+      set
+      {
+        this["LastIdxFile"] = (object) value;
+      }
+    }
+
     private void SettingChangingEventHandler(object sender, SettingChangingEventArgs e)
     {
     }
