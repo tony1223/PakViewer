@@ -96,6 +96,10 @@ namespace PakViewer
     private ToolStripMenuItem tsmCompJP;
     private ToolStripMenuItem tsmCompKO;
     private ucTextCompare TextCompViewer;
+    private ComboBox cmbIdxFiles;
+    private Label lblFolder;
+    private Panel palToolbar;
+    private string _SelectedFolder;
 
     public frmMain()
     {
@@ -128,14 +132,44 @@ namespace PakViewer
 
     private void mnuOpen_Click(object sender, EventArgs e)
     {
-      this.dlgOpenFile.Filter = "Pack Index files (*.idx)|*.idx";
-      this.dlgOpenFile.DefaultExt = "idx";
-      this.dlgOpenFile.AddExtension = true;
-      this.dlgOpenFile.FileName = "";
-      int num1 = (int) this.dlgOpenFile.ShowDialog((IWin32Window) this);
-      if (!(this.dlgOpenFile.FileName != ""))
+      this.dlgOpenFolder.Description = "Select Lineage Client Folder";
+      if (this.dlgOpenFolder.ShowDialog((IWin32Window) this) != DialogResult.OK)
         return;
-      this._PackFileName = this.dlgOpenFile.FileName.ToLower();
+
+      this._SelectedFolder = this.dlgOpenFolder.SelectedPath;
+      this.lblFolder.Text = "Folder: " + this._SelectedFolder;
+
+      // Scan for .idx files
+      string[] idxFiles = Directory.GetFiles(this._SelectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
+
+      this.cmbIdxFiles.Items.Clear();
+      foreach (string file in idxFiles)
+      {
+        this.cmbIdxFiles.Items.Add(Path.GetFileName(file));
+      }
+
+      if (this.cmbIdxFiles.Items.Count > 0)
+      {
+        // 優先選擇 text.idx
+        int textIdxIndex = this.cmbIdxFiles.Items.IndexOf("text.idx");
+        if (textIdxIndex >= 0)
+        {
+          this.cmbIdxFiles.SelectedIndex = textIdxIndex;
+        }
+        else
+        {
+          this.cmbIdxFiles.SelectedIndex = 0;
+        }
+      }
+      else
+      {
+        MessageBox.Show("No .idx files found in the selected folder.");
+      }
+    }
+
+    private void LoadIdxFile(string idxFileName)
+    {
+      this._PackFileName = Path.Combine(this._SelectedFolder, idxFileName).ToLower();
       this.Cursor = Cursors.WaitCursor;
       this.lvIndexInfo.Items.Clear();
       this._IndexRecords = this.CreatIndexRecords(this.LoadIndexData(this._PackFileName));
@@ -152,6 +186,14 @@ namespace PakViewer
         this.mnuRebuild.Enabled = true;
       }
       this.Cursor = Cursors.Default;
+    }
+
+    private void cmbIdxFiles_SelectedIndexChanged(object sender, EventArgs e)
+    {
+      if (this.cmbIdxFiles.SelectedItem != null && !string.IsNullOrEmpty(this._SelectedFolder))
+      {
+        this.LoadIdxFile(this.cmbIdxFiles.SelectedItem.ToString());
+      }
     }
 
     private void mnuFiller_Text_Language(object sender, EventArgs e)
@@ -986,6 +1028,10 @@ namespace PakViewer
       this.tssProgressName = new ToolStripStatusLabel();
       this.tssProgress = new ToolStripProgressBar();
       this.dlgAddFiles = new OpenFileDialog();
+      this.cmbIdxFiles = new ComboBox();
+      this.lblFolder = new Label();
+      this.palToolbar = new Panel();
+      this.palToolbar.SuspendLayout();
       this.menuStrip1.SuspendLayout();
       this.splitContainer1.Panel1.SuspendLayout();
       this.splitContainer1.Panel2.SuspendLayout();
@@ -1413,10 +1459,34 @@ namespace PakViewer
       this.tssProgress.Visible = false;
       this.dlgAddFiles.FileName = "openFileDialog1";
       this.dlgAddFiles.Multiselect = true;
+      // palToolbar
+      this.palToolbar.Controls.Add((Control) this.lblFolder);
+      this.palToolbar.Controls.Add((Control) this.cmbIdxFiles);
+      this.palToolbar.Dock = DockStyle.Top;
+      this.palToolbar.Location = new Point(0, 24);
+      this.palToolbar.Name = "palToolbar";
+      this.palToolbar.Size = new Size(792, 50);
+      this.palToolbar.TabIndex = 6;
+      // lblFolder
+      this.lblFolder.AutoSize = true;
+      this.lblFolder.Location = new Point(5, 5);
+      this.lblFolder.Name = "lblFolder";
+      this.lblFolder.Size = new Size(100, 12);
+      this.lblFolder.TabIndex = 0;
+      this.lblFolder.Text = "Folder: (not selected)";
+      // cmbIdxFiles
+      this.cmbIdxFiles.DropDownStyle = ComboBoxStyle.DropDownList;
+      this.cmbIdxFiles.FormattingEnabled = true;
+      this.cmbIdxFiles.Location = new Point(5, 25);
+      this.cmbIdxFiles.Name = "cmbIdxFiles";
+      this.cmbIdxFiles.Size = new Size(280, 20);
+      this.cmbIdxFiles.TabIndex = 1;
+      this.cmbIdxFiles.SelectedIndexChanged += new EventHandler(this.cmbIdxFiles_SelectedIndexChanged);
       this.AutoScaleDimensions = new SizeF(6f, 12f);
       this.AutoScaleMode = AutoScaleMode.Font;
-      this.ClientSize = new Size(792, 566);
+      this.ClientSize = new Size(792, 616);
       this.Controls.Add((Control) this.splitContainer1);
+      this.Controls.Add((Control) this.palToolbar);
       this.Controls.Add((Control) this.statusStrip1);
       this.Controls.Add((Control) this.menuStrip1);
       this.Icon = (Icon) componentResourceManager.GetObject("$this.Icon");
@@ -1439,6 +1509,8 @@ namespace PakViewer
       this.ctxMenu.ResumeLayout(false);
       this.statusStrip1.ResumeLayout(false);
       this.statusStrip1.PerformLayout();
+      this.palToolbar.ResumeLayout(false);
+      this.palToolbar.PerformLayout();
       this.ResumeLayout(false);
       this.PerformLayout();
     }
