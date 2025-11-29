@@ -148,7 +148,7 @@ namespace PakViewer
         .SetValue(this.lvIndexInfo, true, null);
       this.lvIndexInfo.Columns.Add("No.", 70, HorizontalAlignment.Right);
       this.lvIndexInfo.Columns.Add("FileName", 150, HorizontalAlignment.Left);
-      this.lvIndexInfo.Columns.Add("Size", 70, HorizontalAlignment.Right);
+      this.lvIndexInfo.Columns.Add("Size(KB)", 80, HorizontalAlignment.Right);
       this.lvIndexInfo.Columns.Add("Position", 70, HorizontalAlignment.Right);
       this.splitContainer1.SplitterDistance = 390;
       this.mnuTools.Click += (EventHandler) ((sender, e) =>
@@ -440,11 +440,13 @@ namespace PakViewer
 
     private ListViewItem CreatListViewItem(int ID, L1PakTools.IndexRecord IdxRec)
     {
+      string sizeText = string.Format("{0:F1}", IdxRec.FileSize / 1024.0);
+
       return new ListViewItem(string.Format("{0, 5}", (object) (ID + 1)))
       {
         SubItems = {
           IdxRec.FileName,
-          IdxRec.FileSize.ToString("N00"),
+          sizeText,
           IdxRec.Offset.ToString("X8")
         }
       };
@@ -2492,6 +2494,13 @@ namespace PakViewer
         string text2 = ((ListViewItem) y).SubItems[this.col].Text;
         if (this.col == 1 || this.col == 3)
           return this.sorting * string.Compare(text1, text2);
+        // Size column (col 2) now contains decimal KB values
+        if (this.col == 2)
+        {
+          double val1, val2;
+          if (double.TryParse(text1, out val1) && double.TryParse(text2, out val2))
+            return this.sorting * val1.CompareTo(val2);
+        }
         return this.sorting * (int.Parse(text1.Replace(",", "")) - int.Parse(text2.Replace(",", "")));
       }
     }
