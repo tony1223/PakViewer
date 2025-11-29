@@ -56,6 +56,7 @@ namespace PakViewer
     private ContextMenuStrip ctxMenu;
     private ToolStripMenuItem tsmExportTo;
     private ToolStripMenuItem tsmExport;
+    private ToolStripMenuItem tsmCopyFileName;
     private ToolStripSeparator toolStripSeparator6;
     private ToolStripMenuItem tsmUnselectAll;
     private ToolStripMenuItem tsmSelectAll;
@@ -116,6 +117,7 @@ namespace PakViewer
     private System.ComponentModel.BackgroundWorker bgSearchWorker;
     private int _CurrentEditingRealIndex = -1;
     private bool _TextModified = false;
+    private bool _IsCurrentFileXmlEncrypted = false;
     private string _SelectedFolder;
     private List<int> _FilteredIndexes;
     private HashSet<int> _CheckedIndexes;
@@ -708,7 +710,7 @@ namespace PakViewer
 
     private object LoadPakData_(FileStream fs, L1PakTools.IndexRecord IdxRec)
     {
-      string[] array = new string[13]
+      string[] array = new string[14]
       {
         ".img",
         ".png",
@@ -722,9 +724,10 @@ namespace PakViewer
         ".ht",
         ".htm",
         ".txt",
-        ".def"
+        ".def",
+        ".xml"
       };
-      frmMain.InviewDataType[] inviewDataTypeArray = new frmMain.InviewDataType[13]
+      frmMain.InviewDataType[] inviewDataTypeArray = new frmMain.InviewDataType[14]
       {
         frmMain.InviewDataType.IMG,
         frmMain.InviewDataType.BMP,
@@ -734,6 +737,7 @@ namespace PakViewer
         frmMain.InviewDataType.Text,
         frmMain.InviewDataType.SPR,
         frmMain.InviewDataType.BMP,
+        frmMain.InviewDataType.Text,
         frmMain.InviewDataType.Text,
         frmMain.InviewDataType.Text,
         frmMain.InviewDataType.Text,
@@ -758,6 +762,19 @@ namespace PakViewer
         if (this._InviewData == frmMain.InviewDataType.SPR)
           this._InviewData = frmMain.InviewDataType.Text;
       }
+
+      // Decrypt XML files if encrypted (starts with 'X')
+      this._IsCurrentFileXmlEncrypted = false;
+      if (Path.GetExtension(IdxRec.FileName).ToLower() == ".xml")
+      {
+        if (XmlCracker.IsEncrypted(numArray))
+        {
+          this._IsCurrentFileXmlEncrypted = true;
+          numArray = XmlCracker.Decrypt(numArray);
+          this.tssMessage.Text = "[XML Encrypted]";
+        }
+      }
+
       object obj = (object) numArray;
       try
       {
@@ -824,6 +841,18 @@ namespace PakViewer
         listViewItem.Selected = false;
         listViewItem.Checked = false;
       }
+    }
+
+    private void tsmCopyFileName_Click(object sender, EventArgs e)
+    {
+      if (this.lvIndexInfo.SelectedIndices.Count == 0 || this._FilteredIndexes == null)
+        return;
+      int virtualIndex = this.lvIndexInfo.SelectedIndices[0];
+      int realIndex = this._FilteredIndexes[virtualIndex];
+      string fileName = this._IndexRecords[realIndex].FileName;
+      string fullPath = this._PackFileName + "#" + fileName;
+      Clipboard.SetText(fullPath);
+      this.tssMessage.Text = "Copied: " + fullPath;
     }
 
     private void tsmExport_Click(object sender, EventArgs e)
@@ -1495,8 +1524,9 @@ namespace PakViewer
       // 確認對話框
       if (!Settings.Default.SkipSaveConfirmation)
       {
+        string encryptionNote = this._IsCurrentFileXmlEncrypted ? "\n(Will be saved with XML encryption)" : "";
         DialogResult result = MessageBox.Show(
-          "Save changes to \"" + record.FileName + "\"?\n\nThis will modify the PAK file directly.",
+          "Save changes to \"" + record.FileName + "\"?\n\nThis will modify the PAK file directly." + encryptionNote,
           "Confirm Save",
           MessageBoxButtons.YesNo,
           MessageBoxIcon.Question);
@@ -1511,7 +1541,13 @@ namespace PakViewer
         Encoding encoding = this.GetEncodingForFile(record.FileName);
         byte[] newData = encoding.GetBytes(this.TextViewer.Text);
 
-        // 如果是加密的檔案，需要先編碼
+        // 如果是 XML 加密的檔案，需要先加密
+        if (this._IsCurrentFileXmlEncrypted)
+        {
+          newData = XmlCracker.Encrypt(newData);
+        }
+
+        // 如果是 PAK 加密的檔案，需要先編碼
         if (this._IsPackFileProtected)
         {
           newData = L1PakTools.Encode(newData, 0);
@@ -1538,7 +1574,7 @@ namespace PakViewer
 
         this._TextModified = false;
         this.btnSaveText.Enabled = false;
-        this.tssMessage.Text = "Saved: " + record.FileName;
+        this.tssMessage.Text = "Saved: " + record.FileName + (this._IsCurrentFileXmlEncrypted ? " [XML Encrypted]" : "");
       }
       catch (Exception ex)
       {
@@ -1661,6 +1697,7 @@ namespace PakViewer
       this.ctxMenu = new ContextMenuStrip(this.components);
       this.tsmExport = new ToolStripMenuItem();
       this.tsmExportTo = new ToolStripMenuItem();
+      this.tsmCopyFileName = new ToolStripMenuItem();
       this.toolStripSeparator6 = new ToolStripSeparator();
       this.tsmUnselectAll = new ToolStripMenuItem();
       this.tsmSelectAll = new ToolStripMenuItem();
@@ -2011,8 +2048,9 @@ namespace PakViewer
       this.SprViewer.SprFrames = (L1Spr.Frame[]) null;
       this.SprViewer.TabIndex = 3;
       this.SprViewer.Visible = false;
-      this.ctxMenu.Items.AddRange(new ToolStripItem[7]
+      this.ctxMenu.Items.AddRange(new ToolStripItem[8]
       {
+        (ToolStripItem) this.tsmCopyFileName,
         (ToolStripItem) this.tsmExport,
         (ToolStripItem) this.tsmExportTo,
         (ToolStripItem) this.toolStripSeparator6,
@@ -2024,6 +2062,10 @@ namespace PakViewer
       this.ctxMenu.Name = "ctxMenu";
       this.ctxMenu.Size = new Size(137, 126);
       this.ctxMenu.Opening += new CancelEventHandler(this.ctxMenu_Opening);
+      this.tsmCopyFileName.Name = "tsmCopyFileName";
+      this.tsmCopyFileName.Size = new Size(136, 22);
+      this.tsmCopyFileName.Text = "&Copy Filename";
+      this.tsmCopyFileName.Click += new EventHandler(this.tsmCopyFileName_Click);
       this.tsmExport.Image = (Image) Resources.Save;
       this.tsmExport.Name = "tsmExport";
       this.tsmExport.Size = new Size(136, 22);

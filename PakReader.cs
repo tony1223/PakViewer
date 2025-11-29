@@ -112,21 +112,39 @@ namespace PakViewer
 
             byte[] idxData = File.ReadAllBytes(idxFile);
 
-            // Check if protected
+            // Check if protected by testing first record filename
             L1PakTools.IndexRecord firstRecord = L1PakTools.Decode_Index_FirstRecord(idxData);
-            bool isProtected = firstRecord.Offset != 0;
+            bool isProtected = !System.Text.RegularExpressions.Regex.IsMatch(
+                Encoding.Default.GetString(idxData, 8, 20),
+                "^([a-zA-Z0-9_\\-\\.']+)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (isProtected)
+            {
+                // Verify it can be decoded
+                if (!System.Text.RegularExpressions.Regex.IsMatch(
+                    firstRecord.FileName,
+                    "^([a-zA-Z0-9_\\-\\.']+)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    Console.WriteLine("Error: Cannot decode index file");
+                    return null;
+                }
+            }
 
             // Decode index if protected
             byte[] indexData = isProtected ? L1PakTools.Decode(idxData, 4) : idxData;
 
             // Parse index records
+            // If protected, decoded data starts at 0; otherwise skip first 4 bytes (record count)
             int recordSize = 28;
-            int recordCount = indexData.Length / recordSize;
+            int startOffset = isProtected ? 0 : 4;
+            int recordCount = (indexData.Length - startOffset) / recordSize;
             var records = new L1PakTools.IndexRecord[recordCount];
 
             for (int i = 0; i < recordCount; i++)
             {
-                records[i] = new L1PakTools.IndexRecord(indexData, i * recordSize);
+                records[i] = new L1PakTools.IndexRecord(indexData, startOffset + i * recordSize);
             }
 
             return (records, isProtected);
@@ -236,6 +254,15 @@ namespace PakViewer
                 pakData = L1PakTools.Decode(pakData, 0);
             }
 
+            // Decrypt XML files if encrypted (starts with 'X')
+            bool isXmlEncrypted = false;
+            if (Path.GetExtension(targetFile).ToLower() == ".xml" && XmlCracker.IsEncrypted(pakData))
+            {
+                isXmlEncrypted = true;
+                pakData = XmlCracker.Decrypt(pakData);
+                Console.WriteLine($"XML Encrypted: Yes (decrypted)");
+            }
+
             // Show raw bytes
             Console.WriteLine();
             Console.WriteLine($"Raw bytes (first {Math.Min(64, pakData.Length)}):");
@@ -306,12 +333,21 @@ namespace PakViewer
                 pakData = L1PakTools.Decode(pakData, 0);
             }
 
+            // Decrypt XML files if encrypted (starts with 'X')
+            bool isXmlEncrypted = false;
+            if (Path.GetExtension(targetFile).ToLower() == ".xml" && XmlCracker.IsEncrypted(pakData))
+            {
+                isXmlEncrypted = true;
+                pakData = XmlCracker.Decrypt(pakData);
+            }
+
             // Write to output file
             File.WriteAllBytes(outputFile, pakData);
 
             Console.WriteLine($"Exported: {targetFile} -> {outputFile}");
             Console.WriteLine($"Size: {pakData.Length} bytes");
-            Console.WriteLine($"Encoding used for decode: {(isProtected ? "Yes (L1 encryption)" : "No")}");
+            Console.WriteLine($"L1 Protected: {(isProtected ? "Yes" : "No")}");
+            Console.WriteLine($"XML Encrypted: {(isXmlEncrypted ? "Yes (exported decrypted)" : "No")}");
         }
 
         static void ImportFile(string idxFile, string targetFile, string inputFile, string encodingName)
@@ -353,6 +389,24 @@ namespace PakViewer
 
             var rec = foundRecord.Value;
 
+            // Check if original file was XML encrypted
+            bool isXmlEncrypted = false;
+            if (Path.GetExtension(targetFile).ToLower() == ".xml")
+            {
+                byte[] originalData;
+                using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read))
+                {
+                    originalData = new byte[rec.FileSize];
+                    fs.Seek(rec.Offset, SeekOrigin.Begin);
+                    fs.Read(originalData, 0, rec.FileSize);
+                }
+                if (isProtected)
+                {
+                    originalData = L1PakTools.Decode(originalData, 0);
+                }
+                isXmlEncrypted = XmlCracker.IsEncrypted(originalData);
+            }
+
             // Read input file
             byte[] inputData = File.ReadAllBytes(inputFile);
 
@@ -360,13 +414,21 @@ namespace PakViewer
             Console.WriteLine($"Input: {inputFile}");
             Console.WriteLine($"Original size: {rec.FileSize} bytes");
             Console.WriteLine($"New size: {inputData.Length} bytes");
+            Console.WriteLine($"XML Encrypted: {(isXmlEncrypted ? "Yes (will re-encrypt)" : "No")}");
 
-            // Encode if protected
+            // Re-encrypt XML if needed
             byte[] dataToWrite = inputData;
+            if (isXmlEncrypted)
+            {
+                dataToWrite = XmlCracker.Encrypt(inputData);
+                Console.WriteLine($"XML encrypted size: {dataToWrite.Length} bytes");
+            }
+
+            // Encode if L1 protected
             if (isProtected)
             {
-                dataToWrite = L1PakTools.Encode(inputData, 0);
-                Console.WriteLine($"Encoded size: {dataToWrite.Length} bytes");
+                dataToWrite = L1PakTools.Encode(dataToWrite, 0);
+                Console.WriteLine($"L1 encoded size: {dataToWrite.Length} bytes");
             }
 
             // Check size
