@@ -68,7 +68,7 @@ namespace PakViewer
             Console.WriteLine("    Export file from PAK to disk.");
             Console.WriteLine();
             Console.WriteLine("  import <idx_file> <filename> <input_file> [encoding]");
-            Console.WriteLine("    Import file from disk into PAK (must be same size).");
+            Console.WriteLine("    Import file from disk into PAK. Supports different file sizes.");
             Console.WriteLine();
             Console.WriteLine("  info <idx_file>");
             Console.WriteLine("    Show PAK file information.");
@@ -372,11 +372,13 @@ namespace PakViewer
 
             // Find target file
             L1PakTools.IndexRecord? foundRecord = null;
+            int foundIndex = -1;
             for (int i = 0; i < records.Length; i++)
             {
                 if (records[i].FileName.Equals(targetFile, StringComparison.OrdinalIgnoreCase))
                 {
                     foundRecord = records[i];
+                    foundIndex = i;
                     break;
                 }
             }
@@ -435,8 +437,11 @@ namespace PakViewer
             if (dataToWrite.Length != rec.FileSize)
             {
                 Console.WriteLine();
-                Console.WriteLine($"Error: Size mismatch! Expected {rec.FileSize} bytes, got {dataToWrite.Length} bytes.");
-                Console.WriteLine("Cannot import file with different size.");
+                Console.WriteLine($"Size changed: {rec.FileSize} -> {dataToWrite.Length} bytes (diff: {dataToWrite.Length - rec.FileSize:+#;-#;0})");
+                Console.WriteLine("Rebuilding PAK and IDX files...");
+
+                // Rebuild PAK file with new size
+                RebuildPakWithNewSize(idxFile, pakFile, records, foundIndex, dataToWrite, isProtected);
                 return;
             }
 
@@ -449,6 +454,190 @@ namespace PakViewer
 
             Console.WriteLine();
             Console.WriteLine($"Success! Imported {inputFile} -> {targetFile}");
+        }
+
+        static void RebuildPakWithNewSize(string idxFile, string pakFile, L1PakTools.IndexRecord[] records, int targetIndex, byte[] newData, bool isProtected)
+        {
+            Console.WriteLine($"Size changed: {records[targetIndex].FileSize} -> {newData.Length} bytes (diff: {newData.Length - records[targetIndex].FileSize:+#;-#;0})");
+            Console.WriteLine("Rebuilding PAK and IDX files...");
+
+            string result = RebuildPakWithNewSizeCore(idxFile, pakFile, records, targetIndex, newData, isProtected);
+
+            if (result == null)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Success! Imported with size change.");
+            }
+            else
+            {
+                Console.WriteLine($"Error: {result}");
+            }
+        }
+
+        /// <summary>
+        /// Rebuild PAK and IDX files when file size changes.
+        /// </summary>
+        /// <param name="idxFile">Path to the IDX file</param>
+        /// <param name="pakFile">Path to the PAK file</param>
+        /// <param name="records">Array of index records (will be modified)</param>
+        /// <param name="targetIndex">Index of the file being modified</param>
+        /// <param name="newData">New data to write</param>
+        /// <param name="isProtected">Whether the PAK is L1 protected</param>
+        /// <returns>null on success, error message on failure</returns>
+        public static string RebuildPakWithNewSizeCore(string idxFile, string pakFile, L1PakTools.IndexRecord[] records, int targetIndex, byte[] newData, bool isProtected)
+        {
+            int targetOffset = records[targetIndex].Offset;
+            int oldSize = records[targetIndex].FileSize;
+            int sizeDiff = newData.Length - oldSize;
+
+            // Count files that have offset > target offset (they need offset update)
+            int filesAfterTarget = 0;
+            for (int i = 0; i < records.Length; i++)
+            {
+                if (records[i].Offset > targetOffset)
+                    filesAfterTarget++;
+            }
+
+            Console.WriteLine($"Target file index: {targetIndex + 1}/{records.Length}");
+            Console.WriteLine($"Target offset in PAK: 0x{targetOffset:X8}");
+            Console.WriteLine($"Files after target offset that need update: {filesAfterTarget}");
+
+            // Create backup files
+            string pakBackup = pakFile + ".bak";
+            string idxBackup = idxFile + ".bak";
+
+            if (File.Exists(pakBackup)) File.Delete(pakBackup);
+            if (File.Exists(idxBackup)) File.Delete(idxBackup);
+
+            File.Copy(pakFile, pakBackup);
+            File.Copy(idxFile, idxBackup);
+            Console.WriteLine($"Created backups: {pakBackup}, {idxBackup}");
+
+            try
+            {
+                // Read entire PAK file
+                byte[] pakData = File.ReadAllBytes(pakFile);
+
+                // Create new PAK file
+                using (FileStream newPak = File.Create(pakFile))
+                {
+                    // Write data before target file (unchanged)
+                    if (targetOffset > 0)
+                    {
+                        newPak.Write(pakData, 0, targetOffset);
+                    }
+
+                    // Write the new data for target file
+                    newPak.Write(newData, 0, newData.Length);
+
+                    // Write data after target file (unchanged content, but shifted position)
+                    int afterStart = targetOffset + oldSize;
+                    if (afterStart < pakData.Length)
+                    {
+                        int afterLength = pakData.Length - afterStart;
+                        newPak.Write(pakData, afterStart, afterLength);
+                    }
+                }
+
+                Console.WriteLine($"PAK file rebuilt: {pakFile}");
+
+                // Update target record with new size (offset stays the same)
+                records[targetIndex] = new L1PakTools.IndexRecord(
+                    records[targetIndex].FileName,
+                    newData.Length,
+                    targetOffset
+                );
+
+                // Update offsets for all files that come AFTER target in PAK (by offset, not by index)
+                for (int i = 0; i < records.Length; i++)
+                {
+                    if (i != targetIndex && records[i].Offset > targetOffset)
+                    {
+                        records[i] = new L1PakTools.IndexRecord(
+                            records[i].FileName,
+                            records[i].FileSize,
+                            records[i].Offset + sizeDiff
+                        );
+                    }
+                }
+
+                // Rebuild IDX file
+                RebuildIndex(idxFile, records, isProtected);
+                Console.WriteLine($"IDX file rebuilt: {idxFile}");
+
+                // Delete backups on success
+                File.Delete(pakBackup);
+                File.Delete(idxBackup);
+                Console.WriteLine("Backups removed (success)");
+
+                return null; // Success
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error during rebuild: {ex.Message}");
+                Console.WriteLine("Restoring from backups...");
+
+                // Restore from backups
+                if (File.Exists(pakBackup))
+                {
+                    File.Copy(pakBackup, pakFile, true);
+                    File.Delete(pakBackup);
+                }
+                if (File.Exists(idxBackup))
+                {
+                    File.Copy(idxBackup, idxFile, true);
+                    File.Delete(idxBackup);
+                }
+                Console.WriteLine("Restored from backups.");
+
+                return ex.Message;
+            }
+        }
+
+        public static void RebuildIndex(string idxFile, L1PakTools.IndexRecord[] records, bool isProtected)
+        {
+            // Build raw index data (without 4-byte header)
+            int recordSize = 28;
+            byte[] indexData = new byte[records.Length * recordSize];
+
+            for (int i = 0; i < records.Length; i++)
+            {
+                int offset = i * recordSize;
+
+                // Offset (4 bytes)
+                byte[] offsetBytes = BitConverter.GetBytes(records[i].Offset);
+                Array.Copy(offsetBytes, 0, indexData, offset, 4);
+
+                // FileName (20 bytes)
+                byte[] nameBytes = Encoding.Default.GetBytes(records[i].FileName);
+                Array.Copy(nameBytes, 0, indexData, offset + 4, Math.Min(nameBytes.Length, 20));
+
+                // FileSize (4 bytes)
+                byte[] sizeBytes = BitConverter.GetBytes(records[i].FileSize);
+                Array.Copy(sizeBytes, 0, indexData, offset + 24, 4);
+            }
+
+            // Encode if protected
+            byte[] finalData;
+            if (isProtected)
+            {
+                byte[] encoded = L1PakTools.Encode(indexData, 0);
+                // Add 4-byte header (record count)
+                finalData = new byte[4 + encoded.Length];
+                byte[] countBytes = BitConverter.GetBytes(records.Length);
+                Array.Copy(countBytes, 0, finalData, 0, 4);
+                Array.Copy(encoded, 0, finalData, 4, encoded.Length);
+            }
+            else
+            {
+                // Add 4-byte header (record count)
+                finalData = new byte[4 + indexData.Length];
+                byte[] countBytes = BitConverter.GetBytes(records.Length);
+                Array.Copy(countBytes, 0, finalData, 0, 4);
+                Array.Copy(indexData, 0, finalData, 4, indexData.Length);
+            }
+
+            File.WriteAllBytes(idxFile, finalData);
         }
     }
 }

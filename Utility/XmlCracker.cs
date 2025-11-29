@@ -41,7 +41,6 @@ namespace PakViewer.Utility
             Array.Copy(bytes, 4, prex, 0, prex.Length);
 
             int i;
-            int blockIdx = 0;
             for (i = 0; i < len - 4 && len - 4 - i >= 16; i += 16)
             {
                 byte[] pre = new byte[16];
@@ -50,44 +49,19 @@ namespace PakViewer.Utility
                 Array.Copy(prex, i, temp, 0, 16);
                 char[] tempChars = FromByteArray(temp);
 
-                if (blockIdx < 2) {
-                    Console.Write($"Block{blockIdx} input (chars): ");
-                    foreach (char c in tempChars) Console.Write($"{(int)c:X4} ");
-                    Console.WriteLine();
-                }
+                aes.InvCipher(tempChars);
 
-                aes.InvCipher(tempChars, blockIdx);
-
-                if (blockIdx < 2) {
-                    Console.Write($"Block{blockIdx} after InvCipher: ");
-                    foreach (char c in tempChars) Console.Write($"{(int)c:X4} ");
-                    Console.WriteLine();
-                    Console.Write($"Block{blockIdx} skey before XOR: ");
-                    foreach (sbyte s in skey) Console.Write($"{s} ");
-                    Console.WriteLine();
-                }
-
-                // Java: tempChars[j] = (char)(tempChars[j] ^ skey[j]);
-                // skey[j] is signed byte, XOR with char
                 for (int j = 0; j < 16; j++)
                 {
                     tempChars[j] = (char)(tempChars[j] ^ skey[j]);
                 }
 
-                if (blockIdx < 2) {
-                    Console.Write($"Block{blockIdx} after XOR: ");
-                    foreach (char c in tempChars) Console.Write($"{(int)c:X4} ");
-                    Console.WriteLine();
-                }
-
                 temp = FromCharArray(tempChars);
                 Array.Copy(temp, 0, prex, i, 16);
-                // Update skey with original ciphertext
                 for (int k = 0; k < 16; k++)
                 {
                     skey[k] = (sbyte)pre[k];
                 }
-                blockIdx++;
             }
 
             bytes[0] = 60; // '<'
@@ -176,7 +150,25 @@ namespace PakViewer.Utility
 
     internal class Aes
     {
-        private static readonly char[] SBOX = new char[] { 'c', '|', 'w', '{', 'ò', 'k', 'o', 'Å', '0', '\u0001', 'g', '+', 'þ', '×', '«', 'v', 'Ê', '\u0082', 'É', '}', 'ú', 'Y', 'G', 'ð', '\u00ad', 'Ô', '¢', '¯', '\u009c', '¤', 'r', 'À', '·', 'ý', '\u0093', '&', '6', '?', '÷', 'Ì', '4', '¥', 'å', 'ñ', 'q', 'Ø', '1', '\u0015', '\u0004', 'Ç', '#', 'Ã', '\u0018', '\u0096', '\u0005', '\u009a', '\u0007', '\u0012', '\u0080', 'â', 'ë', '\'', '²', 'u', '\t', '\u0083', ',', '\u001a', '\u001b', 'n', 'Z', ' ', 'R', ';', 'Ö', '³', ')', 'ã', '/', '\u0084', 'S', 'Ñ', '\u0000', 'í', ' ', 'ü', '±', '[', 'j', 'Ë', '¾', '9', 'J', 'L', 'X', 'Ï', 'Ð', 'ï', 'ª', 'û', 'C', 'M', '3', '\u0085', 'E', 'ù', '\u0002', '\u007f', 'P', '<', '\u009f', '¨', 'Q', '£', '@', '\u008f', '\u0092', '\u009d', '8', 'õ', '¼', '¶', 'Ú', '!', '\u0010', 'ÿ', 'ó', 'Ò', 'Í', '\f', '\u0013', 'ì', '_', '\u0097', 'D', '\u0017', 'Ä', '§', '~', '=', 'd', ']', '\u0019', 's', '`', '\u0081', 'O', 'Ü', '"', '*', '\u0090', '\u0088', 'F', 'î', '¸', '\u0014', 'Þ', '^', '\u000b', 'Û', 'à', '2', ':', '\n', 'I', '\u0006', '$', '\\', 'Â', 'Ó', '¬', 'b', '\u0091', '\u0095', 'ä', 'y', 'ç', 'È', '7', 'm', '\u008d', 'Õ', 'N', '©', 'l', 'V', 'ô', 'ê', 'e', 'z', '®', '\b', 'º', 'x', '%', '.', '\u001c', '¦', '´', 'Æ', 'è', 'Ý', 't', '\u001f', 'K', '½', '\u008b', '\u008a', 'p', '>', 'µ', 'f', 'H', '\u0003', 'ö', '\u000e', 'a', '5', 'W', '¹', '\u0086', 'Á', '\u001d', '\u009e', 'á', 'ø', '\u0098', '\u0011', 'i', 'Ù', '\u008e', '\u0094', '\u009b', '\u001e', '\u0087', 'é', 'Î', 'U', '(', 'ß', '\u008c', '¡', '\u0089', '\r', '¿', 'æ', 'B', 'h', 'A', '\u0099', '-', '\u000f', '°', 'T', '»', '\u0016' };
+        // SBOX copied from Java - hex values: 63 7C 77 7B F2 6B 6F C5 30 01 67 2B FE D7 AB 76 CA 82 C9 7D FA 59 47 F0 AD D4 A2 AF 9C A4 72 C0 B7 FD 93 26 36 3F F7 CC 34 A5 E5 F1 71 D8 31 15 04 C7 23 C3 18 96 05 9A 07 12 80 E2 EB 27 B2 75 09 83 2C 1A 1B 6E 5A A0 52 3B D6 B3 29 E3 2F 84 53 D1 00 ED 20 FC B1 5B 6A CB BE 39 4A 4C 58 CF D0 EF AA FB 43 4D 33 85 45 F9 02 7F 50 3C 9F A8 51 A3 40 8F 92 9D 38 F5 BC B6 DA 21 10 FF F3 D2 CD 0C 13 EC 5F 97 44 17 C4 A7 7E 3D 64 5D 19 73 60 81 4F DC 22 2A 90 88 46 EE B8 14 DE 5E 0B DB E0 32 3A 0A 49 06 24 5C C2 D3 AC 62 91 95 E4 79 E7 C8 37 6D 8D D5 4E A9 6C 56 F4 EA 65 7A AE 08 BA 78 25 2E 1C A6 B4 C6 E8 DD 74 1F 4B BD 8B 8A 70 3E B5 66 48 03 F6 0E 61 35 57 B9 86 C1 1D 9E E1 F8 98 11 69 D9 8E 94 9B 1E 87 E9 CE 55 28 DF 8C A1 89 0D BF E6 42 68 41 99 2D 0F B0 54 BB 16
+        private static readonly char[] SBOX = new char[] {
+            '\u0063', '\u007C', '\u0077', '\u007B', '\u00F2', '\u006B', '\u006F', '\u00C5', '\u0030', '\u0001', '\u0067', '\u002B', '\u00FE', '\u00D7', '\u00AB', '\u0076',
+            '\u00CA', '\u0082', '\u00C9', '\u007D', '\u00FA', '\u0059', '\u0047', '\u00F0', '\u00AD', '\u00D4', '\u00A2', '\u00AF', '\u009C', '\u00A4', '\u0072', '\u00C0',
+            '\u00B7', '\u00FD', '\u0093', '\u0026', '\u0036', '\u003F', '\u00F7', '\u00CC', '\u0034', '\u00A5', '\u00E5', '\u00F1', '\u0071', '\u00D8', '\u0031', '\u0015',
+            '\u0004', '\u00C7', '\u0023', '\u00C3', '\u0018', '\u0096', '\u0005', '\u009A', '\u0007', '\u0012', '\u0080', '\u00E2', '\u00EB', '\u0027', '\u00B2', '\u0075',
+            '\u0009', '\u0083', '\u002C', '\u001A', '\u001B', '\u006E', '\u005A', '\u00A0', '\u0052', '\u003B', '\u00D6', '\u00B3', '\u0029', '\u00E3', '\u002F', '\u0084',
+            '\u0053', '\u00D1', '\u0000', '\u00ED', '\u0020', '\u00FC', '\u00B1', '\u005B', '\u006A', '\u00CB', '\u00BE', '\u0039', '\u004A', '\u004C', '\u0058', '\u00CF',
+            '\u00D0', '\u00EF', '\u00AA', '\u00FB', '\u0043', '\u004D', '\u0033', '\u0085', '\u0045', '\u00F9', '\u0002', '\u007F', '\u0050', '\u003C', '\u009F', '\u00A8',
+            '\u0051', '\u00A3', '\u0040', '\u008F', '\u0092', '\u009D', '\u0038', '\u00F5', '\u00BC', '\u00B6', '\u00DA', '\u0021', '\u0010', '\u00FF', '\u00F3', '\u00D2',
+            '\u00CD', '\u000C', '\u0013', '\u00EC', '\u005F', '\u0097', '\u0044', '\u0017', '\u00C4', '\u00A7', '\u007E', '\u003D', '\u0064', '\u005D', '\u0019', '\u0073',
+            '\u0060', '\u0081', '\u004F', '\u00DC', '\u0022', '\u002A', '\u0090', '\u0088', '\u0046', '\u00EE', '\u00B8', '\u0014', '\u00DE', '\u005E', '\u000B', '\u00DB',
+            '\u00E0', '\u0032', '\u003A', '\u000A', '\u0049', '\u0006', '\u0024', '\u005C', '\u00C2', '\u00D3', '\u00AC', '\u0062', '\u0091', '\u0095', '\u00E4', '\u0079',
+            '\u00E7', '\u00C8', '\u0037', '\u006D', '\u008D', '\u00D5', '\u004E', '\u00A9', '\u006C', '\u0056', '\u00F4', '\u00EA', '\u0065', '\u007A', '\u00AE', '\u0008',
+            '\u00BA', '\u0078', '\u0025', '\u002E', '\u001C', '\u00A6', '\u00B4', '\u00C6', '\u00E8', '\u00DD', '\u0074', '\u001F', '\u004B', '\u00BD', '\u008B', '\u008A',
+            '\u0070', '\u003E', '\u00B5', '\u0066', '\u0048', '\u0003', '\u00F6', '\u000E', '\u0061', '\u0035', '\u0057', '\u00B9', '\u0086', '\u00C1', '\u001D', '\u009E',
+            '\u00E1', '\u00F8', '\u0098', '\u0011', '\u0069', '\u00D9', '\u008E', '\u0094', '\u009B', '\u001E', '\u0087', '\u00E9', '\u00CE', '\u0055', '\u0028', '\u00DF',
+            '\u008C', '\u00A1', '\u0089', '\u000D', '\u00BF', '\u00E6', '\u0042', '\u0068', '\u0041', '\u0099', '\u002D', '\u000F', '\u00B0', '\u0054', '\u00BB', '\u0016'
+        };
         // INVSBOX copied from Java - hex values: 52 09 6A D5 30 36 A5 38 BF 40 A3 9E 81 F3 D7 FB 7C E3 39 82 9B 2F FF 87 34 8E 43 44 C4 DE E9 CB 54 7B 94 32 A6 C2 23 3D EE 4C 95 0B 42 FA C3 4E 08 2E A1 66 28 D9 24 B2 76 5B A2 49 6D 8B D1 25 72 F8 F6 64 86 68 98 16 D4 A4 5C CC 5D 65 B6 92 6C 70 48 50 FD ED B9 DA 5E 15 46 57 A7 8D 9D 84 90 D8 AB 00 8C BC D3 0A F7 E4 58 05 B8 B3 45 06 D0 2C 1E 8F CA 3F 0F 02 C1 AF BD 03 01 13 8A 6B 3A 91 11 41 4F 67 DC EA 97 F2 CF CE F0 B4 E6 73 96 AC 74 22 E7 AD 35 85 E2 F9 37 E8 1C 75 DF 6E 47 F1 1A 71 1D 29 C5 89 6F B7 62 0E AA 18 BE 1B FC 56 3E 4B C6 D2 79 20 9A DB C0 FE 78 CD 5A F4 1F DD A8 33 88 07 C7 31 B1 12 10 59 27 80 EC 5F 60 51 7F A9 19 B5 4A 0D 2D E5 7A 9F 93 C9 9C EF A0 E0 3B 4D AE 2A F5 B0 C8 EB BB 3C 83 53 99 61 17 2B 04 7E BA 77 D6 26 E1 69 14 63 55 21 0C 7D
         private static readonly char[] INVSBOX = new char[] {
             '\u0052', '\u0009', '\u006A', '\u00D5', '\u0030', '\u0036', '\u00A5', '\u0038', '\u00BF', '\u0040', '\u00A3', '\u009E', '\u0081', '\u00F3', '\u00D7', '\u00FB',
@@ -252,7 +244,7 @@ namespace PakViewer.Utility
             }
         }
 
-        public void InvCipher(char[] input, int blockIdx = -1)
+        public void InvCipher(char[] input)
         {
             char[][] state = new char[4][];
             for (int i = 0; i < 4; i++) state[i] = new char[4];
@@ -265,71 +257,16 @@ namespace PakViewer.Utility
                 }
             }
 
-            // Debug: print EXPKEY[10] for first 2 blocks
-            if (blockIdx >= 0 && blockIdx < 2)
-            {
-                Console.Write($"Block{blockIdx} EXPKEY[10]: ");
-                for (int r = 0; r < 4; r++)
-                    for (int c = 0; c < 4; c++)
-                        Console.Write($"{(int)EXPKEY[10][r][c]:X4} ");
-                Console.WriteLine();
-            }
-
             AddRoundKey(state, EXPKEY[10]);
-
-            if (blockIdx >= 0 && blockIdx < 2)
-            {
-                Console.Write($"Block{blockIdx} after AddRoundKey[10]: ");
-                for (int r = 0; r < 4; r++)
-                    for (int c = 0; c < 4; c++)
-                        Console.Write($"{(int)state[r][c]:X4} ");
-                Console.WriteLine();
-            }
 
             for (int i = 9; i >= 0; i--)
             {
                 InvShiftRows(state);
-                if (blockIdx == 1 && i == 9)
-                {
-                    Console.Write($"Block{blockIdx} round {i} after InvShiftRows: ");
-                    for (int r = 0; r < 4; r++)
-                        for (int c = 0; c < 4; c++)
-                            Console.Write($"{(int)state[r][c]:X4} ");
-                    Console.WriteLine();
-                }
-
                 InvSubBytes(state);
-                if (blockIdx == 1 && i == 9)
-                {
-                    Console.Write($"Block{blockIdx} round {i} after InvSubBytes: ");
-                    for (int r = 0; r < 4; r++)
-                        for (int c = 0; c < 4; c++)
-                            Console.Write($"{(int)state[r][c]:X4} ");
-                    Console.WriteLine();
-                }
-
                 AddRoundKey(state, EXPKEY[i]);
-                if (blockIdx == 1 && i == 9)
-                {
-                    Console.Write($"Block{blockIdx} round {i} after AddRoundKey: ");
-                    for (int r = 0; r < 4; r++)
-                        for (int c = 0; c < 4; c++)
-                            Console.Write($"{(int)state[r][c]:X4} ");
-                    Console.WriteLine();
-                }
-
                 if (i != 0)
                 {
                     InvMixColumns(state);
-                }
-
-                if (blockIdx == 1 && i == 9)
-                {
-                    Console.Write($"Block{blockIdx} round {i} after InvMixColumns: ");
-                    for (int r = 0; r < 4; r++)
-                        for (int c = 0; c < 4; c++)
-                            Console.Write($"{(int)state[r][c]:X4} ");
-                    Console.WriteLine();
                 }
             }
 

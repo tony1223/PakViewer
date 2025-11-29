@@ -1556,25 +1556,51 @@ namespace PakViewer
         // 檢查新資料大小是否與原始大小相同
         if (newData.Length != record.FileSize)
         {
-          MessageBox.Show(
-            "File size changed (" + record.FileSize + " -> " + newData.Length + " bytes).\n" +
-            "Cannot save directly to PAK. Please export the file instead.",
-            "Size Mismatch",
-            MessageBoxButtons.OK,
+          // 大小改變，需要重建 PAK 和 IDX
+          DialogResult confirmRebuild = MessageBox.Show(
+            "File size changed (" + record.FileSize + " -> " + newData.Length + " bytes).\n\n" +
+            "This requires rebuilding the PAK and IDX files.\n" +
+            "A backup will be created before modification.\n\n" +
+            "Continue?",
+            "Size Changed - Rebuild Required",
+            MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
-          return;
-        }
 
-        // 寫入 PAK 檔案
-        using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Write, FileShare.Read))
+          if (confirmRebuild != DialogResult.Yes)
+            return;
+
+          // 呼叫重建功能
+          string error = PakReader.RebuildPakWithNewSizeCore(
+            this._PackFileName,
+            pakFile,
+            this._IndexRecords,
+            this._CurrentEditingRealIndex,
+            newData,
+            this._IsPackFileProtected);
+
+          if (error != null)
+          {
+            MessageBox.Show("Error rebuilding PAK: " + error, "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+          }
+
+          this._TextModified = false;
+          this.btnSaveText.Enabled = false;
+          this.tssMessage.Text = "Saved (rebuilt): " + record.FileName + " [Size: " + record.FileSize + " -> " + newData.Length + "]";
+        }
+        else
         {
-          fs.Seek(record.Offset, SeekOrigin.Begin);
-          fs.Write(newData, 0, newData.Length);
-        }
+          // 大小相同，直接寫入
+          using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Write, FileShare.Read))
+          {
+            fs.Seek(record.Offset, SeekOrigin.Begin);
+            fs.Write(newData, 0, newData.Length);
+          }
 
-        this._TextModified = false;
-        this.btnSaveText.Enabled = false;
-        this.tssMessage.Text = "Saved: " + record.FileName + (this._IsCurrentFileXmlEncrypted ? " [XML Encrypted]" : "");
+          this._TextModified = false;
+          this.btnSaveText.Enabled = false;
+          this.tssMessage.Text = "Saved: " + record.FileName + (this._IsCurrentFileXmlEncrypted ? " [XML Encrypted]" : "");
+        }
       }
       catch (Exception ex)
       {
