@@ -153,7 +153,7 @@ namespace PakViewer
       this.splitContainer1.SplitterDistance = 390;
       this.mnuTools.Click += (EventHandler) ((sender, e) =>
       {
-        this.mnuTools_Export.Enabled = this._CheckedIndexes.Count > 0;
+        this.mnuTools_Export.Enabled = this.lvIndexInfo.SelectedIndices.Count > 0;
         this.mnuTools_ExportTo.Enabled = this.mnuTools_Export.Enabled;
         this.mnuTools_Delete.Enabled = this.mnuTools_Export.Enabled;
         this.mnuTools_Add.Enabled = this._FilteredIndexes != null && this._FilteredIndexes.Count > 0;
@@ -827,20 +827,22 @@ namespace PakViewer
 
     private void tsmSelectAll_Click(object sender, EventArgs e)
     {
-      foreach (ListViewItem listViewItem in this.lvIndexInfo.Items)
+      // 選擇所有項目（而不是勾選）
+      if (this._FilteredIndexes != null && this._FilteredIndexes.Count > 0)
       {
-        listViewItem.Selected = true;
-        listViewItem.Checked = true;
+        this.lvIndexInfo.BeginUpdate();
+        for (int i = 0; i < this.lvIndexInfo.VirtualListSize; i++)
+        {
+          this.lvIndexInfo.SelectedIndices.Add(i);
+        }
+        this.lvIndexInfo.EndUpdate();
       }
     }
 
     private void tsmUnselectAll_Click(object sender, EventArgs e)
     {
-      foreach (ListViewItem listViewItem in this.lvIndexInfo.Items)
-      {
-        listViewItem.Selected = false;
-        listViewItem.Checked = false;
-      }
+      // 取消選擇所有項目
+      this.lvIndexInfo.SelectedIndices.Clear();
     }
 
     private void tsmCopyFileName_Click(object sender, EventArgs e)
@@ -878,8 +880,18 @@ namespace PakViewer
 
     private void mnuTools_Export_Click(object sender, EventArgs e)
     {
+      // 將選取的虛擬索引轉換為實際索引
+      List<int> realIndexes = new List<int>();
+      foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
+      {
+        if (this._FilteredIndexes != null && virtualIndex < this._FilteredIndexes.Count)
+        {
+          realIndexes.Add(this._FilteredIndexes[virtualIndex]);
+        }
+      }
+
       FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-      foreach (int realIndex in this._CheckedIndexes)
+      foreach (int realIndex in realIndexes)
       {
         L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
         object data = this.LoadPakData_(fs, record);
@@ -893,8 +905,19 @@ namespace PakViewer
       if (this.dlgOpenFolder.ShowDialog((IWin32Window) this) != DialogResult.OK)
         return;
       string selectedPath = this.dlgOpenFolder.SelectedPath;
+
+      // 將選取的虛擬索引轉換為實際索引
+      List<int> realIndexes = new List<int>();
+      foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
+      {
+        if (this._FilteredIndexes != null && virtualIndex < this._FilteredIndexes.Count)
+        {
+          realIndexes.Add(this._FilteredIndexes[virtualIndex]);
+        }
+      }
+
       FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-      foreach (int realIndex in this._CheckedIndexes)
+      foreach (int realIndex in realIndexes)
       {
         L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
         object data = this.LoadPakData_(fs, record);
@@ -1003,9 +1026,26 @@ namespace PakViewer
 
     private void mnuTools_Delete_Click(object sender, EventArgs e)
     {
-      if (MessageBox.Show("Please delete the former backup of your original PAK files!\n\nAre you sure to delete ?", "Warning!", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) == DialogResult.No)
+      if (this.lvIndexInfo.SelectedIndices.Count == 0)
+      {
+        MessageBox.Show("Please select files to delete first.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
         return;
-      int[] DeleteID = this._CheckedIndexes.ToArray();
+      }
+
+      if (MessageBox.Show("Please delete the former backup of your original PAK files!\n\nAre you sure to delete " + this.lvIndexInfo.SelectedIndices.Count + " file(s)?", "Warning!", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) == DialogResult.No)
+        return;
+
+      // 將選取的虛擬索引轉換為實際索引
+      List<int> realIndexes = new List<int>();
+      foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
+      {
+        if (this._FilteredIndexes != null && virtualIndex < this._FilteredIndexes.Count)
+        {
+          realIndexes.Add(this._FilteredIndexes[virtualIndex]);
+        }
+      }
+
+      int[] DeleteID = realIndexes.ToArray();
       this.RebuildAll(DeleteID);
       this.ShowRecords(this._IndexRecords);
     }
@@ -1150,15 +1190,67 @@ namespace PakViewer
       this.dlgAddFiles.FileName = "";
       if (this.dlgAddFiles.ShowDialog((IWin32Window) this) != DialogResult.OK)
         return;
-      FileStream fileStream1 = File.OpenWrite(this._PackFileName.Replace(".idx", ".pak"));
-      FileStream fileStream2 = File.OpenWrite(this._PackFileName);
+
+      // 警示：將會重建索引檔案
+      if (MessageBox.Show(
+        "This will add files to PAK and rebuild the index file.\n\n" +
+        "Please backup your original PAK files first!\n\n" +
+        "Continue?",
+        "Add Files - Warning",
+        MessageBoxButtons.YesNo,
+        MessageBoxIcon.Warning) == DialogResult.No)
+        return;
+
+      // 檢查重複檔案
+      List<string> duplicateFiles = new List<string>();
+      List<string> newFiles = new List<string>();
       foreach (string fileName in this.dlgAddFiles.FileNames)
       {
-         
+        string filename = fileName.Substring(fileName.LastIndexOf('\\') + 1);
+        bool exists = false;
+        for (int i = 0; i < this._IndexRecords.Length; ++i)
+        {
+          if (this._IndexRecords[i].FileName.Equals(filename, StringComparison.OrdinalIgnoreCase))
+          {
+            exists = true;
+            duplicateFiles.Add(filename);
+            break;
+          }
+        }
+        if (!exists)
+          newFiles.Add(filename);
+      }
+
+      // 顯示重複檔案資訊
+      if (duplicateFiles.Count > 0)
+      {
+        string message = string.Format(
+          "Found {0} duplicate file(s) that will be replaced:\n\n{1}\n\n" +
+          "New files to add: {2}\n\n" +
+          "Note: Old file data will remain in PAK (wasted space).\n" +
+          "Consider using 'Rebuild' after adding to clean up.\n\n" +
+          "Continue?",
+          duplicateFiles.Count,
+          string.Join("\n", duplicateFiles.Take(5)) + (duplicateFiles.Count > 5 ? "\n..." : ""),
+          newFiles.Count);
+
+        if (MessageBox.Show(message, "Duplicate Files Found", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
+        {
+          return;
+        }
+      }
+
+      FileStream fileStream1 = File.OpenWrite(this._PackFileName.Replace(".idx", ".pak"));
+      FileStream fileStream2 = File.OpenWrite(this._PackFileName);
+      int addedCount = 0;
+      int replacedCount = 0;
+      foreach (string fileName in this.dlgAddFiles.FileNames)
+      {
+
         byte[] numArray = File.ReadAllBytes(fileName);
         if (this._IsPackFileProtected)
         {
-          this.tssProgressName.Text = string.Format("{0} Encoding...", (object) fileName);
+          this.tssProgressName.Text = string.Format("{0} Encoding...", (object) Path.GetFileName(fileName));
           numArray = L1PakTools.Encode(numArray, 0);
           this.tssProgressName.Text = "";
         }
@@ -1178,17 +1270,19 @@ namespace PakViewer
                 index = i;
             }
         }
-        
+
         L1PakTools.IndexRecord record2 = new L1PakTools.IndexRecord(filename, numArray.Length, offset);
 
         if (replace)
         {
              this._IndexRecords[index] = record2;
+             replacedCount++;
         }
         else
         {
             Array.Resize<L1PakTools.IndexRecord>(ref this._IndexRecords, this._IndexRecords.Length + 1);
             this._IndexRecords[this._IndexRecords.Length -1] = record2;
+            addedCount++;
         }
          this.ShowRecords(this._IndexRecords);
       }
@@ -1205,6 +1299,19 @@ namespace PakViewer
         this.RebuildIndex();
         fileStream1.Close();
 
+      // 顯示完成訊息
+      string summary = string.Format(
+        "Add files completed!\n\n" +
+        "New files added: {0}\n" +
+        "Files replaced: {1}\n" +
+        "Total files in PAK: {2}\n\n" +
+        "{3}",
+        addedCount,
+        replacedCount,
+        this._IndexRecords.Length,
+        replacedCount > 0 ? "Tip: Use 'Tools > Rebuild' to remove wasted space from replaced files." : "");
+
+      MessageBox.Show(summary, "Add Files Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void txtSearch_KeyPress(object sender, KeyPressEventArgs e)
@@ -2038,7 +2145,6 @@ namespace PakViewer
       this.txtSearch.Size = new Size(245, 22);
       this.txtSearch.TabIndex = 1;
       this.txtSearch.KeyPress += new KeyPressEventHandler(this.txtSearch_KeyPress);
-      this.lvIndexInfo.CheckBoxes = true;
       this.lvIndexInfo.Dock = DockStyle.Fill;
       this.lvIndexInfo.Font = new Font("細明體", 9f);
       this.lvIndexInfo.FullRowSelect = true;
@@ -2050,6 +2156,7 @@ namespace PakViewer
       this.lvIndexInfo.UseCompatibleStateImageBehavior = false;
       this.lvIndexInfo.View = View.Details;
       this.lvIndexInfo.VirtualMode = true;
+      this.lvIndexInfo.CheckBoxes = true;
       this.lvIndexInfo.RetrieveVirtualItem += new RetrieveVirtualItemEventHandler(this.lvIndexInfo_RetrieveVirtualItem);
       this.lvIndexInfo.ItemCheck += new ItemCheckEventHandler(this.lvIndexInfo_ItemCheck);
       this.lvIndexInfo.MouseClick += new MouseEventHandler(this.lvIndexInfo_MouseClick);

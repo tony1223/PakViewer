@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using PakViewer.Utility;
 
@@ -47,6 +48,22 @@ namespace PakViewer
                     ShowInfo(args[1]);
                     break;
 
+                case "delete":
+                    if (args.Length < 3) { ShowHelp(); return; }
+                    // Collect all filenames to delete (args[2] onwards)
+                    string[] filesToDelete = new string[args.Length - 2];
+                    Array.Copy(args, 2, filesToDelete, 0, args.Length - 2);
+                    DeleteFiles(args[1], filesToDelete);
+                    break;
+
+                case "add":
+                    if (args.Length < 3) { ShowHelp(); return; }
+                    // Collect all file paths to add (args[2] onwards)
+                    string[] filesToAdd = new string[args.Length - 2];
+                    Array.Copy(args, 2, filesToAdd, 0, args.Length - 2);
+                    AddFiles(args[1], filesToAdd);
+                    break;
+
                 default:
                     ShowHelp();
                     break;
@@ -70,6 +87,13 @@ namespace PakViewer
             Console.WriteLine("  import <idx_file> <filename> <input_file> [encoding]");
             Console.WriteLine("    Import file from disk into PAK. Supports different file sizes.");
             Console.WriteLine();
+            Console.WriteLine("  delete <idx_file> <filename1> [filename2] [filename3] ...");
+            Console.WriteLine("    Delete one or more files from PAK. Supports batch deletion.");
+            Console.WriteLine();
+            Console.WriteLine("  add <idx_file> <file_path1> [file_path2] [file_path3] ...");
+            Console.WriteLine("    Add one or more files to PAK. Files are appended to the end.");
+            Console.WriteLine("    Checks for duplicate filenames and skips existing files.");
+            Console.WriteLine();
             Console.WriteLine("  info <idx_file>");
             Console.WriteLine("    Show PAK file information.");
             Console.WriteLine();
@@ -81,6 +105,10 @@ namespace PakViewer
             Console.WriteLine("  PakReader read Text.idx 07bearNPC-c.html");
             Console.WriteLine("  PakReader export Text.idx 07bearNPC-c.html output.html");
             Console.WriteLine("  PakReader import Text.idx 07bearNPC-c.html modified.html");
+            Console.WriteLine("  PakReader delete Text.idx 07bearNPC-c.html");
+            Console.WriteLine("  PakReader delete Text.idx file1.html file2.xml file3.txt");
+            Console.WriteLine("  PakReader add Text.idx newfile.xml");
+            Console.WriteLine("  PakReader add Text.idx file1.html file2.xml file3.txt");
         }
 
         static Encoding GetEncoding(string fileName, string encodingName)
@@ -648,6 +676,401 @@ namespace PakViewer
             }
 
             File.WriteAllBytes(idxFile, finalData);
+        }
+
+        static void DeleteFiles(string idxFile, string[] filesToDelete)
+        {
+            var result = LoadIndex(idxFile);
+            if (result == null) return;
+
+            var (records, isProtected) = result.Value;
+            string pakFile = idxFile.Replace(".idx", ".pak");
+
+            if (!File.Exists(pakFile))
+            {
+                Console.WriteLine($"Error: PAK file not found: {pakFile}");
+                return;
+            }
+
+            Console.WriteLine($"Files to delete: {filesToDelete.Length}");
+            Console.WriteLine();
+
+            // Find all files to delete and their indices
+            var filesToDeleteInfo = new System.Collections.Generic.List<(int index, L1PakTools.IndexRecord record)>();
+            var notFoundFiles = new System.Collections.Generic.List<string>();
+
+            foreach (string targetFile in filesToDelete)
+            {
+                bool found = false;
+                for (int i = 0; i < records.Length; i++)
+                {
+                    if (records[i].FileName.Equals(targetFile, StringComparison.OrdinalIgnoreCase))
+                    {
+                        filesToDeleteInfo.Add((i, records[i]));
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                {
+                    notFoundFiles.Add(targetFile);
+                }
+            }
+
+            // Show not found files
+            if (notFoundFiles.Count > 0)
+            {
+                Console.WriteLine("Files not found:");
+                foreach (string file in notFoundFiles)
+                {
+                    Console.WriteLine($"  - {file}");
+                }
+                Console.WriteLine();
+            }
+
+            // Show files to delete
+            if (filesToDeleteInfo.Count == 0)
+            {
+                Console.WriteLine("No files to delete.");
+                return;
+            }
+
+            Console.WriteLine($"Found {filesToDeleteInfo.Count} file(s) to delete:");
+            foreach (var (index, record) in filesToDeleteInfo)
+            {
+                Console.WriteLine($"  [{index + 1}] {record.FileName} (Size: {record.FileSize}, Offset: 0x{record.Offset:X8})");
+            }
+            Console.WriteLine();
+
+            // Sort by offset (descending) for deletion
+            filesToDeleteInfo.Sort((a, b) => b.record.Offset.CompareTo(a.record.Offset));
+
+            // Create backup files
+            string pakBackup = pakFile + ".bak";
+            string idxBackup = idxFile + ".bak";
+
+            if (File.Exists(pakBackup)) File.Delete(pakBackup);
+            if (File.Exists(idxBackup)) File.Delete(idxBackup);
+
+            File.Copy(pakFile, pakBackup);
+            File.Copy(idxFile, idxBackup);
+            Console.WriteLine($"Created backups: {pakBackup}, {idxBackup}");
+
+            try
+            {
+                // Read entire PAK file
+                byte[] pakData = File.ReadAllBytes(pakFile);
+
+                // Create new records list (excluding deleted files)
+                var newRecordsList = new System.Collections.Generic.List<L1PakTools.IndexRecord>();
+                var deleteIndices = new System.Collections.Generic.HashSet<int>();
+                foreach (var (index, _) in filesToDeleteInfo)
+                {
+                    deleteIndices.Add(index);
+                }
+
+                for (int i = 0; i < records.Length; i++)
+                {
+                    if (!deleteIndices.Contains(i))
+                    {
+                        newRecordsList.Add(records[i]);
+                    }
+                }
+
+                // Build new PAK file data by copying segments
+                var newPakData = new System.Collections.Generic.List<byte>();
+                int currentOffset = 0;
+
+                for (int i = 0; i < records.Length; i++)
+                {
+                    var rec = records[i];
+
+                    // Check if this is a file to delete
+                    bool shouldDelete = deleteIndices.Contains(i);
+
+                    if (!shouldDelete)
+                    {
+                        // Copy data from PAK
+                        byte[] fileData = new byte[rec.FileSize];
+                        Array.Copy(pakData, rec.Offset, fileData, 0, rec.FileSize);
+                        newPakData.AddRange(fileData);
+
+                        // Update offset for this record
+                        int recordIndex = newRecordsList.FindIndex(r =>
+                            r.FileName == rec.FileName &&
+                            r.Offset == rec.Offset &&
+                            r.FileSize == rec.FileSize);
+
+                        if (recordIndex >= 0)
+                        {
+                            newRecordsList[recordIndex] = new L1PakTools.IndexRecord(
+                                rec.FileName,
+                                rec.FileSize,
+                                currentOffset
+                            );
+                        }
+
+                        currentOffset += rec.FileSize;
+                    }
+                }
+
+                // Write new PAK file
+                File.WriteAllBytes(pakFile, newPakData.ToArray());
+                Console.WriteLine($"PAK file rebuilt: {pakFile}");
+
+                // Rebuild IDX file
+                RebuildIndex(idxFile, newRecordsList.ToArray(), isProtected);
+                Console.WriteLine($"IDX file rebuilt: {idxFile}");
+
+                // Delete backups on success
+                File.Delete(pakBackup);
+                File.Delete(idxBackup);
+                Console.WriteLine("Backups removed (success)");
+
+                Console.WriteLine();
+                Console.WriteLine($"Success! Deleted {filesToDeleteInfo.Count} file(s).");
+                Console.WriteLine($"New total: {newRecordsList.Count} files");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error during deletion: {ex.Message}");
+                Console.WriteLine("Restoring from backups...");
+
+                // Restore from backups
+                if (File.Exists(pakBackup))
+                {
+                    File.Copy(pakBackup, pakFile, true);
+                    File.Delete(pakBackup);
+                }
+                if (File.Exists(idxBackup))
+                {
+                    File.Copy(idxBackup, idxFile, true);
+                    File.Delete(idxBackup);
+                }
+                Console.WriteLine("Restored from backups.");
+            }
+        }
+
+        static void AddFiles(string idxFile, string[] filePaths)
+        {
+            var result = LoadIndex(idxFile);
+            if (result == null) return;
+
+            var (records, isProtected) = result.Value;
+            string pakFile = idxFile.Replace(".idx", ".pak");
+
+            if (!File.Exists(pakFile))
+            {
+                Console.WriteLine($"Error: PAK file not found: {pakFile}");
+                return;
+            }
+
+            Console.WriteLine($"Files to add: {filePaths.Length}");
+            Console.WriteLine();
+
+            // Validate files and check for duplicates
+            var filesToAddInfo = new System.Collections.Generic.List<(string filePath, string fileName, long fileSize)>();
+            var notFoundFiles = new System.Collections.Generic.List<string>();
+            var duplicateFiles = new System.Collections.Generic.List<string>();
+
+            foreach (string filePath in filePaths)
+            {
+                if (!File.Exists(filePath))
+                {
+                    notFoundFiles.Add(filePath);
+                    continue;
+                }
+
+                string fileName = Path.GetFileName(filePath);
+
+                // Check filename length (max 20 bytes including null terminator)
+                if (Encoding.Default.GetByteCount(fileName) > 19)
+                {
+                    Console.WriteLine($"Warning: Filename too long (max 19 bytes): {fileName}");
+                    continue;
+                }
+
+                // Check if filename already exists in PAK
+                bool exists = false;
+                foreach (var rec in records)
+                {
+                    if (rec.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        exists = true;
+                        duplicateFiles.Add(fileName);
+                        break;
+                    }
+                }
+
+                if (!exists)
+                {
+                    var fileInfo = new FileInfo(filePath);
+                    filesToAddInfo.Add((filePath, fileName, fileInfo.Length));
+                }
+            }
+
+            // Show validation results
+            if (notFoundFiles.Count > 0)
+            {
+                Console.WriteLine("Files not found:");
+                foreach (string file in notFoundFiles)
+                {
+                    Console.WriteLine($"  - {file}");
+                }
+                Console.WriteLine();
+            }
+
+            if (duplicateFiles.Count > 0)
+            {
+                Console.WriteLine("Files already exist in PAK (skipped):");
+                foreach (string file in duplicateFiles)
+                {
+                    Console.WriteLine($"  - {file}");
+                }
+                Console.WriteLine();
+            }
+
+            if (filesToAddInfo.Count == 0)
+            {
+                Console.WriteLine("No files to add.");
+                return;
+            }
+
+            Console.WriteLine($"Adding {filesToAddInfo.Count} file(s):");
+            foreach (var (filePath, fileName, fileSize) in filesToAddInfo)
+            {
+                Console.WriteLine($"  - {fileName} ({fileSize} bytes) from {filePath}");
+            }
+            Console.WriteLine();
+
+            // Create backup files
+            string pakBackup = pakFile + ".bak";
+            string idxBackup = idxFile + ".bak";
+
+            if (File.Exists(pakBackup)) File.Delete(pakBackup);
+            if (File.Exists(idxBackup)) File.Delete(idxBackup);
+
+            File.Copy(pakFile, pakBackup);
+            File.Copy(idxFile, idxBackup);
+            Console.WriteLine($"Created backups: {pakBackup}, {idxBackup}");
+
+            try
+            {
+                // Get current PAK file size (this will be the offset for the first new file)
+                var pakFileInfo = new FileInfo(pakFile);
+                int currentOffset = (int)pakFileInfo.Length;
+
+                // Create new records list
+                var newRecordsList = new System.Collections.Generic.List<L1PakTools.IndexRecord>(records);
+
+                // Process each file and append to PAK
+                using (FileStream pakFs = File.Open(pakFile, FileMode.Append, FileAccess.Write))
+                {
+                    foreach (var (filePath, fileName, fileSize) in filesToAddInfo)
+                    {
+                        Console.WriteLine($"Processing: {fileName}");
+
+                        // Read file data
+                        byte[] fileData = File.ReadAllBytes(filePath);
+
+                        // Check if this is an XML file that should be encrypted
+                        bool isXml = Path.GetExtension(fileName).ToLower() == ".xml";
+                        bool shouldEncryptXml = false;
+
+                        // For XML files, check if other XML files in the PAK are encrypted
+                        if (isXml)
+                        {
+                            // Sample check: see if any existing XML file is encrypted
+                            foreach (var rec in records)
+                            {
+                                if (Path.GetExtension(rec.FileName).ToLower() == ".xml")
+                                {
+                                    // Read a sample to check
+                                    byte[] sampleData;
+                                    using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                                    {
+                                        sampleData = new byte[Math.Min(rec.FileSize, 100)];
+                                        fs.Seek(rec.Offset, SeekOrigin.Begin);
+                                        fs.Read(sampleData, 0, sampleData.Length);
+                                    }
+                                    if (isProtected)
+                                    {
+                                        sampleData = L1PakTools.Decode(sampleData, 0);
+                                    }
+                                    if (XmlCracker.IsEncrypted(sampleData))
+                                    {
+                                        shouldEncryptXml = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        byte[] dataToWrite = fileData;
+
+                        // Encrypt XML if needed
+                        if (shouldEncryptXml)
+                        {
+                            dataToWrite = XmlCracker.Encrypt(dataToWrite);
+                            Console.WriteLine($"  XML encrypted: {dataToWrite.Length} bytes");
+                        }
+
+                        // Encode if L1 protected
+                        if (isProtected)
+                        {
+                            dataToWrite = L1PakTools.Encode(dataToWrite, 0);
+                            Console.WriteLine($"  L1 encoded: {dataToWrite.Length} bytes");
+                        }
+
+                        // Write to PAK
+                        pakFs.Write(dataToWrite, 0, dataToWrite.Length);
+
+                        // Add new record
+                        newRecordsList.Add(new L1PakTools.IndexRecord(
+                            fileName,
+                            dataToWrite.Length,
+                            currentOffset
+                        ));
+
+                        Console.WriteLine($"  Written at offset: 0x{currentOffset:X8} (size: {dataToWrite.Length})");
+
+                        currentOffset += dataToWrite.Length;
+                    }
+                }
+
+                Console.WriteLine($"PAK file updated: {pakFile}");
+
+                // Rebuild IDX file
+                RebuildIndex(idxFile, newRecordsList.ToArray(), isProtected);
+                Console.WriteLine($"IDX file rebuilt: {idxFile}");
+
+                // Delete backups on success
+                File.Delete(pakBackup);
+                File.Delete(idxBackup);
+                Console.WriteLine("Backups removed (success)");
+
+                Console.WriteLine();
+                Console.WriteLine($"Success! Added {filesToAddInfo.Count} file(s).");
+                Console.WriteLine($"New total: {newRecordsList.Count} files");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error during addition: {ex.Message}");
+                Console.WriteLine("Restoring from backups...");
+
+                // Restore from backups
+                if (File.Exists(pakBackup))
+                {
+                    File.Copy(pakBackup, pakFile, true);
+                    File.Delete(pakBackup);
+                }
+                if (File.Exists(idxBackup))
+                {
+                    File.Copy(idxBackup, idxFile, true);
+                    File.Delete(idxBackup);
+                }
+                Console.WriteLine("Restored from backups.");
+            }
         }
     }
 }
