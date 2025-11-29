@@ -175,7 +175,7 @@ namespace PakViewer
         return;
 
       this._SelectedFolder = lastFolder;
-      this.lblFolder.Text = "Folder: " + this._SelectedFolder;
+      this.lblFolder.Text = "資料夾：" + this._SelectedFolder;
 
       // 掃描 idx 檔案
       string[] idxFiles = Directory.GetFiles(this._SelectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
@@ -219,7 +219,7 @@ namespace PakViewer
         return;
 
       this._SelectedFolder = this.dlgOpenFolder.SelectedPath;
-      this.lblFolder.Text = "Folder: " + this._SelectedFolder;
+      this.lblFolder.Text = "資料夾：" + this._SelectedFolder;
 
       // 儲存資料夾位置
       Settings.Default.LastFolder = this._SelectedFolder;
@@ -249,7 +249,7 @@ namespace PakViewer
       }
       else
       {
-        MessageBox.Show("No .idx files found in the selected folder.");
+        MessageBox.Show("所選資料夾中找不到 .idx 檔案。");
       }
     }
 
@@ -270,7 +270,7 @@ namespace PakViewer
       sw.Restart();
       if (this._IndexRecords == null)
       {
-        int num2 = (int) MessageBox.Show("The file can't be parsed. It might be broken or not correct idx file.");
+        int num2 = (int) MessageBox.Show("無法解析檔案。檔案可能已損壞或不是正確的 idx 檔案。");
         this.mnuFiller.Enabled = false;
         this.mnuRebuild.Enabled = false;
         this.tssMessage.Text = "";
@@ -331,7 +331,7 @@ namespace PakViewer
           return (byte[]) null;
         this._IsPackFileProtected = true;
         this.tssLocker.Visible = true;
-        this.tssProgressName.Text = "Decoding... ";
+        this.tssProgressName.Text = "解碼中... ";
         numArray = L1PakTools.Decode(numArray, 4);
         this.tssProgressName.Text = "";
       }
@@ -400,9 +400,9 @@ namespace PakViewer
       }
       this.lvIndexInfo.VirtualListSize = this._FilteredIndexes.Count;
       this.lvIndexInfo.Invalidate();
-      this.tssRecordCount.Text = string.Format("All:{0}", (object) Records.Length);
-      this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this._FilteredIndexes.Count);
-      this.tssCheckedCount.Text = string.Format("Checked:{0}", (object) this._CheckedIndexes.Count);
+      this.tssRecordCount.Text = string.Format("全部：{0}", (object) Records.Length);
+      this.tssShowInListView.Text = string.Format("顯示：{0}", (object) this._FilteredIndexes.Count);
+      this.tssCheckedCount.Text = string.Format("已選：{0}", (object) this._CheckedIndexes.Count);
     }
 
     private void lvIndexInfo_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
@@ -435,7 +435,7 @@ namespace PakViewer
         this._CheckedIndexes.Add(realIndex);
       else
         this._CheckedIndexes.Remove(realIndex);
-      this.tssCheckedCount.Text = string.Format("Checked:{0}", (object) this._CheckedIndexes.Count);
+      this.tssCheckedCount.Text = string.Format("已選：{0}", (object) this._CheckedIndexes.Count);
     }
 
     private ListViewItem CreatListViewItem(int ID, L1PakTools.IndexRecord IdxRec)
@@ -485,8 +485,8 @@ namespace PakViewer
       {
         L1PakTools.IndexRecord oldRecord = this._IndexRecords[this._CurrentEditingRealIndex];
         DialogResult result = MessageBox.Show(
-          "You have unsaved changes to \"" + oldRecord.FileName + "\".\n\nDo you want to save before switching?",
-          "Unsaved Changes",
+          "您對 \"" + oldRecord.FileName + "\" 有未儲存的變更。\n\n是否要在切換前儲存？",
+          "未儲存的變更",
           MessageBoxButtons.YesNoCancel,
           MessageBoxIcon.Warning);
 
@@ -645,7 +645,7 @@ namespace PakViewer
         fs.Read(numArray, 0, IdxRec.FileSize);
         if (this._IsPackFileProtected)
         {
-            this.tssProgressName.Text = "Decoding...";
+            this.tssProgressName.Text = "解碼中...";
             numArray = L1PakTools.Decode(numArray, 0);
             this.tssProgressName.Text = "";
             if (this._InviewData == frmMain.InviewDataType.SPR)
@@ -699,7 +699,7 @@ namespace PakViewer
         fs.Read(numArray, 0, IdxRec.FileSize);
         if (this._IsPackFileProtected)
         {
-            this.tssProgressName.Text = "Decoding...";
+            this.tssProgressName.Text = "解碼中...";
             numArray = L1PakTools.Decode(numArray, 0);
             this.tssProgressName.Text = "";
             if (this._InviewData == frmMain.InviewDataType.SPR)
@@ -1028,11 +1028,11 @@ namespace PakViewer
     {
       if (this.lvIndexInfo.SelectedIndices.Count == 0)
       {
-        MessageBox.Show("Please select files to delete first.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        MessageBox.Show("請先選擇要刪除的檔案。", "未選擇檔案", MessageBoxButtons.OK, MessageBoxIcon.Information);
         return;
       }
 
-      if (MessageBox.Show("Please delete the former backup of your original PAK files!\n\nAre you sure to delete " + this.lvIndexInfo.SelectedIndices.Count + " file(s)?", "Warning!", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) == DialogResult.No)
+      if (MessageBox.Show("請先刪除原始 PAK 檔案的舊備份！\n\n確定要刪除 " + this.lvIndexInfo.SelectedIndices.Count + " 個檔案嗎？", "警告！", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) == DialogResult.No)
         return;
 
       // 將選取的虛擬索引轉換為實際索引
@@ -1077,7 +1077,7 @@ namespace PakViewer
       }
       //Array.Sort<int, L1PakTools.IndexRecord>(keys, items);
       this._IndexRecords = items;
-      this.tssProgressName.Text = "Creating new PAK file...";
+      this.tssProgressName.Text = "正在建立新 PAK 檔案...";
       this.tssProgress.Maximum = length;
       string str1 = this._PackFileName.Replace(".idx", ".pak");
       string str2 = this._PackFileName.Replace(".idx", ".pa_");
@@ -1108,7 +1108,7 @@ namespace PakViewer
       File.Move(this._PackFileName, str);
       byte[] numArray = new byte[4 + this._IndexRecords.Length * 28];
       Array.Copy((Array) BitConverter.GetBytes(this._IndexRecords.Length), 0, (Array) numArray, 0, 4);
-      this.tssProgressName.Text = "Creating new IDX file...";
+      this.tssProgressName.Text = "正在建立新 IDX 檔案...";
       this.tssProgress.Maximum = this._IndexRecords.Length;
       for (int index = 0; index < this._IndexRecords.Length; ++index)
       {
@@ -1120,7 +1120,7 @@ namespace PakViewer
       }
       if (this._IsPackFileProtected)
       {
-        this.tssProgressName.Text = "Encoding...";
+        this.tssProgressName.Text = "編碼中...";
         Array.Copy((Array) L1PakTools.Encode(numArray, 4), 0, (Array) numArray, 4, numArray.Length - 4);
       }
       File.WriteAllBytes(this._PackFileName, numArray);
@@ -1193,10 +1193,10 @@ namespace PakViewer
 
       // 警示：將會重建索引檔案
       if (MessageBox.Show(
-        "This will add files to PAK and rebuild the index file.\n\n" +
-        "Please backup your original PAK files first!\n\n" +
-        "Continue?",
-        "Add Files - Warning",
+        "這將會新增檔案到 PAK 並重建索引檔案。\n\n" +
+        "請先備份您的原始 PAK 檔案！\n\n" +
+        "要繼續嗎？",
+        "新增檔案 - 警告",
         MessageBoxButtons.YesNo,
         MessageBoxIcon.Warning) == DialogResult.No)
         return;
@@ -1225,16 +1225,16 @@ namespace PakViewer
       if (duplicateFiles.Count > 0)
       {
         string message = string.Format(
-          "Found {0} duplicate file(s) that will be replaced:\n\n{1}\n\n" +
-          "New files to add: {2}\n\n" +
-          "Note: Old file data will remain in PAK (wasted space).\n" +
-          "Consider using 'Rebuild' after adding to clean up.\n\n" +
-          "Continue?",
+          "發現 {0} 個重複檔案將被取代：\n\n{1}\n\n" +
+          "新增檔案數：{2}\n\n" +
+          "注意：舊檔案資料將保留在 PAK 中（浪費空間）。\n" +
+          "建議新增後使用「重建」功能清理。\n\n" +
+          "要繼續嗎？",
           duplicateFiles.Count,
           string.Join("\n", duplicateFiles.Take(5)) + (duplicateFiles.Count > 5 ? "\n..." : ""),
           newFiles.Count);
 
-        if (MessageBox.Show(message, "Duplicate Files Found", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
+        if (MessageBox.Show(message, "發現重複檔案", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
         {
           return;
         }
@@ -1301,17 +1301,17 @@ namespace PakViewer
 
       // 顯示完成訊息
       string summary = string.Format(
-        "Add files completed!\n\n" +
-        "New files added: {0}\n" +
-        "Files replaced: {1}\n" +
-        "Total files in PAK: {2}\n\n" +
+        "新增檔案完成！\n\n" +
+        "新增檔案數：{0}\n" +
+        "取代檔案數：{1}\n" +
+        "PAK 總檔案數：{2}\n\n" +
         "{3}",
         addedCount,
         replacedCount,
         this._IndexRecords.Length,
-        replacedCount > 0 ? "Tip: Use 'Tools > Rebuild' to remove wasted space from replaced files." : "");
+        replacedCount > 0 ? "提示：使用「工具 > 重建」來清除被取代檔案的浪費空間。" : "");
 
-      MessageBox.Show(summary, "Add Files Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+      MessageBox.Show(summary, "新增檔案完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void txtSearch_KeyPress(object sender, KeyPressEventArgs e)
@@ -1352,8 +1352,8 @@ namespace PakViewer
         this.lvIndexInfo.SelectedIndices.Add(0);
       }
       this.lvIndexInfo.Focus();
-      this.tssRecordCount.Text = string.Format("All:{0}", (object) this._IndexRecords.Length);
-      this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this._FilteredIndexes.Count);
+      this.tssRecordCount.Text = string.Format("全部：{0}", (object) this._IndexRecords.Length);
+      this.tssShowInListView.Text = string.Format("顯示：{0}", (object) this._FilteredIndexes.Count);
     }
 
     private void btnContentSearch_Click(object sender, EventArgs e)
@@ -1386,24 +1386,24 @@ namespace PakViewer
       string pakFile = this._PackFileName.Replace(".idx", ".pak");
       if (!File.Exists(pakFile))
       {
-        this.tssMessage.Text = "PAK file not found";
+        this.tssMessage.Text = "找不到 PAK 檔案";
         return;
       }
 
       // 禁用搜尋按鈕，改變文字
-      this.btnContentSearch.Text = "Stop";
+      this.btnContentSearch.Text = "停止";
       this.btnClearSearch.Enabled = false;
       this.txtContentSearch.Enabled = false;
       this.lvIndexInfo.Enabled = false;  // 禁用清單避免選取衝突
-      this.tssMessage.Text = "Searching...";
+      this.tssMessage.Text = "搜尋中...";
 
       // 清空左邊清單
       this._FilteredIndexes = new List<int>();
       this._CheckedIndexes.Clear();
       this.lvIndexInfo.VirtualListSize = 0;
       this.lvIndexInfo.Invalidate();
-      this.tssShowInListView.Text = "Showing:0";
-      this.tssCheckedCount.Text = "Checked:0";
+      this.tssShowInListView.Text = "顯示：0";
+      this.tssCheckedCount.Text = "已選：0";
 
       // 傳遞搜尋參數給背景執行緒
       var searchParams = new SearchParams
@@ -1521,7 +1521,7 @@ namespace PakViewer
         {
           this.lvIndexInfo.VirtualListSize = count;
         }
-        this.tssShowInListView.Text = string.Format("Showing:{0}", count);
+        this.tssShowInListView.Text = string.Format("顯示：{0}", count);
       }
 
       this.tssMessage.Text = string.Format("{0}... {1}/{2} (Found: {3})", progress.Phase ?? "Searching", progress.Current, progress.Total, progress.FoundCount);
@@ -1530,7 +1530,7 @@ namespace PakViewer
     private void bgSearchWorker_RunWorkerCompleted(object sender, System.ComponentModel.RunWorkerCompletedEventArgs e)
     {
       // 還原 UI 狀態
-      this.btnContentSearch.Text = "Search";
+      this.btnContentSearch.Text = "搜尋";
       this.btnClearSearch.Enabled = true;
       this.txtContentSearch.Enabled = true;
       this.lvIndexInfo.Enabled = true;  // 重新啟用清單
@@ -1549,9 +1549,9 @@ namespace PakViewer
 
       var result = (SearchResult)e.Result;
 
-      this.tssRecordCount.Text = string.Format("All:{0}", (object) this._IndexRecords.Length);
-      this.tssShowInListView.Text = string.Format("Showing:{0}", (object) this._FilteredIndexes.Count);
-      this.tssCheckedCount.Text = string.Format("Checked:{0}", (object) this._CheckedIndexes.Count);
+      this.tssRecordCount.Text = string.Format("全部：{0}", (object) this._IndexRecords.Length);
+      this.tssShowInListView.Text = string.Format("顯示：{0}", (object) this._FilteredIndexes.Count);
+      this.tssCheckedCount.Text = string.Format("已選：{0}", (object) this._CheckedIndexes.Count);
 
       if (this._FilteredIndexes.Count > 0)
       {
@@ -1563,7 +1563,7 @@ namespace PakViewer
       }
       else
       {
-        this.tssMessage.Text = "No matches found";
+        this.tssMessage.Text = "找不到符合的項目";
       }
     }
 
@@ -1573,7 +1573,7 @@ namespace PakViewer
       if (this._IndexRecords != null)
       {
         this.ShowRecords(this._IndexRecords);
-        this.tssMessage.Text = "Search cleared";
+        this.tssMessage.Text = "已清除搜尋";
       }
     }
 
@@ -1631,10 +1631,10 @@ namespace PakViewer
       // 確認對話框
       if (!Settings.Default.SkipSaveConfirmation)
       {
-        string encryptionNote = this._IsCurrentFileXmlEncrypted ? "\n(Will be saved with XML encryption)" : "";
+        string encryptionNote = this._IsCurrentFileXmlEncrypted ? "\n（將以 XML 加密方式儲存）" : "";
         DialogResult result = MessageBox.Show(
-          "Save changes to \"" + record.FileName + "\"?\n\nThis will modify the PAK file directly." + encryptionNote,
-          "Confirm Save",
+          "儲存對 \"" + record.FileName + "\" 的變更嗎？\n\n這將會直接修改 PAK 檔案。" + encryptionNote,
+          "確認儲存",
           MessageBoxButtons.YesNo,
           MessageBoxIcon.Question);
 
@@ -1665,11 +1665,11 @@ namespace PakViewer
         {
           // 大小改變，需要重建 PAK 和 IDX
           DialogResult confirmRebuild = MessageBox.Show(
-            "File size changed (" + record.FileSize + " -> " + newData.Length + " bytes).\n\n" +
-            "This requires rebuilding the PAK and IDX files.\n" +
-            "A backup will be created before modification.\n\n" +
-            "Continue?",
-            "Size Changed - Rebuild Required",
+            "檔案大小已變更（" + record.FileSize + " -> " + newData.Length + " 位元組）。\n\n" +
+            "這需要重建 PAK 和 IDX 檔案。\n" +
+            "修改前將會建立備份。\n\n" +
+            "要繼續嗎？",
+            "大小變更 - 需要重建",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
 
@@ -1687,7 +1687,7 @@ namespace PakViewer
 
           if (error != null)
           {
-            MessageBox.Show("Error rebuilding PAK: " + error, "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show("重建 PAK 時發生錯誤：" + error, "儲存錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
           }
 
@@ -1721,7 +1721,7 @@ namespace PakViewer
       }
       catch (Exception ex)
       {
-        MessageBox.Show("Error saving file: " + ex.Message, "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        MessageBox.Show("儲存檔案時發生錯誤：" + ex.Message, "儲存錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
       }
     }
 
@@ -1908,29 +1908,29 @@ namespace PakViewer
       });
       this.mnuFile.Name = "mnuFile";
       this.mnuFile.Size = new Size(34, 20);
-      this.mnuFile.Text = "&File";
+      this.mnuFile.Text = "檔案(&F)";
       this.mnuOpen.Image = (Image) Resources.My_Documents;
       this.mnuOpen.Name = "mnuOpen";
       this.mnuOpen.Size = new Size(130, 22);
-      this.mnuOpen.Text = "&Open";
+      this.mnuOpen.Text = "開啟(&O)";
       this.mnuOpen.Click += new EventHandler(this.mnuOpen_Click);
       this.toolStripSeparator1.Name = "toolStripSeparator1";
       this.toolStripSeparator1.Size = new Size((int) sbyte.MaxValue, 6);
       this.mnuCreatResource.Name = "mnuCreatResource";
       this.mnuCreatResource.Size = new Size(130, 22);
-      this.mnuCreatResource.Text = "create new source file ";
+      this.mnuCreatResource.Text = "建立新資源檔";
       this.mnuCreatResource.Visible = false;
       this.mnuRebuild.Enabled = false;
       this.mnuRebuild.Name = "mnuRebuild";
       this.mnuRebuild.Size = new Size(130, 22);
-      this.mnuRebuild.Text = "&Rebuild";
+      this.mnuRebuild.Text = "重建(&R)";
       this.mnuRebuild.Click += new EventHandler(this.mnuRebuild_Click);
       this.toolStripSeparator2.Name = "toolStripSeparator2";
       this.toolStripSeparator2.Size = new Size((int) sbyte.MaxValue, 6);
       this.mnuQuit.Image = (Image) Resources.ArreterSZ;
       this.mnuQuit.Name = "mnuQuit";
       this.mnuQuit.Size = new Size(130, 22);
-      this.mnuQuit.Text = "&Quit";
+      this.mnuQuit.Text = "結束(&Q)";
       this.mnuEdit.DropDownItems.AddRange(new ToolStripItem[3]
       {
         (ToolStripItem) this.mnuFiller,
@@ -1939,7 +1939,7 @@ namespace PakViewer
       });
       this.mnuEdit.Name = "mnuEdit";
       this.mnuEdit.Size = new Size(36, 20);
-      this.mnuEdit.Text = "&Edit";
+      this.mnuEdit.Text = "編輯(&E)";
       this.mnuFiller.DropDownItems.AddRange(new ToolStripItem[12]
       {
         (ToolStripItem) this.mnuFiller_Text_html,
@@ -1958,7 +1958,7 @@ namespace PakViewer
       this.mnuFiller.Enabled = false;
       this.mnuFiller.Name = "mnuFiller";
       this.mnuFiller.Size = new Size(116, 22);
-      this.mnuFiller.Text = "&Filler";
+      this.mnuFiller.Text = "篩選器(&F)";
       this.mnuFiller_Text_html.Checked = true;
       this.mnuFiller_Text_html.CheckOnClick = true;
       this.mnuFiller_Text_html.CheckState = CheckState.Checked;
@@ -1985,22 +1985,22 @@ namespace PakViewer
       this.mnuFiller_Text_C.CheckOnClick = true;
       this.mnuFiller_Text_C.Name = "mnuFiller_Text_C";
       this.mnuFiller_Text_C.Size = new Size(129, 22);
-      this.mnuFiller_Text_C.Text = "Taiwan";
+      this.mnuFiller_Text_C.Text = "台灣";
       this.mnuFiller_Text_C.CheckedChanged += new EventHandler(this.mnuFiller_Text_Language);
       this.mnuFiller_Text_H.CheckOnClick = true;
       this.mnuFiller_Text_H.Name = "mnuFiller_Text_H";
       this.mnuFiller_Text_H.Size = new Size(129, 22);
-      this.mnuFiller_Text_H.Text = "Chian && HK";
+      this.mnuFiller_Text_H.Text = "中國 && 香港";
       this.mnuFiller_Text_H.CheckedChanged += new EventHandler(this.mnuFiller_Text_Language);
       this.mnuFiller_Text_J.CheckOnClick = true;
       this.mnuFiller_Text_J.Name = "mnuFiller_Text_J";
       this.mnuFiller_Text_J.Size = new Size(129, 22);
-      this.mnuFiller_Text_J.Text = "Japan";
+      this.mnuFiller_Text_J.Text = "日本";
       this.mnuFiller_Text_J.CheckedChanged += new EventHandler(this.mnuFiller_Text_Language);
       this.mnuFiller_Text_K.CheckOnClick = true;
       this.mnuFiller_Text_K.Name = "mnuFiller_Text_K";
       this.mnuFiller_Text_K.Size = new Size(129, 22);
-      this.mnuFiller_Text_K.Text = "Korean";
+      this.mnuFiller_Text_K.Text = "韓國";
       this.mnuFiller_Text_K.CheckedChanged += new EventHandler(this.mnuFiller_Text_Language);
       this.toolStripSeparator7.Name = "toolStripSeparator7";
       this.toolStripSeparator7.Size = new Size(126, 6);
@@ -2036,7 +2036,7 @@ namespace PakViewer
       this.mnuLanguage.Image = (Image) Resources.Settings1;
       this.mnuLanguage.Name = "mnuLanguage";
       this.mnuLanguage.Size = new Size(116, 22);
-      this.mnuLanguage.Text = "&Language";
+      this.mnuLanguage.Text = "語言(&L)";
       this.mnuLanguage_TW.Checked = true;
       this.mnuLanguage_TW.CheckState = CheckState.Checked;
       this.mnuLanguage_TW.Name = "mnuLanguage_TW";
@@ -2059,48 +2059,48 @@ namespace PakViewer
       });
       this.mnuTools.Name = "mnuTools";
       this.mnuTools.Size = new Size(43, 20);
-      this.mnuTools.Text = "&Tools";
+      this.mnuTools.Text = "工具(&T)";
       this.mnuTools_Export.Enabled = false;
       this.mnuTools_Export.Image = (Image) Resources.Save;
       this.mnuTools_Export.Name = "mnuTools_Export";
       this.mnuTools_Export.Size = new Size((int) sbyte.MaxValue, 22);
-      this.mnuTools_Export.Text = "&Export";
-      this.mnuTools_Export.ToolTipText = "Export selected file to the pak folder";
+      this.mnuTools_Export.Text = "匯出(&E)";
+      this.mnuTools_Export.ToolTipText = "匯出選取的檔案到 PAK 資料夾";
       this.mnuTools_Export.Click += new EventHandler(this.mnuTools_Export_Click);
       this.mnuTools_ExportTo.Enabled = false;
       this.mnuTools_ExportTo.Name = "mnuTools_ExportTo";
       this.mnuTools_ExportTo.Size = new Size((int) sbyte.MaxValue, 22);
-      this.mnuTools_ExportTo.Text = "Export &To...";
-      this.mnuTools_ExportTo.ToolTipText = "Export selected file to specific folder";
+      this.mnuTools_ExportTo.Text = "匯出到(&T)...";
+      this.mnuTools_ExportTo.ToolTipText = "匯出選取的檔案到指定資料夾";
       this.mnuTools_ExportTo.Click += new EventHandler(this.mnuTools_ExportTo_Click);
       this.mnuTools_Delete.Enabled = false;
       this.mnuTools_Delete.Image = (Image) Resources.Trashcan_empty;
       this.mnuTools_Delete.Name = "mnuTools_Delete";
       this.mnuTools_Delete.Size = new Size((int) sbyte.MaxValue, 22);
-      this.mnuTools_Delete.Text = "&Delete";
+      this.mnuTools_Delete.Text = "刪除(&D)";
       this.mnuTools_Delete.Click += new EventHandler(this.mnuTools_Delete_Click);
       this.toolStripSeparator8.Name = "toolStripSeparator8";
       this.toolStripSeparator8.Size = new Size(124, 6);
       this.mnuTools_Add.Enabled = false;
       this.mnuTools_Add.Name = "mnuTools_Add";
       this.mnuTools_Add.Size = new Size((int) sbyte.MaxValue, 22);
-      this.mnuTools_Add.Text = "&Add..";
+      this.mnuTools_Add.Text = "新增(&A)...";
       this.mnuTools_Add.Click += new EventHandler(this.mnuTools_Add_Click);
       this.mnuTools_Update.Enabled = false;
       this.mnuTools_Update.Name = "mnuTools_Update";
       this.mnuTools_Update.Size = new Size((int) sbyte.MaxValue, 22);
-      this.mnuTools_Update.Text = "&Update";
-      this.mnuTools_Update.ToolTipText = "The function only work in text file.";
+      this.mnuTools_Update.Text = "更新(&U)";
+      this.mnuTools_Update.ToolTipText = "此功能僅適用於文字檔案";
       this.mnuTools_Update.Click += new EventHandler(this.mnuTools_Update_Click);
       this.toolStripSeparator9.Name = "toolStripSeparator9";
       this.toolStripSeparator9.Size = new Size(124, 6);
       this.mnuTools_ClearSelect.Name = "mnuTools_ClearSelect";
       this.mnuTools_ClearSelect.Size = new Size((int) sbyte.MaxValue, 22);
-      this.mnuTools_ClearSelect.Text = "Unselect All";
+      this.mnuTools_ClearSelect.Text = "取消全選";
       this.mnuTools_ClearSelect.Click += new EventHandler(this.tsmUnselectAll_Click);
       this.mnuTools_SelectAll.Name = "mnuTools_SelectAll";
       this.mnuTools_SelectAll.Size = new Size((int) sbyte.MaxValue, 22);
-      this.mnuTools_SelectAll.Text = "Select All";
+      this.mnuTools_SelectAll.Text = "全選";
       this.mnuTools_SelectAll.Click += new EventHandler(this.tsmSelectAll_Click);
       this.dlgOpenFile.FileName = "openFileDialog1";
       this.splitContainer1.Dock = DockStyle.Fill;
@@ -2138,7 +2138,7 @@ namespace PakViewer
       this.label1.Name = "label1";
       this.label1.Size = new Size(40, 20);
       this.label1.TabIndex = 0;
-      this.label1.Text = "Filter:";
+      this.label1.Text = "篩選：";
       this.label1.TextAlign = ContentAlignment.MiddleLeft;
       this.txtSearch.Location = new Point(45, 7);
       this.txtSearch.Name = "txtSearch";
@@ -2207,28 +2207,28 @@ namespace PakViewer
       this.ctxMenu.Opening += new CancelEventHandler(this.ctxMenu_Opening);
       this.tsmCopyFileName.Name = "tsmCopyFileName";
       this.tsmCopyFileName.Size = new Size(136, 22);
-      this.tsmCopyFileName.Text = "&Copy Filename";
+      this.tsmCopyFileName.Text = "複製檔名(&C)";
       this.tsmCopyFileName.Click += new EventHandler(this.tsmCopyFileName_Click);
       this.tsmExport.Image = (Image) Resources.Save;
       this.tsmExport.Name = "tsmExport";
       this.tsmExport.Size = new Size(136, 22);
-      this.tsmExport.Text = "&Export";
-      this.tsmExport.ToolTipText = "export the file to the pak folder ";
+      this.tsmExport.Text = "匯出(&E)";
+      this.tsmExport.ToolTipText = "匯出檔案到 PAK 資料夾";
       this.tsmExport.Click += new EventHandler(this.tsmExport_Click);
       this.tsmExportTo.Name = "tsmExportTo";
       this.tsmExportTo.Size = new Size(136, 22);
-      this.tsmExportTo.Text = "Export &To...";
-      this.tsmExportTo.ToolTipText = "Export the file to specific folder";
+      this.tsmExportTo.Text = "匯出到(&T)...";
+      this.tsmExportTo.ToolTipText = "匯出檔案到指定資料夾";
       this.tsmExportTo.Click += new EventHandler(this.tsmExportTo_Click);
       this.toolStripSeparator6.Name = "toolStripSeparator6";
       this.toolStripSeparator6.Size = new Size(133, 6);
       this.tsmUnselectAll.Name = "tsmUnselectAll";
       this.tsmUnselectAll.Size = new Size(136, 22);
-      this.tsmUnselectAll.Text = "Unselect All";
+      this.tsmUnselectAll.Text = "取消全選";
       this.tsmUnselectAll.Click += new EventHandler(this.tsmUnselectAll_Click);
       this.tsmSelectAll.Name = "tsmSelectAll";
       this.tsmSelectAll.Size = new Size(136, 22);
-      this.tsmSelectAll.Text = "Select All";
+      this.tsmSelectAll.Text = "全選";
       this.tsmSelectAll.Click += new EventHandler(this.tsmSelectAll_Click);
       this.toolStripSeparator3.Name = "toolStripSeparator3";
       this.toolStripSeparator3.Size = new Size(133, 6);
@@ -2241,23 +2241,23 @@ namespace PakViewer
       });
       this.tsmCompare.Name = "tsmCompare";
       this.tsmCompare.Size = new Size(136, 22);
-      this.tsmCompare.Text = "Compare with";
+      this.tsmCompare.Text = "比較與";
       this.tsmCompare.DropDownOpening += new EventHandler(this.tsmCompare_DropDownOpening);
       this.tsmCompTW.Name = "tsmCompTW";
       this.tsmCompTW.Size = new Size(129, 22);
-      this.tsmCompTW.Text = "Taiwan";
+      this.tsmCompTW.Text = "台灣";
       this.tsmCompTW.Click += new EventHandler(this.tsmCompare_Click);
       this.tsmCompHK.Name = "tsmCompHK";
       this.tsmCompHK.Size = new Size(129, 22);
-      this.tsmCompHK.Text = "China && HK";
+      this.tsmCompHK.Text = "中國 && 香港";
       this.tsmCompHK.Click += new EventHandler(this.tsmCompare_Click);
       this.tsmCompJP.Name = "tsmCompJP";
       this.tsmCompJP.Size = new Size(129, 22);
-      this.tsmCompJP.Text = "Japan";
+      this.tsmCompJP.Text = "日本";
       this.tsmCompJP.Click += new EventHandler(this.tsmCompare_Click);
       this.tsmCompKO.Name = "tsmCompKO";
       this.tsmCompKO.Size = new Size(129, 22);
-      this.tsmCompKO.Text = "Korean";
+      this.tsmCompKO.Text = "韓國";
       this.tsmCompKO.Click += new EventHandler(this.tsmCompare_Click);
       this.statusStrip1.Items.AddRange(new ToolStripItem[7]
       {
@@ -2292,7 +2292,7 @@ namespace PakViewer
       this.tssCheckedCount.BorderSides = ToolStripStatusLabelBorderSides.Right;
       this.tssCheckedCount.Name = "tssCheckedCount";
       this.tssCheckedCount.Size = new Size(54, 20);
-      this.tssCheckedCount.Text = "Checked:0";
+      this.tssCheckedCount.Text = "已選：0";
       this.tssCheckedCount.Visible = true;
       this.tssMessage.Name = "tssMessage";
       this.tssMessage.Size = new Size(671, 17);
@@ -2355,7 +2355,7 @@ namespace PakViewer
       this.lblContentSearch.Name = "lblContentSearch";
       this.lblContentSearch.Size = new Size(50, 20);
       this.lblContentSearch.TabIndex = 0;
-      this.lblContentSearch.Text = "Search:";
+      this.lblContentSearch.Text = "搜尋：";
       this.lblContentSearch.TextAlign = ContentAlignment.MiddleLeft;
       // txtContentSearch
       this.txtContentSearch.Location = new Point(55, 7);
@@ -2368,7 +2368,7 @@ namespace PakViewer
       this.btnContentSearch.Name = "btnContentSearch";
       this.btnContentSearch.Size = new Size(50, 25);
       this.btnContentSearch.TabIndex = 2;
-      this.btnContentSearch.Text = "Go";
+      this.btnContentSearch.Text = "搜尋";
       this.btnContentSearch.UseVisualStyleBackColor = true;
       this.btnContentSearch.Click += new EventHandler(this.btnContentSearch_Click);
       // btnClearSearch
@@ -2376,7 +2376,7 @@ namespace PakViewer
       this.btnClearSearch.Name = "btnClearSearch";
       this.btnClearSearch.Size = new Size(50, 25);
       this.btnClearSearch.TabIndex = 3;
-      this.btnClearSearch.Text = "Clear";
+      this.btnClearSearch.Text = "清除";
       this.btnClearSearch.UseVisualStyleBackColor = true;
       this.btnClearSearch.Click += new EventHandler(this.btnClearSearch_Click);
       // 第二排：過濾與儲存 (Y=35)
@@ -2384,15 +2384,15 @@ namespace PakViewer
       this.lblExtFilter.AutoSize = false;
       this.lblExtFilter.Location = new Point(3, 35);
       this.lblExtFilter.Name = "lblExtFilter";
-      this.lblExtFilter.Size = new Size(28, 20);
+      this.lblExtFilter.Size = new Size(55, 20);
       this.lblExtFilter.TabIndex = 4;
-      this.lblExtFilter.Text = "Ext:";
+      this.lblExtFilter.Text = "副檔名：";
       this.lblExtFilter.TextAlign = ContentAlignment.MiddleLeft;
       // cmbExtFilter
       this.cmbExtFilter.DropDownStyle = ComboBoxStyle.DropDownList;
       this.cmbExtFilter.FormattingEnabled = true;
-      this.cmbExtFilter.Items.AddRange(new object[] { "All", ".html", ".tbl", ".txt", ".h", ".ht", ".htm", ".def", ".til", ".spr", ".img", ".png", ".tbt" });
-      this.cmbExtFilter.Location = new Point(32, 35);
+      this.cmbExtFilter.Items.AddRange(new object[] { "全部", ".html", ".tbl", ".txt", ".h", ".ht", ".htm", ".def", ".til", ".spr", ".img", ".png", ".tbt" });
+      this.cmbExtFilter.Location = new Point(60, 35);
       this.cmbExtFilter.Name = "cmbExtFilter";
       this.cmbExtFilter.Size = new Size(60, 20);
       this.cmbExtFilter.TabIndex = 5;
@@ -2400,38 +2400,38 @@ namespace PakViewer
       this.cmbExtFilter.SelectedIndexChanged += new EventHandler(this.cmbExtFilter_SelectedIndexChanged);
       // lblLangFilter
       this.lblLangFilter.AutoSize = false;
-      this.lblLangFilter.Location = new Point(97, 35);
+      this.lblLangFilter.Location = new Point(125, 35);
       this.lblLangFilter.Name = "lblLangFilter";
-      this.lblLangFilter.Size = new Size(35, 20);
+      this.lblLangFilter.Size = new Size(50, 20);
       this.lblLangFilter.TabIndex = 6;
-      this.lblLangFilter.Text = "Lang:";
+      this.lblLangFilter.Text = "語言：";
       this.lblLangFilter.TextAlign = ContentAlignment.MiddleLeft;
       // cmbLangFilter
       this.cmbLangFilter.DropDownStyle = ComboBoxStyle.DropDownList;
       this.cmbLangFilter.FormattingEnabled = true;
-      this.cmbLangFilter.Items.AddRange(new object[] { "All", "-c (TW)", "-h (CN)", "-j (JP)", "-k (KR)" });
-      this.cmbLangFilter.Location = new Point(135, 35);
+      this.cmbLangFilter.Items.AddRange(new object[] { "全部", "-c (台灣)", "-h (中國)", "-j (日本)", "-k (韓國)" });
+      this.cmbLangFilter.Location = new Point(178, 35);
       this.cmbLangFilter.Name = "cmbLangFilter";
       this.cmbLangFilter.Size = new Size(70, 20);
       this.cmbLangFilter.TabIndex = 7;
       this.cmbLangFilter.SelectedIndex = 1;
       this.cmbLangFilter.SelectedIndexChanged += new EventHandler(this.cmbLangFilter_SelectedIndexChanged);
       // btnSaveText (第二排右側)
-      this.btnSaveText.Location = new Point(220, 33);
+      this.btnSaveText.Location = new Point(263, 33);
       this.btnSaveText.Name = "btnSaveText";
       this.btnSaveText.Size = new Size(50, 25);
       this.btnSaveText.TabIndex = 8;
-      this.btnSaveText.Text = "Save";
+      this.btnSaveText.Text = "儲存";
       this.btnSaveText.UseVisualStyleBackColor = true;
       this.btnSaveText.Enabled = false;
       this.btnSaveText.Click += new EventHandler(this.btnSaveText_Click);
       // chkSkipSaveConfirm (第二排右側)
       this.chkSkipSaveConfirm.AutoSize = true;
-      this.chkSkipSaveConfirm.Location = new Point(275, 38);
+      this.chkSkipSaveConfirm.Location = new Point(318, 38);
       this.chkSkipSaveConfirm.Name = "chkSkipSaveConfirm";
       this.chkSkipSaveConfirm.Size = new Size(100, 16);
       this.chkSkipSaveConfirm.TabIndex = 9;
-      this.chkSkipSaveConfirm.Text = "Skip Confirm";
+      this.chkSkipSaveConfirm.Text = "略過確認";
       this.chkSkipSaveConfirm.Checked = Settings.Default.SkipSaveConfirmation;
       this.chkSkipSaveConfirm.CheckedChanged += new EventHandler(this.chkSkipSaveConfirm_CheckedChanged);
       this.AutoScaleDimensions = new SizeF(6f, 12f);
