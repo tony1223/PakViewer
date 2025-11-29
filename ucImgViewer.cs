@@ -19,6 +19,7 @@ namespace PakViewer
     private TrackBar tbScale;
 
     [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Image Image
     {
       get

@@ -25,6 +25,7 @@ namespace PakViewer
     private TrackBar tbScale;
 
     [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public L1Spr.Frame[] SprFrames
     {
       get

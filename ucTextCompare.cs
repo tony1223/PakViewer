@@ -22,6 +22,8 @@ namespace PakViewer
     private SplitContainer splitContainer3;
     private TextBox txtTarget;
 
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public string SourceText
     {
       set
@@ -34,6 +36,8 @@ namespace PakViewer
       }
     }
 
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public string TargetText
     {
       set

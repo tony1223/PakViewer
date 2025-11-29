@@ -34,7 +34,7 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 # Update version in csproj (optional - creates AssemblyVersion)
 Write-Host "Building with version $version..." -ForegroundColor Yellow
 
-# Publish for Windows (platform-dependent, smaller size)
+# Publish for Windows (platform-dependent, smaller size with compression)
 $publishArgs = @(
     "publish",
     $projectFile,
@@ -42,6 +42,8 @@ $publishArgs = @(
     "-r", "win-x64",
     "--self-contained", "false",
     "-p:PublishSingleFile=false",
+    "-p:EnableCompressionInSingleFile=true",
+    "-p:PublishTrimmed=false",
     "-p:Version=$version",
     "-p:AssemblyVersion=$version.0",
     "-p:FileVersion=$version.0",
@@ -89,7 +91,8 @@ if (-not $NoZip) {
         Remove-Item -Force $zipFile
     }
 
-    Compress-Archive -Path "$outputDir\*" -DestinationPath $zipFile -CompressionLevel Optimal
+    # Use maximum compression
+    Compress-Archive -Path "$outputDir\*" -DestinationPath $zipFile -CompressionLevel Optimal -Force
 
     $zipSize = (Get-Item $zipFile).Length / 1MB
     Write-Host "  ZIP: $zipFile" -ForegroundColor White
@@ -105,5 +108,5 @@ if (-not $NoZip) {
     Write-Host "  ZIP:    $zipFile" -ForegroundColor Gray
 }
 Write-Host ""
-Write-Host "Requirements: .NET 7.0 Runtime (Windows)" -ForegroundColor Yellow
-Write-Host "Download: https://dotnet.microsoft.com/download/dotnet/7.0" -ForegroundColor Yellow
+Write-Host "Requirements: .NET 10.0 Runtime (Windows)" -ForegroundColor Yellow
+Write-Host "Download: https://dotnet.microsoft.com/download/dotnet/10.0" -ForegroundColor Yellow
