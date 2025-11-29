@@ -5,9 +5,9 @@ using PakViewer.Utility;
 
 namespace PakViewer
 {
-    class PakReader
+    public class PakReader
     {
-        static void Main(string[] args)
+        public static void Exec(string[] args)
         {
             // Register code pages
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
