@@ -14,7 +14,7 @@ namespace PakViewer
   public class ucImgViewer : UserControl
   {
     private Image srcImage;
-    private IContainer components;
+    private IContainer components = null;
     private PictureBox pictureBox1;
     private TrackBar tbScale;
 

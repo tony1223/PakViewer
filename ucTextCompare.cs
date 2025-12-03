@@ -13,7 +13,7 @@ namespace PakViewer
 {
   public class ucTextCompare : UserControl
   {
-    private IContainer components;
+    private IContainer components = null;
     private SplitContainer splitContainer1;
     private ListBox lstSource;
     private ListBox lstTarget;

@@ -283,10 +283,8 @@ namespace PakViewer
             }
 
             // Decrypt XML files if encrypted (starts with 'X')
-            bool isXmlEncrypted = false;
             if (Path.GetExtension(targetFile).ToLower() == ".xml" && XmlCracker.IsEncrypted(pakData))
             {
-                isXmlEncrypted = true;
                 pakData = XmlCracker.Decrypt(pakData);
                 Console.WriteLine($"XML Encrypted: Yes (decrypted)");
             }
