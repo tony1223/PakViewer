@@ -1459,7 +1459,7 @@ namespace PakViewer
       for (int i = 0; i < searchParams.IndexRecords.Length; i++)
       {
         string ext = Path.GetExtension(searchParams.IndexRecords[i].FileName).ToLower();
-        if (ext == ".html" || ext == ".tbl" || ext == ".h" || ext == ".ht" || ext == ".htm" || ext == ".txt" || ext == ".def" || ext == ".til")
+        if (ext == ".html" || ext == ".tbl" || ext == ".h" || ext == ".ht" || ext == ".htm" || ext == ".txt" || ext == ".def" || ext == ".til" || ext == ".xml")
         {
           textFileIndexes.Add(i);
         }
@@ -1492,7 +1492,25 @@ namespace PakViewer
           if (searchParams.IsProtected)
             data = L1PakTools.Decode(data, 0);
 
-          string content = encoding.GetString(data);
+          // XML 檔案需要解密
+          string ext = Path.GetExtension(record.FileName).ToLower();
+          if (ext == ".xml" && XmlCracker.IsEncrypted(data))
+          {
+            data = XmlCracker.Decrypt(data);
+          }
+
+          // 對 XML 使用正確的編碼，其他檔案使用 big5
+          Encoding fileEncoding;
+          if (ext == ".xml")
+          {
+            fileEncoding = XmlCracker.GetXmlEncoding(data, record.FileName);
+          }
+          else
+          {
+            fileEncoding = encoding;
+          }
+
+          string content = fileEncoding.GetString(data);
           if (content.IndexOf(searchParams.SearchText, StringComparison.OrdinalIgnoreCase) >= 0)
           {
             foundResults.Add(realIndex);
