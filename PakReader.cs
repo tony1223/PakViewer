@@ -296,11 +296,22 @@ namespace PakViewer
             Console.WriteLine($"Raw bytes (first {Math.Min(64, pakData.Length)}):");
             Console.WriteLine(BitConverter.ToString(pakData, 0, Math.Min(64, pakData.Length)));
 
-            // Determine encoding
-            Encoding encoding = GetEncoding(targetFile, encodingName);
+            // Determine encoding - 對 XML 檔案優先從內容解析 encoding 聲明
+            Encoding encoding;
+            bool isXml = Path.GetExtension(targetFile).ToLower() == ".xml";
+            if (isXml)
+            {
+                encoding = !string.IsNullOrEmpty(encodingName)
+                    ? Encoding.GetEncoding(encodingName)
+                    : XmlCracker.GetXmlEncoding(pakData, targetFile);
+            }
+            else
+            {
+                encoding = GetEncoding(targetFile, encodingName);
+            }
 
             Console.WriteLine();
-            Console.WriteLine($"Encoding: {encoding.EncodingName}");
+            Console.WriteLine($"Encoding: {encoding.EncodingName}" + (isXml ? " (from XML declaration)" : ""));
             Console.WriteLine();
             Console.WriteLine("=== Content ===");
             string content = encoding.GetString(pakData);
@@ -419,9 +430,12 @@ namespace PakViewer
 
             var rec = foundRecord.Value;
 
-            // Check if original file was XML encrypted
+            // Check if original file was XML encrypted and get original encoding
             bool isXmlEncrypted = false;
-            if (Path.GetExtension(targetFile).ToLower() == ".xml")
+            Encoding originalXmlEncoding = null;
+            bool isXml = Path.GetExtension(targetFile).ToLower() == ".xml";
+
+            if (isXml)
             {
                 byte[] originalData;
                 using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -435,15 +449,40 @@ namespace PakViewer
                     originalData = L1PakTools.Decode(originalData, 0);
                 }
                 isXmlEncrypted = XmlCracker.IsEncrypted(originalData);
+
+                // 取得原始 XML 的 encoding
+                byte[] decryptedOriginal = isXmlEncrypted ? XmlCracker.Decrypt((byte[])originalData.Clone()) : originalData;
+                originalXmlEncoding = XmlCracker.GetXmlEncoding(decryptedOriginal, targetFile);
             }
 
             // Read input file
             byte[] inputData = File.ReadAllBytes(inputFile);
 
+            // 如果是 XML，檢查輸入檔案的編碼並轉換
+            Encoding inputXmlEncoding = null;
+            if (isXml)
+            {
+                inputXmlEncoding = XmlCracker.GetXmlEncoding(inputData, targetFile);
+
+                // 如果輸入編碼與原始編碼不同，進行轉換
+                if (originalXmlEncoding != null && inputXmlEncoding != null &&
+                    originalXmlEncoding.CodePage != inputXmlEncoding.CodePage)
+                {
+                    Console.WriteLine($"Encoding conversion: {inputXmlEncoding.EncodingName} -> {originalXmlEncoding.EncodingName}");
+                    string content = inputXmlEncoding.GetString(inputData);
+                    inputData = originalXmlEncoding.GetBytes(content);
+                }
+            }
+
             Console.WriteLine($"Target: {targetFile}");
             Console.WriteLine($"Input: {inputFile}");
             Console.WriteLine($"Original size: {rec.FileSize} bytes");
             Console.WriteLine($"New size: {inputData.Length} bytes");
+            if (isXml)
+            {
+                Console.WriteLine($"Input XML Encoding: {inputXmlEncoding?.EncodingName ?? "N/A"}");
+                Console.WriteLine($"Target XML Encoding: {originalXmlEncoding?.EncodingName ?? "N/A"}");
+            }
             Console.WriteLine($"XML Encrypted: {(isXmlEncrypted ? "Yes (will re-encrypt)" : "No")}");
 
             // Re-encrypt XML if needed
@@ -1007,6 +1046,13 @@ namespace PakViewer
                         }
 
                         byte[] dataToWrite = fileData;
+
+                        // 對 XML 檔案顯示 encoding 資訊
+                        if (isXml)
+                        {
+                            var xmlEncoding = XmlCracker.GetXmlEncoding(fileData, fileName);
+                            Console.WriteLine($"  XML Encoding: {xmlEncoding.EncodingName}");
+                        }
 
                         // Encrypt XML if needed
                         if (shouldEncryptXml)

@@ -1,4 +1,6 @@
 using System;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace PakViewer.Utility
 {
@@ -12,6 +14,75 @@ namespace PakViewer.Utility
         public static bool IsDecryptedXml(byte[] data)
         {
             return data != null && data.Length > 4 && data[0] == 0x3C;
+        }
+
+        /// <summary>
+        /// 從 XML 資料中解析 encoding 聲明，回傳對應的 Encoding
+        /// 例如: encoding="UTF-8" -> Encoding.UTF8
+        ///       encoding="big5" -> Encoding.GetEncoding("big5")
+        /// </summary>
+        public static Encoding GetXmlEncoding(byte[] data, string fallbackByFileName = null)
+        {
+            if (data == null || data.Length < 10)
+                return GetFallbackEncoding(fallbackByFileName);
+
+            try
+            {
+                // 先用 ASCII 讀取前 200 bytes 找 encoding="xxx"
+                int headerLen = Math.Min(200, data.Length);
+                string header = Encoding.ASCII.GetString(data, 0, headerLen);
+
+                // 匹配 encoding="xxx" 或 encoding='xxx'
+                var match = Regex.Match(header, @"encoding\s*=\s*[""']([^""']+)[""']", RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    string encodingName = match.Groups[1].Value.ToLower();
+
+                    // 常見編碼名稱對應
+                    return encodingName switch
+                    {
+                        "utf-8" => Encoding.UTF8,
+                        "utf8" => Encoding.UTF8,
+                        "big5" => Encoding.GetEncoding("big5"),
+                        "euc-kr" => Encoding.GetEncoding("euc-kr"),
+                        "euckr" => Encoding.GetEncoding("euc-kr"),
+                        "shift_jis" => Encoding.GetEncoding("shift_jis"),
+                        "shift-jis" => Encoding.GetEncoding("shift_jis"),
+                        "shiftjis" => Encoding.GetEncoding("shift_jis"),
+                        "gb2312" => Encoding.GetEncoding("gb2312"),
+                        "gbk" => Encoding.GetEncoding("gbk"),
+                        "gb18030" => Encoding.GetEncoding("gb18030"),
+                        _ => Encoding.GetEncoding(encodingName)
+                    };
+                }
+            }
+            catch
+            {
+                // 解析失敗，使用備用方案
+            }
+
+            return GetFallbackEncoding(fallbackByFileName);
+        }
+
+        /// <summary>
+        /// 根據檔名後綴取得備用編碼
+        /// </summary>
+        private static Encoding GetFallbackEncoding(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return Encoding.UTF8;
+
+            string fileNameLower = fileName.ToLower();
+            if (fileNameLower.Contains("-k."))
+                return Encoding.GetEncoding("euc-kr");
+            else if (fileNameLower.Contains("-j."))
+                return Encoding.GetEncoding("shift_jis");
+            else if (fileNameLower.Contains("-h."))
+                return Encoding.GetEncoding("gb2312");
+            else if (fileNameLower.Contains("-c."))
+                return Encoding.GetEncoding("big5");
+            else
+                return Encoding.UTF8;
         }
 
         private static char[] GetKey()

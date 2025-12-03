@@ -118,6 +118,7 @@ namespace PakViewer
     private int _CurrentEditingRealIndex = -1;
     private bool _TextModified = false;
     private bool _IsCurrentFileXmlEncrypted = false;
+    private Encoding _CurrentXmlEncoding = null;
     private string _SelectedFolder;
     private List<int> _FilteredIndexes;
     private HashSet<int> _CheckedIndexes;
@@ -601,9 +602,9 @@ namespace PakViewer
       return this.LoadPakData_(fs, indexRecord);
     }
 
-    private byte[] LoadPakBytes_(FileStream fs, ListViewItem lvItem) { 
+    private byte[] LoadPakBytes_(FileStream fs, ListViewItem lvItem) {
         L1PakTools.IndexRecord IdxRec = this._IndexRecords[int.Parse(lvItem.Text) - 1];
-        string[] array = new string[13]
+        string[] array = new string[14]
         {
     ".img",
     ".png",
@@ -617,9 +618,10 @@ namespace PakViewer
     ".ht",
     ".htm",
     ".txt",
-    ".def"
+    ".def",
+    ".xml"
         };
-        frmMain.InviewDataType[] inviewDataTypeArray = new frmMain.InviewDataType[13]
+        frmMain.InviewDataType[] inviewDataTypeArray = new frmMain.InviewDataType[14]
         {
     frmMain.InviewDataType.IMG,
     frmMain.InviewDataType.BMP,
@@ -629,6 +631,7 @@ namespace PakViewer
     frmMain.InviewDataType.Text,
     frmMain.InviewDataType.SPR,
     frmMain.InviewDataType.BMP,
+    frmMain.InviewDataType.Text,
     frmMain.InviewDataType.Text,
     frmMain.InviewDataType.Text,
     frmMain.InviewDataType.Text,
@@ -657,7 +660,7 @@ namespace PakViewer
     }
 
     private byte[] LoadPakBytes_(FileStream fs, L1PakTools.IndexRecord IdxRec) {
-        string[] array = new string[13]
+        string[] array = new string[14]
         {
     ".img",
     ".png",
@@ -671,9 +674,10 @@ namespace PakViewer
     ".ht",
     ".htm",
     ".txt",
-    ".def"
+    ".def",
+    ".xml"
         };
-        frmMain.InviewDataType[] inviewDataTypeArray = new frmMain.InviewDataType[13]
+        frmMain.InviewDataType[] inviewDataTypeArray = new frmMain.InviewDataType[14]
         {
     frmMain.InviewDataType.IMG,
     frmMain.InviewDataType.BMP,
@@ -683,6 +687,7 @@ namespace PakViewer
     frmMain.InviewDataType.Text,
     frmMain.InviewDataType.SPR,
     frmMain.InviewDataType.BMP,
+    frmMain.InviewDataType.Text,
     frmMain.InviewDataType.Text,
     frmMain.InviewDataType.Text,
     frmMain.InviewDataType.Text,
@@ -767,14 +772,20 @@ namespace PakViewer
 
       // Decrypt XML files if encrypted (starts with 'X')
       this._IsCurrentFileXmlEncrypted = false;
-      if (Path.GetExtension(IdxRec.FileName).ToLower() == ".xml")
+      this._CurrentXmlEncoding = null;
+      bool isXmlFile = Path.GetExtension(IdxRec.FileName).ToLower() == ".xml";
+      if (isXmlFile)
       {
         if (XmlCracker.IsEncrypted(numArray))
         {
           this._IsCurrentFileXmlEncrypted = true;
           numArray = XmlCracker.Decrypt(numArray);
-          this.tssMessage.Text = "[XML Encrypted]";
         }
+        // 從 XML 內容取得 encoding
+        this._CurrentXmlEncoding = XmlCracker.GetXmlEncoding(numArray, IdxRec.FileName);
+        this.tssMessage.Text = this._IsCurrentFileXmlEncrypted
+          ? $"[XML Encrypted] [{this._CurrentXmlEncoding.EncodingName}]"
+          : $"[{this._CurrentXmlEncoding.EncodingName}]";
       }
 
       object obj = (object) numArray;
@@ -783,16 +794,24 @@ namespace PakViewer
         switch (this._InviewData)
         {
           case frmMain.InviewDataType.Text:
-            // -k: Korean (euc-kr), -j: Japanese (shift_jis), -h: Simplified Chinese (euc-cn/gb2312), -c or default: Traditional Chinese (big5)
-            string fileNameLower = IdxRec.FileName.ToLower();
-            if (fileNameLower.IndexOf("-k.") >= 0)
-              obj = (object) Encoding.GetEncoding("euc-kr").GetString(numArray);
-            else if (fileNameLower.IndexOf("-j.") >= 0)
-              obj = (object) Encoding.GetEncoding("shift_jis").GetString(numArray);
-            else if (fileNameLower.IndexOf("-h.") >= 0)
-              obj = (object) Encoding.GetEncoding("gb2312").GetString(numArray);
+            // 對 XML 檔案使用解析出的 encoding，其他檔案使用檔名判斷
+            if (isXmlFile && this._CurrentXmlEncoding != null)
+            {
+              obj = (object) this._CurrentXmlEncoding.GetString(numArray);
+            }
             else
-              obj = (object) Encoding.GetEncoding("big5").GetString(numArray);
+            {
+              // -k: Korean (euc-kr), -j: Japanese (shift_jis), -h: Simplified Chinese (euc-cn/gb2312), -c or default: Traditional Chinese (big5)
+              string fileNameLower = IdxRec.FileName.ToLower();
+              if (fileNameLower.IndexOf("-k.") >= 0)
+                obj = (object) Encoding.GetEncoding("euc-kr").GetString(numArray);
+              else if (fileNameLower.IndexOf("-j.") >= 0)
+                obj = (object) Encoding.GetEncoding("shift_jis").GetString(numArray);
+              else if (fileNameLower.IndexOf("-h.") >= 0)
+                obj = (object) Encoding.GetEncoding("gb2312").GetString(numArray);
+              else
+                obj = (object) Encoding.GetEncoding("big5").GetString(numArray);
+            }
             break;
           case frmMain.InviewDataType.IMG:
             obj = (object) ImageConvert.Load_IMG(numArray);
@@ -1647,7 +1666,19 @@ namespace PakViewer
       try
       {
         string pakFile = this._PackFileName.Replace(".idx", ".pak");
-        Encoding encoding = this.GetEncodingForFile(record.FileName);
+
+        // 對 XML 檔案使用儲存時的 encoding（從 XML 聲明取得），其他檔案使用檔名判斷
+        Encoding encoding;
+        bool isXmlFile = Path.GetExtension(record.FileName).ToLower() == ".xml";
+        if (isXmlFile && this._CurrentXmlEncoding != null)
+        {
+          encoding = this._CurrentXmlEncoding;
+        }
+        else
+        {
+          encoding = this.GetEncodingForFile(record.FileName);
+        }
+
         byte[] newData = encoding.GetBytes(this.TextViewer.Text);
 
         // 如果是 XML 加密的檔案，需要先加密
@@ -2176,6 +2207,9 @@ namespace PakViewer
       this.TextViewer.Size = new Size(228, 200);
       this.TextViewer.TabIndex = 1;
       this.TextViewer.WordWrap = false;
+      this.TextViewer.ReadOnly = false;
+      this.TextViewer.AcceptsReturn = true;
+      this.TextViewer.AcceptsTab = true;
       this.ImageViewer.AutoScroll = true;
       this.ImageViewer.BackColor = Color.Black;
       this.ImageViewer.BorderStyle = BorderStyle.Fixed3D;
