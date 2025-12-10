@@ -86,6 +86,21 @@ namespace PakViewer.Properties
       }
     }
 
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("")]
+    [UserScopedSetting]
+    public string LastSprListFile
+    {
+      get
+      {
+        return (string) this["LastSprListFile"];
+      }
+      set
+      {
+        this["LastSprListFile"] = (object) value;
+      }
+    }
+
     private void SettingChangingEventHandler(object sender, SettingChangingEventArgs e)
     {
     }

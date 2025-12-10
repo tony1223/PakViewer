@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using PakViewer.Models;
 using PakViewer.Utility;
 
 namespace PakViewer
@@ -62,6 +63,11 @@ namespace PakViewer
                     string[] filesToAdd = new string[args.Length - 2];
                     Array.Copy(args, 2, filesToAdd, 0, args.Length - 2);
                     AddFiles(args[1], filesToAdd);
+                    break;
+
+                case "sprlist":
+                    if (args.Length < 2) { ShowHelp(); return; }
+                    ParseSprList(args[1], args.Length > 2 ? args[2] : null);
                     break;
 
                 default:
@@ -1221,6 +1227,100 @@ namespace PakViewer
                     File.Delete(idxBackup);
                 }
                 Console.WriteLine("Restored from backups.");
+            }
+        }
+
+        static void ParseSprList(string filePath, string entryIdStr)
+        {
+            if (!File.Exists(filePath))
+            {
+                Console.WriteLine($"Error: File not found: {filePath}");
+                return;
+            }
+
+            Console.WriteLine($"Parsing: {filePath}");
+            Console.WriteLine();
+
+            try
+            {
+                var sprList = SprListParser.LoadFromFile(filePath);
+
+                Console.WriteLine($"Header: TotalEntries={sprList.TotalEntries}, Unknown1={sprList.Unknown1}, Unknown2={sprList.Unknown2}");
+                Console.WriteLine($"Parsed Entries: {sprList.Entries.Count}");
+                Console.WriteLine();
+
+                // 如果指定了 entryId，顯示該條目詳細資訊
+                if (!string.IsNullOrEmpty(entryIdStr) && int.TryParse(entryIdStr, out int entryId))
+                {
+                    var entry = sprList.Entries.FirstOrDefault(e => e.Id == entryId);
+                    if (entry == null)
+                    {
+                        Console.WriteLine($"Entry #{entryId} not found.");
+                        return;
+                    }
+
+                    Console.WriteLine($"=== Entry #{entry.Id} ===");
+                    Console.WriteLine($"Name: {entry.Name}");
+                    Console.WriteLine($"ImageCount: {entry.ImageCount}");
+                    Console.WriteLine($"LinkedId: {entry.LinkedId}");
+                    Console.WriteLine($"TypeId: {entry.TypeId} ({entry.TypeName})");
+                    Console.WriteLine($"ShadowId: {entry.ShadowId}");
+                    Console.WriteLine($"Actions: {entry.Actions.Count}");
+                    Console.WriteLine($"Attributes: {entry.Attributes.Count}");
+                    Console.WriteLine();
+
+                    // 顯示動作
+                    foreach (var action in entry.Actions)
+                    {
+                        Console.WriteLine($"--- Action {action.ActionId}.{action.ActionName} ---");
+                        Console.WriteLine($"  Directional: {action.Directional} (IsDirectional: {action.IsDirectional})");
+                        Console.WriteLine($"  FrameCount: {action.FrameCount}");
+                        Console.WriteLine($"  Frames.Count: {action.Frames.Count}");
+                        Console.WriteLine($"  RawText: {action.RawText}");
+
+                        // 顯示前幾幀
+                        int showCount = Math.Min(action.Frames.Count, 8);
+                        for (int i = 0; i < showCount; i++)
+                        {
+                            var frame = action.Frames[i];
+                            Console.WriteLine($"    Frame[{i}]: ImageId={frame.ImageId}, FrameIndex={frame.FrameIndex}, Duration={frame.Duration}, SoundIds=[{string.Join(",", frame.SoundIds)}]");
+                        }
+                        if (action.Frames.Count > showCount)
+                        {
+                            Console.WriteLine($"    ... and {action.Frames.Count - showCount} more frames");
+                        }
+                        Console.WriteLine();
+                    }
+
+                    // 顯示屬性
+                    Console.WriteLine("--- Attributes ---");
+                    foreach (var attr in entry.Attributes)
+                    {
+                        Console.WriteLine($"  {attr.AttributeId}.{attr.AttributeName}({attr.RawParameters})");
+                    }
+                }
+                else
+                {
+                    // 列出前 20 個條目
+                    Console.WriteLine("First 20 entries:");
+                    foreach (var entry in sprList.Entries.Take(20))
+                    {
+                        Console.WriteLine($"  #{entry.Id} {entry.Name} (ImageCount={entry.ImageCount}, Actions={entry.Actions.Count}, Type={entry.TypeName})");
+                    }
+
+                    if (sprList.Entries.Count > 20)
+                    {
+                        Console.WriteLine($"  ... and {sprList.Entries.Count - 20} more entries");
+                    }
+
+                    Console.WriteLine();
+                    Console.WriteLine("Usage: sprlist <file> <entry_id> to see details");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
             }
         }
     }

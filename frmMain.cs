@@ -4,6 +4,7 @@
 // MVID: 1B8FBB7F-36BB-4233-90DD-580453361518
 // Assembly location: C:\Users\TonyQ\Downloads\PakViewer.exe
 
+using PakViewer.Models;
 using PakViewer.Properties;
 using PakViewer.Utility;
 using System;
@@ -104,6 +105,12 @@ namespace PakViewer
     private ToolStripMenuItem mnuLanguage_TW;
     private ToolStripMenuItem mnuLanguage_EN;
     private ucSprViewer SprViewer;
+    private ucSprListViewer SprListViewer;
+    private ucSprActionViewer SprActionViewer;
+    private ToolStripMenuItem mnuOpenSprList;
+    private SprListFile _SprListFile;
+    private List<SprListEntry> _FilteredSprListEntries;
+    private bool _IsSprListMode = false;
     private Panel palSearch;
     private Label label1;
     private TextBox txtSearch;
@@ -118,6 +125,8 @@ namespace PakViewer
     private ucTextCompare TextCompViewer;
     private ComboBox cmbIdxFiles;
     private CheckBox chkSpriteMode;
+    private CheckBox chkSprListMode;
+    private string _LastSprListFile;
     private Label lblFolder;
     private Panel palToolbar;
     private Panel palContentSearch;
@@ -237,6 +246,12 @@ namespace PakViewer
       if (this.dlgOpenFolder.ShowDialog((IWin32Window) this) != DialogResult.OK)
         return;
 
+      // 如果在 SPR List 模式，退出它
+      if (this._IsSprListMode)
+      {
+        this.ExitSprListMode();
+      }
+
       this._SelectedFolder = this.dlgOpenFolder.SelectedPath;
       this.lblFolder.Text = "資料夾：" + this._SelectedFolder;
 
@@ -270,6 +285,157 @@ namespace PakViewer
       {
         MessageBox.Show("所選資料夾中找不到 .idx 檔案。");
       }
+    }
+
+    private void mnuOpenSprList_Click(object sender, EventArgs e)
+    {
+      using (var dlg = new OpenFileDialog())
+      {
+        dlg.Title = "開啟 SPR 列表檔 (list.spr / wlist.spr)";
+        dlg.Filter = "SPR 列表檔 (*.spr;*.txt)|*.spr;*.txt|所有檔案 (*.*)|*.*";
+
+        // 使用上次的資料夾
+        if (!string.IsNullOrEmpty(this._SelectedFolder))
+          dlg.InitialDirectory = this._SelectedFolder;
+
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+          return;
+
+        this.Cursor = Cursors.WaitCursor;
+        try
+        {
+          // 載入 SPR 列表檔案
+          this._SprListFile = SprListParser.LoadFromFile(dlg.FileName);
+          this._FilteredSprListEntries = this._SprListFile.Entries;
+          this._IsSprListMode = true;
+
+          // 更新左側列表欄位
+          this.lvIndexInfo.Columns.Clear();
+          this.lvIndexInfo.Columns.Add("ID", 60, HorizontalAlignment.Right);
+          this.lvIndexInfo.Columns.Add("名稱", 120, HorizontalAlignment.Left);
+          this.lvIndexInfo.Columns.Add("圖數", 50, HorizontalAlignment.Right);
+          this.lvIndexInfo.Columns.Add("類型", 80, HorizontalAlignment.Left);
+          this.lvIndexInfo.Columns.Add("動作", 50, HorizontalAlignment.Right);
+
+          // 更新列表
+          this.lvIndexInfo.VirtualListSize = this._FilteredSprListEntries.Count;
+          this.lvIndexInfo.Invalidate();
+
+          // 設定 SPR 資料提供者
+          if (this.SprActionViewer != null)
+          {
+            this.SprActionViewer.SetSpriteDataProvider(this.GetSpriteDataForEntry);
+          }
+
+          // 顯示動作檢視器
+          this.ShowSprActionViewer();
+
+          // 儲存最後開啟的檔案路徑
+          this._LastSprListFile = dlg.FileName;
+          Settings.Default.LastSprListFile = dlg.FileName;
+          Settings.Default.Save();
+
+          // 更新勾選狀態
+          this.chkSprListMode.Checked = true;
+
+          this.tssMessage.Text = $"已載入 SPR 列表: {Path.GetFileName(dlg.FileName)} ({this._SprListFile.Entries.Count} 條目)";
+          this.tssRecordCount.Text = $"Records:{this._SprListFile.Entries.Count}";
+          this.tssShowInListView.Text = $"Shown:{this._FilteredSprListEntries.Count}";
+        }
+        catch (Exception ex)
+        {
+          MessageBox.Show($"載入失敗: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+          this.Cursor = Cursors.Default;
+        }
+      }
+    }
+
+    private void ShowSprActionViewer()
+    {
+      // 隱藏其他檢視器
+      this.TextViewer.Visible = false;
+      this.TextCompViewer.Visible = false;
+      this.ImageViewer.Visible = false;
+      this.SprViewer.Visible = false;
+      this.SprListViewer.Visible = false;
+
+      // 確保 SprActionViewer 存在
+      if (this.SprActionViewer == null)
+      {
+        this.SprActionViewer = new ucSprActionViewer();
+        this.SprActionViewer.Dock = DockStyle.Fill;
+        this.splitContainer1.Panel2.Controls.Add(this.SprActionViewer);
+      }
+
+      this.SprActionViewer.Visible = true;
+      this.SprActionViewer.BringToFront();
+      this._InviewData = InviewDataType.SprList;
+    }
+
+    private void ExitSprListMode()
+    {
+      this._IsSprListMode = false;
+      this._SprListFile = null;
+      this._FilteredSprListEntries = null;
+
+      // 取消事件處理避免無窮迴圈
+      this.chkSprListMode.CheckedChanged -= new EventHandler(this.chkSprListMode_CheckedChanged);
+      this.chkSprListMode.Checked = false;
+      this.chkSprListMode.CheckedChanged += new EventHandler(this.chkSprListMode_CheckedChanged);
+
+      // 還原左側列表欄位
+      this.lvIndexInfo.Columns.Clear();
+      this.lvIndexInfo.Columns.Add("No.", 70, HorizontalAlignment.Right);
+      this.lvIndexInfo.Columns.Add("FileName", 150, HorizontalAlignment.Left);
+      this.lvIndexInfo.Columns.Add("Size(KB)", 80, HorizontalAlignment.Right);
+      this.lvIndexInfo.Columns.Add("Position", 70, HorizontalAlignment.Right);
+
+      // 隱藏動作檢視器
+      if (this.SprActionViewer != null)
+      {
+        this.SprActionViewer.Visible = false;
+        this.SprActionViewer.Clear();
+      }
+    }
+
+    private byte[] GetSpriteDataForEntry(int entryId)
+    {
+      // 嘗試從已載入的 Sprite 資料中取得對應的 .spr 檔案
+      if (this._IndexRecords == null || string.IsNullOrEmpty(this._PackFileName))
+        return null;
+
+      string sprFileName = entryId.ToString() + ".spr";
+
+      for (int i = 0; i < this._IndexRecords.Length; i++)
+      {
+        var record = this._IndexRecords[i];
+        if (record.FileName.Equals(sprFileName, StringComparison.OrdinalIgnoreCase))
+        {
+          try
+          {
+            using (var fs = new FileStream(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+              byte[] data = new byte[record.FileSize];
+              fs.Seek(record.Offset, SeekOrigin.Begin);
+              fs.Read(data, 0, record.FileSize);
+              if (this._IsPackFileProtected)
+              {
+                data = L1PakTools.Decode(data, 0);
+              }
+              return data;
+            }
+          }
+          catch
+          {
+            return null;
+          }
+        }
+      }
+
+      return null;
     }
 
     private void LoadIdxFile(string idxFileName)
@@ -317,6 +483,86 @@ namespace PakViewer
         // 儲存選擇的 idx 檔案
         Settings.Default.LastIdxFile = idxFile;
         Settings.Default.Save();
+      }
+    }
+
+    private void chkSprListMode_CheckedChanged(object sender, EventArgs e)
+    {
+      if (this.chkSprListMode.Checked)
+      {
+        // 嘗試載入上次的檔案
+        string lastFile = Settings.Default.LastSprListFile;
+        if (!string.IsNullOrEmpty(lastFile) && File.Exists(lastFile))
+        {
+          LoadSprListFile(lastFile);
+        }
+        else
+        {
+          // 檔案不存在，提示選取
+          MessageBox.Show("找不到上次開啟的 SPR 列表檔，請選擇一個新檔案。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+          this.chkSprListMode.Checked = false;
+          mnuOpenSprList_Click(null, null);
+        }
+      }
+      else
+      {
+        // 取消勾選 = 退出 SPR List 模式
+        if (this._IsSprListMode)
+        {
+          ExitSprListMode();
+        }
+      }
+    }
+
+    private void LoadSprListFile(string filePath)
+    {
+      this.Cursor = Cursors.WaitCursor;
+      try
+      {
+        // 載入 SPR 列表檔案
+        this._SprListFile = SprListParser.LoadFromFile(filePath);
+        this._FilteredSprListEntries = this._SprListFile.Entries;
+        this._IsSprListMode = true;
+        this._LastSprListFile = filePath;
+
+        // 更新左側列表欄位
+        this.lvIndexInfo.Columns.Clear();
+        this.lvIndexInfo.Columns.Add("ID", 60, HorizontalAlignment.Right);
+        this.lvIndexInfo.Columns.Add("名稱", 120, HorizontalAlignment.Left);
+        this.lvIndexInfo.Columns.Add("圖數", 50, HorizontalAlignment.Right);
+        this.lvIndexInfo.Columns.Add("類型", 80, HorizontalAlignment.Left);
+        this.lvIndexInfo.Columns.Add("動作", 50, HorizontalAlignment.Right);
+
+        // 更新列表
+        this.lvIndexInfo.VirtualListSize = this._FilteredSprListEntries.Count;
+        this.lvIndexInfo.Invalidate();
+
+        // 設定 SPR 資料提供者
+        if (this.SprActionViewer != null)
+        {
+          this.SprActionViewer.SetSpriteDataProvider(this.GetSpriteDataForEntry);
+        }
+
+        // 顯示動作檢視器
+        this.ShowSprActionViewer();
+
+        // 更新勾選狀態 (避免重複觸發事件)
+        this.chkSprListMode.CheckedChanged -= new EventHandler(this.chkSprListMode_CheckedChanged);
+        this.chkSprListMode.Checked = true;
+        this.chkSprListMode.CheckedChanged += new EventHandler(this.chkSprListMode_CheckedChanged);
+
+        this.tssMessage.Text = $"已載入 SPR 列表: {Path.GetFileName(filePath)} ({this._SprListFile.Entries.Count} 條目)";
+        this.tssRecordCount.Text = $"Records:{this._SprListFile.Entries.Count}";
+        this.tssShowInListView.Text = $"Shown:{this._FilteredSprListEntries.Count}";
+      }
+      catch (Exception ex)
+      {
+        MessageBox.Show($"載入失敗: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        this.chkSprListMode.Checked = false;
+      }
+      finally
+      {
+        this.Cursor = Cursors.Default;
       }
     }
 
@@ -924,6 +1170,26 @@ namespace PakViewer
 
     private void lvIndexInfo_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
     {
+      // SPR List 模式
+      if (this._IsSprListMode && this._FilteredSprListEntries != null)
+      {
+        if (e.ItemIndex < 0 || e.ItemIndex >= this._FilteredSprListEntries.Count)
+        {
+          e.Item = new ListViewItem("");
+          return;
+        }
+
+        var entry = this._FilteredSprListEntries[e.ItemIndex];
+        var listItem = new ListViewItem(entry.Id.ToString());
+        listItem.SubItems.Add(entry.Name);
+        listItem.SubItems.Add(entry.ImageCount.ToString());
+        listItem.SubItems.Add(entry.TypeName);
+        listItem.SubItems.Add(entry.Actions.Count.ToString());
+        listItem.Tag = entry;
+        e.Item = listItem;
+        return;
+      }
+
       // Sprite 模式使用不同的顯示邏輯
       if (this._IsSpriteMode && this._SpriteDisplayItems != null)
       {
@@ -1092,6 +1358,21 @@ namespace PakViewer
       this.ImageViewer.Image = (Image) null;
 
       int selectedVirtualIndex = this.lvIndexInfo.SelectedIndices[0];
+
+      // SPR List 模式
+      if (this._IsSprListMode && this._FilteredSprListEntries != null)
+      {
+        if (selectedVirtualIndex >= 0 && selectedVirtualIndex < this._FilteredSprListEntries.Count)
+        {
+          var entry = this._FilteredSprListEntries[selectedVirtualIndex];
+          if (this.SprActionViewer != null)
+          {
+            this.SprActionViewer.ShowEntry(entry);
+          }
+          this.tssMessage.Text = $"#{entry.Id} {entry.Name} - {entry.Actions.Count} 動作";
+        }
+        return;
+      }
 
       // Sprite 模式下處理群組點擊
       if (this._IsSpriteMode && this._SpriteDisplayItems != null)
@@ -2811,6 +3092,7 @@ namespace PakViewer
       this.menuStrip1 = new MenuStrip();
       this.mnuFile = new ToolStripMenuItem();
       this.mnuOpen = new ToolStripMenuItem();
+      this.mnuOpenSprList = new ToolStripMenuItem();
       this.toolStripSeparator1 = new ToolStripSeparator();
       this.mnuCreatResource = new ToolStripMenuItem();
       this.mnuRebuild = new ToolStripMenuItem();
@@ -2855,6 +3137,7 @@ namespace PakViewer
       this.TextViewer = new RichTextBox();
       this.ImageViewer = new ucImgViewer();
       this.SprViewer = new ucSprViewer();
+      this.SprListViewer = new ucSprListViewer();
       this.dlgOpenFolder = new FolderBrowserDialog();
       this.ctxMenu = new ContextMenuStrip(this.components);
       this.tsmExport = new ToolStripMenuItem();
@@ -2882,6 +3165,7 @@ namespace PakViewer
       this.dlgAddFiles = new OpenFileDialog();
       this.cmbIdxFiles = new ComboBox();
       this.chkSpriteMode = new CheckBox();
+      this.chkSprListMode = new CheckBox();
       this.lblFolder = new Label();
       this.palToolbar = new Panel();
       this.palContentSearch = new Panel();
@@ -2920,9 +3204,10 @@ namespace PakViewer
       this.menuStrip1.Size = new Size(792, 24);
       this.menuStrip1.TabIndex = 2;
       this.menuStrip1.Text = "menuStrip1";
-      this.mnuFile.DropDownItems.AddRange(new ToolStripItem[6]
+      this.mnuFile.DropDownItems.AddRange(new ToolStripItem[7]
       {
         (ToolStripItem) this.mnuOpen,
+        (ToolStripItem) this.mnuOpenSprList,
         (ToolStripItem) this.toolStripSeparator1,
         (ToolStripItem) this.mnuCreatResource,
         (ToolStripItem) this.mnuRebuild,
@@ -2934,9 +3219,13 @@ namespace PakViewer
       this.mnuFile.Text = "檔案(&F)";
       this.mnuOpen.Image = (Image) Resources.My_Documents;
       this.mnuOpen.Name = "mnuOpen";
-      this.mnuOpen.Size = new Size(130, 22);
-      this.mnuOpen.Text = "開啟(&O)";
+      this.mnuOpen.Size = new Size(180, 22);
+      this.mnuOpen.Text = "開啟資料夾(&O)";
       this.mnuOpen.Click += new EventHandler(this.mnuOpen_Click);
+      this.mnuOpenSprList.Name = "mnuOpenSprList";
+      this.mnuOpenSprList.Size = new Size(180, 22);
+      this.mnuOpenSprList.Text = "開啟 SPR 列表檔(&S)...";
+      this.mnuOpenSprList.Click += new EventHandler(this.mnuOpenSprList_Click);
       this.toolStripSeparator1.Name = "toolStripSeparator1";
       this.toolStripSeparator1.Size = new Size((int) sbyte.MaxValue, 6);
       this.mnuCreatResource.Name = "mnuCreatResource";
@@ -3135,6 +3424,7 @@ namespace PakViewer
       this.splitContainer1.Panel2.Controls.Add((Control) this.TextViewer);
       this.splitContainer1.Panel2.Controls.Add((Control) this.ImageViewer);
       this.splitContainer1.Panel2.Controls.Add((Control) this.SprViewer);
+      this.splitContainer1.Panel2.Controls.Add((Control) this.SprListViewer);
       this.splitContainer1.Panel2.Controls.Add((Control) this.palContentSearch);
       this.splitContainer1.Size = new Size(792, 520);
       this.splitContainer1.SplitterDistance = 297;
@@ -3218,6 +3508,13 @@ namespace PakViewer
       this.SprViewer.SprFrames = (L1Spr.Frame[]) null;
       this.SprViewer.TabIndex = 3;
       this.SprViewer.Visible = false;
+      this.SprListViewer.AutoScroll = true;
+      this.SprListViewer.BackColor = Color.White;
+      this.SprListViewer.Location = new Point(0, 0);
+      this.SprListViewer.Name = "SprListViewer";
+      this.SprListViewer.Size = new Size(324, 277);
+      this.SprListViewer.TabIndex = 6;
+      this.SprListViewer.Visible = false;
       this.ctxMenu.Items.AddRange(new ToolStripItem[10]
       {
         (ToolStripItem) this.tsmCopyFileName,
@@ -3348,6 +3645,7 @@ namespace PakViewer
       this.palToolbar.Controls.Add((Control) this.lblFolder);
       this.palToolbar.Controls.Add((Control) this.cmbIdxFiles);
       this.palToolbar.Controls.Add((Control) this.chkSpriteMode);
+      this.palToolbar.Controls.Add((Control) this.chkSprListMode);
       this.palToolbar.Dock = DockStyle.Top;
       this.palToolbar.Location = new Point(0, 24);
       this.palToolbar.Name = "palToolbar";
@@ -3376,6 +3674,14 @@ namespace PakViewer
       this.chkSpriteMode.TabIndex = 2;
       this.chkSpriteMode.Text = "Sprite 模式";
       this.chkSpriteMode.CheckedChanged += new EventHandler(this.chkSpriteMode_CheckedChanged);
+      // chkSprListMode
+      this.chkSprListMode.AutoSize = true;
+      this.chkSprListMode.Location = new Point(395, 27);
+      this.chkSprListMode.Name = "chkSprListMode";
+      this.chkSprListMode.Size = new Size(100, 16);
+      this.chkSprListMode.TabIndex = 3;
+      this.chkSprListMode.Text = "List SPR 模式";
+      this.chkSprListMode.CheckedChanged += new EventHandler(this.chkSprListMode_CheckedChanged);
       // palContentSearch
       this.palContentSearch.Controls.Add((Control) this.lblContentSearch);
       this.palContentSearch.Controls.Add((Control) this.txtContentSearch);
@@ -3566,6 +3872,7 @@ namespace PakViewer
       SPR,
       TIL,
       TBT,
+      SprList,  // SPR 列表模式
     }
 
     // Sprite 分組類別
