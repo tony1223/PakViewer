@@ -715,6 +715,113 @@ namespace PakViewer
             File.WriteAllBytes(idxFile, finalData);
         }
 
+        /// <summary>
+        /// Delete files from PAK (core function for GUI use)
+        /// </summary>
+        /// <param name="idxFile">Path to the IDX file</param>
+        /// <param name="pakFile">Path to the PAK file</param>
+        /// <param name="records">Array of index records</param>
+        /// <param name="indicesToDelete">Array of indices to delete</param>
+        /// <param name="isProtected">Whether the PAK is L1 protected</param>
+        /// <returns>Tuple of (error message or null, new records array or null)</returns>
+        public static (string error, L1PakTools.IndexRecord[] newRecords) DeleteFilesCore(
+            string idxFile, string pakFile, L1PakTools.IndexRecord[] records, int[] indicesToDelete, bool isProtected)
+        {
+            // Create backup files
+            string pakBackup = pakFile + ".bak";
+            string idxBackup = idxFile + ".bak";
+
+            if (File.Exists(pakBackup)) File.Delete(pakBackup);
+            if (File.Exists(idxBackup)) File.Delete(idxBackup);
+
+            File.Copy(pakFile, pakBackup);
+            File.Copy(idxFile, idxBackup);
+
+            try
+            {
+                // Read entire PAK file
+                byte[] pakData = File.ReadAllBytes(pakFile);
+
+                // Create new records list (excluding deleted files)
+                var newRecordsList = new System.Collections.Generic.List<L1PakTools.IndexRecord>();
+                var deleteIndices = new System.Collections.Generic.HashSet<int>(indicesToDelete);
+
+                for (int i = 0; i < records.Length; i++)
+                {
+                    if (!deleteIndices.Contains(i))
+                    {
+                        newRecordsList.Add(records[i]);
+                    }
+                }
+
+                // Build new PAK file data by copying segments
+                var newPakData = new System.Collections.Generic.List<byte>();
+                int currentOffset = 0;
+
+                for (int i = 0; i < records.Length; i++)
+                {
+                    var rec = records[i];
+
+                    // Check if this is a file to delete
+                    bool shouldDelete = deleteIndices.Contains(i);
+
+                    if (!shouldDelete)
+                    {
+                        // Copy data from PAK
+                        byte[] fileData = new byte[rec.FileSize];
+                        Array.Copy(pakData, rec.Offset, fileData, 0, rec.FileSize);
+                        newPakData.AddRange(fileData);
+
+                        // Update offset for this record
+                        int recordIndex = newRecordsList.FindIndex(r =>
+                            r.FileName == rec.FileName &&
+                            r.Offset == rec.Offset &&
+                            r.FileSize == rec.FileSize);
+
+                        if (recordIndex >= 0)
+                        {
+                            newRecordsList[recordIndex] = new L1PakTools.IndexRecord(
+                                rec.FileName,
+                                rec.FileSize,
+                                currentOffset
+                            );
+                        }
+
+                        currentOffset += rec.FileSize;
+                    }
+                }
+
+                // Write new PAK file
+                File.WriteAllBytes(pakFile, newPakData.ToArray());
+
+                // Rebuild IDX file
+                var newRecordsArray = newRecordsList.ToArray();
+                RebuildIndex(idxFile, newRecordsArray, isProtected);
+
+                // Delete backups on success
+                File.Delete(pakBackup);
+                File.Delete(idxBackup);
+
+                return (null, newRecordsArray);
+            }
+            catch (Exception ex)
+            {
+                // Restore from backups
+                if (File.Exists(pakBackup))
+                {
+                    File.Copy(pakBackup, pakFile, true);
+                    File.Delete(pakBackup);
+                }
+                if (File.Exists(idxBackup))
+                {
+                    File.Copy(idxBackup, idxFile, true);
+                    File.Delete(idxBackup);
+                }
+
+                return (ex.Message, null);
+            }
+        }
+
         static void DeleteFiles(string idxFile, string[] filesToDelete)
         {
             var result = LoadIndex(idxFile);

@@ -225,12 +225,14 @@ namespace PakViewer.Utility
       public int Offset;
       public string FileName;
       public int FileSize;
+      public string SourcePak;  // 來源 PAK 檔案路徑（用於 Sprite 模式）
 
       public IndexRecord(byte[] data, int index)
       {
         this.Offset = BitConverter.ToInt32(data, index);
         this.FileName = Encoding.Default.GetString(data, index + 4, 20).TrimEnd(new char[1]);
         this.FileSize = BitConverter.ToInt32(data, index + 24);
+        this.SourcePak = null;
       }
 
       public IndexRecord(string filename, int size, int offset)
@@ -238,6 +240,15 @@ namespace PakViewer.Utility
         this.Offset = offset;
         this.FileName = filename;
         this.FileSize = size;
+        this.SourcePak = null;
+      }
+
+      public IndexRecord(string filename, int size, int offset, string sourcePak)
+      {
+        this.Offset = offset;
+        this.FileName = filename;
+        this.FileSize = size;
+        this.SourcePak = sourcePak;
       }
     }
   }
