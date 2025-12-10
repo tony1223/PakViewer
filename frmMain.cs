@@ -43,7 +43,7 @@ namespace PakViewer
     private ToolStripSeparator toolStripSeparator2;
     private ToolStripMenuItem mnuLanguage;
     private ToolStripMenuItem mnuTools;
-    private TextBox TextViewer;
+    private RichTextBox TextViewer;
     private ToolStripMenuItem mnuOpen;
     private ToolStripMenuItem mnuFiller;
     private ToolStripMenuItem mnuFiller_Text_html;
@@ -113,6 +113,7 @@ namespace PakViewer
     private Label lblLangFilter;
     private ComboBox cmbLangFilter;
     private Button btnSaveText;
+    private Button btnCancelEdit;
     private CheckBox chkSkipSaveConfirm;
     private System.ComponentModel.BackgroundWorker bgSearchWorker;
     private int _CurrentEditingRealIndex = -1;
@@ -506,6 +507,7 @@ namespace PakViewer
       // 重置編輯狀態
       this._TextModified = false;
       this.btnSaveText.Enabled = false;
+      this.btnCancelEdit.Enabled = false;
       this._CurrentEditingRealIndex = -1;
 
       int selectedVirtualIndex = this.lvIndexInfo.SelectedIndices[0];
@@ -1644,6 +1646,7 @@ namespace PakViewer
       {
         this._TextModified = true;
         this.btnSaveText.Enabled = true;
+        this.btnCancelEdit.Enabled = true;
       }
     }
 
@@ -1744,6 +1747,7 @@ namespace PakViewer
 
           this._TextModified = false;
           this.btnSaveText.Enabled = false;
+          this.btnCancelEdit.Enabled = false;
           this.tssMessage.Text = "Saved (rebuilt): " + record.FileName + " [Size: " + record.FileSize + " -> " + newData.Length + "]";
         }
         else
@@ -1757,6 +1761,7 @@ namespace PakViewer
 
           this._TextModified = false;
           this.btnSaveText.Enabled = false;
+          this.btnCancelEdit.Enabled = false;
           this.tssMessage.Text = "Saved: " + record.FileName + (this._IsCurrentFileXmlEncrypted ? " [XML Encrypted]" : "");
         }
       }
@@ -1773,6 +1778,43 @@ namespace PakViewer
       catch (Exception ex)
       {
         MessageBox.Show("儲存檔案時發生錯誤：" + ex.Message, "儲存錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+      }
+    }
+
+    private void btnCancelEdit_Click(object sender, EventArgs e)
+    {
+      if (this._CurrentEditingRealIndex < 0)
+        return;
+
+      L1PakTools.IndexRecord record = this._IndexRecords[this._CurrentEditingRealIndex];
+
+      // 重新載入檔案內容
+      try
+      {
+        string pakFile = this._PackFileName.Replace(".idx", ".pak");
+        using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+          // 暫時移除 TextChanged 事件避免觸發
+          this.TextViewer.TextChanged -= new EventHandler(this.TextViewer_TextChanged);
+
+          object obj = this.LoadPakData_(fs, record);
+          if (obj is string)
+            this.TextViewer.Text = (string) obj;
+          else if (obj is byte[])
+            this.TextViewer.Text = Encoding.GetEncoding("big5").GetString((byte[]) obj);
+
+          // 重新綁定 TextChanged 事件
+          this.TextViewer.TextChanged += new EventHandler(this.TextViewer_TextChanged);
+        }
+
+        this._TextModified = false;
+        this.btnSaveText.Enabled = false;
+        this.btnCancelEdit.Enabled = false;
+        this.tssMessage.Text = "已取消編輯: " + record.FileName;
+      }
+      catch (Exception ex)
+      {
+        MessageBox.Show("重新載入檔案時發生錯誤：" + ex.Message, "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
       }
     }
 
@@ -1884,7 +1926,7 @@ namespace PakViewer
       this.txtSearch = new TextBox();
       this.lvIndexInfo = new ListView();
       this.TextCompViewer = new ucTextCompare();
-      this.TextViewer = new TextBox();
+      this.TextViewer = new RichTextBox();
       this.ImageViewer = new ucImgViewer();
       this.SprViewer = new ucSprViewer();
       this.dlgOpenFolder = new FolderBrowserDialog();
@@ -1923,6 +1965,7 @@ namespace PakViewer
       this.lblLangFilter = new Label();
       this.cmbLangFilter = new ComboBox();
       this.btnSaveText = new Button();
+      this.btnCancelEdit = new Button();
       this.chkSkipSaveConfirm = new CheckBox();
       this.palToolbar.SuspendLayout();
       this.palContentSearch.SuspendLayout();
@@ -2221,13 +2264,13 @@ namespace PakViewer
       this.TextViewer.Location = new Point(0, 0);
       this.TextViewer.Multiline = true;
       this.TextViewer.Name = "TextViewer";
-      this.TextViewer.ScrollBars = ScrollBars.Both;
+      this.TextViewer.ScrollBars = RichTextBoxScrollBars.Both;
       this.TextViewer.Size = new Size(228, 200);
       this.TextViewer.TabIndex = 1;
       this.TextViewer.WordWrap = false;
       this.TextViewer.ReadOnly = false;
-      this.TextViewer.AcceptsReturn = true;
       this.TextViewer.AcceptsTab = true;
+      this.TextViewer.DetectUrls = false;
       this.ImageViewer.AutoScroll = true;
       this.ImageViewer.BackColor = Color.Black;
       this.ImageViewer.BorderStyle = BorderStyle.Fixed3D;
@@ -2396,6 +2439,7 @@ namespace PakViewer
       this.palContentSearch.Controls.Add((Control) this.lblLangFilter);
       this.palContentSearch.Controls.Add((Control) this.cmbLangFilter);
       this.palContentSearch.Controls.Add((Control) this.btnSaveText);
+      this.palContentSearch.Controls.Add((Control) this.btnCancelEdit);
       this.palContentSearch.Controls.Add((Control) this.chkSkipSaveConfirm);
       this.palContentSearch.Dock = DockStyle.Top;
       this.palContentSearch.Location = new Point(0, 0);
@@ -2479,9 +2523,18 @@ namespace PakViewer
       this.btnSaveText.UseVisualStyleBackColor = true;
       this.btnSaveText.Enabled = false;
       this.btnSaveText.Click += new EventHandler(this.btnSaveText_Click);
+      // btnCancelEdit (第二排右側，儲存按鈕旁邊)
+      this.btnCancelEdit.Location = new Point(318, 33);
+      this.btnCancelEdit.Name = "btnCancelEdit";
+      this.btnCancelEdit.Size = new Size(50, 25);
+      this.btnCancelEdit.TabIndex = 9;
+      this.btnCancelEdit.Text = "取消";
+      this.btnCancelEdit.UseVisualStyleBackColor = true;
+      this.btnCancelEdit.Enabled = false;
+      this.btnCancelEdit.Click += new EventHandler(this.btnCancelEdit_Click);
       // chkSkipSaveConfirm (第二排右側)
       this.chkSkipSaveConfirm.AutoSize = true;
-      this.chkSkipSaveConfirm.Location = new Point(318, 38);
+      this.chkSkipSaveConfirm.Location = new Point(373, 38);
       this.chkSkipSaveConfirm.Name = "chkSkipSaveConfirm";
       this.chkSkipSaveConfirm.Size = new Size(100, 16);
       this.chkSkipSaveConfirm.TabIndex = 9;
