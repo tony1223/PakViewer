@@ -32,6 +32,11 @@ namespace PakViewer.Models
         public int? TypeId => GetAttributeIntValue(102);
         public int? AttrValue => GetAttributeIntValue(104);
 
+        /// <summary>
+        /// 圖檔編號：有指定 LinkedId 時用 LinkedId，否則用自身 Id
+        /// </summary>
+        public int SpriteId => LinkedId ?? Id;
+
         public string TypeName
         {
             get

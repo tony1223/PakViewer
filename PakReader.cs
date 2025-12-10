@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -68,6 +69,13 @@ namespace PakViewer
                 case "sprlist":
                     if (args.Length < 2) { ShowHelp(); return; }
                     ParseSprList(args[1], args.Length > 2 ? args[2] : null);
+                    break;
+
+                case "sprtest":
+                    // 測試 sprite 載入: sprtest <client_folder> <sprite_key>
+                    // 例如: sprtest "C:\lineage\client" "3225-5"
+                    if (args.Length < 3) { Console.WriteLine("Usage: sprtest <client_folder> <sprite_key>"); return; }
+                    TestSpriteLoad(args[1], args[2]);
                     break;
 
                 default:
@@ -1321,6 +1329,161 @@ namespace PakViewer
             {
                 Console.WriteLine($"Error: {ex.Message}");
                 Console.WriteLine(ex.StackTrace);
+            }
+        }
+
+        static void TestSpriteLoad(string clientFolder, string spriteKey)
+        {
+            Console.WriteLine($"Testing sprite load:");
+            Console.WriteLine($"  Client folder: {clientFolder}");
+            Console.WriteLine($"  Sprite key: {spriteKey}");
+            Console.WriteLine();
+
+            // 建立字典 (模擬 LoadSpriteIdxForSprList)
+            var spriteRecords = new Dictionary<string, (L1PakTools.IndexRecord record, string pakFile, bool isProtected)>();
+
+            // 找到所有 Sprite*.idx 檔案
+            string[] spriteFiles = Directory.GetFiles(clientFolder, "Sprite*.idx", SearchOption.TopDirectoryOnly);
+            Console.WriteLine($"Found {spriteFiles.Length} Sprite*.idx files:");
+            foreach (var f in spriteFiles)
+            {
+                Console.WriteLine($"  - {Path.GetFileName(f)}");
+            }
+
+            if (spriteFiles.Length == 0)
+            {
+                Console.WriteLine("ERROR: No Sprite*.idx files found!");
+                return;
+            }
+
+            foreach (string idxFile in spriteFiles)
+            {
+                string pakFile = idxFile.Replace(".idx", ".pak");
+                if (!File.Exists(pakFile))
+                {
+                    Console.WriteLine($"  WARNING: {pakFile} not found, skipping");
+                    continue;
+                }
+
+                byte[] indexData = File.ReadAllBytes(idxFile);
+                int recordCount = (indexData.Length - 4) / 28;
+
+                if (indexData.Length < 32 || (indexData.Length - 4) % 28 != 0)
+                {
+                    Console.WriteLine($"  WARNING: {idxFile} invalid format, skipping");
+                    continue;
+                }
+
+                if ((long)BitConverter.ToUInt32(indexData, 0) != (long)recordCount)
+                {
+                    Console.WriteLine($"  WARNING: {idxFile} record count mismatch, skipping");
+                    continue;
+                }
+
+                bool isProtected = false;
+                if (!System.Text.RegularExpressions.Regex.IsMatch(
+                    System.Text.Encoding.Default.GetString(indexData, 8, 20),
+                    "^([a-zA-Z0-9_\\-\\.']+)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    var firstRecord = L1PakTools.Decode_Index_FirstRecord(indexData);
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(
+                        firstRecord.FileName,
+                        "^([a-zA-Z0-9_\\-\\.']+)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    {
+                        Console.WriteLine($"  WARNING: {idxFile} encrypted but can't decode, skipping");
+                        continue;
+                    }
+                    isProtected = true;
+                    indexData = L1PakTools.Decode(indexData, 4);
+                }
+
+                // 解析 records
+                int count = BitConverter.ToInt32(indexData, 0);
+                Console.WriteLine($"  {Path.GetFileName(idxFile)}: {count} records, protected={isProtected}");
+
+                for (int i = 0; i < count; i++)
+                {
+                    int idx = 4 + i * 28;
+                    // 正確順序: Offset(4) + FileName(20) + FileSize(4) = 28 bytes
+                    int recordOffset = BitConverter.ToInt32(indexData, idx);
+                    string fileName = System.Text.Encoding.Default.GetString(indexData, idx + 4, 20).TrimEnd('\0');
+                    int fileSize = BitConverter.ToInt32(indexData, idx + 24);
+                    string key = Path.GetFileNameWithoutExtension(fileName);
+
+                    var record = new L1PakTools.IndexRecord(fileName, fileSize, recordOffset);
+                    spriteRecords[key] = (record, pakFile, isProtected);
+                }
+            }
+
+            Console.WriteLine();
+            Console.WriteLine($"Total sprite records: {spriteRecords.Count}");
+
+            // 測試查找
+            Console.WriteLine();
+            Console.WriteLine($"Looking up key: '{spriteKey}'");
+
+            if (spriteRecords.TryGetValue(spriteKey, out var info))
+            {
+                Console.WriteLine($"  FOUND!");
+                Console.WriteLine($"  FileName: {info.record.FileName}");
+                Console.WriteLine($"  FileSize: {info.record.FileSize}");
+                Console.WriteLine($"  Offset: 0x{info.record.Offset:X}");
+                Console.WriteLine($"  PakFile: {info.pakFile}");
+                Console.WriteLine($"  Protected: {info.isProtected}");
+
+                // 嘗試讀取
+                Console.WriteLine();
+                Console.WriteLine("Attempting to read sprite data...");
+                try
+                {
+                    using (var fs = new FileStream(info.pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        byte[] data = new byte[info.record.FileSize];
+                        fs.Seek(info.record.Offset, SeekOrigin.Begin);
+                        fs.Read(data, 0, info.record.FileSize);
+
+                        if (info.isProtected)
+                        {
+                            data = L1PakTools.Decode(data, 0);
+                        }
+
+                        Console.WriteLine($"  Read {data.Length} bytes");
+
+                        // 嘗試解析 SPR
+                        var frames = L1Spr.Load(data);
+                        if (frames != null && frames.Length > 0)
+                        {
+                            Console.WriteLine($"  SUCCESS! Loaded {frames.Length} frames");
+                            Console.WriteLine($"  First frame: {frames[0].width}x{frames[0].height}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"  WARNING: L1Spr.Load returned null or empty");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  ERROR reading: {ex.Message}");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"  NOT FOUND!");
+
+                // 顯示一些相似的 key
+                Console.WriteLine();
+                Console.WriteLine("Similar keys in dictionary:");
+                var similar = spriteRecords.Keys
+                    .Where(k => k.StartsWith(spriteKey.Split('-')[0]))
+                    .Take(10)
+                    .ToList();
+                foreach (var k in similar)
+                {
+                    Console.WriteLine($"  - {k}");
+                }
             }
         }
     }

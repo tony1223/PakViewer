@@ -32,6 +32,8 @@ namespace PakViewer
     private frmMain.InviewDataType _InviewData;
     private bool _IsSpriteMode = false;
     private Dictionary<string, (L1PakTools.IndexRecord[] records, bool isProtected)> _SpritePackages;
+    // SPR List 模式用的 Sprite 資料映射 (檔名如 "3227-5" -> Record)
+    private Dictionary<string, (L1PakTools.IndexRecord record, string pakFile, bool isProtected)> _SprListSpriteRecords;
     // Sprite 分組相關
     private List<SpriteGroup> _SpriteGroups;
     private List<object> _SpriteDisplayItems; // 可以是 SpriteGroup 或 int (realIndex)
@@ -231,6 +233,13 @@ namespace PakViewer
         selectIndex = 0;
       }
       this.cmbIdxFiles.SelectedIndex = selectIndex;
+
+      // 如果有上次的 SPR List 檔案，自動勾選 List SPR 模式
+      string lastSprListFile = Settings.Default.LastSprListFile;
+      if (!string.IsNullOrEmpty(lastSprListFile) && File.Exists(lastSprListFile))
+      {
+        this.chkSprListMode.Checked = true;
+      }
     }
 
     private void mnuOpen_Click(object sender, EventArgs e)
@@ -313,6 +322,7 @@ namespace PakViewer
           this.lvIndexInfo.Columns.Clear();
           this.lvIndexInfo.Columns.Add("ID", 60, HorizontalAlignment.Right);
           this.lvIndexInfo.Columns.Add("名稱", 120, HorizontalAlignment.Left);
+          this.lvIndexInfo.Columns.Add("圖檔", 60, HorizontalAlignment.Right);
           this.lvIndexInfo.Columns.Add("圖數", 50, HorizontalAlignment.Right);
           this.lvIndexInfo.Columns.Add("類型", 80, HorizontalAlignment.Left);
           this.lvIndexInfo.Columns.Add("動作", 50, HorizontalAlignment.Right);
@@ -321,14 +331,17 @@ namespace PakViewer
           this.lvIndexInfo.VirtualListSize = this._FilteredSprListEntries.Count;
           this.lvIndexInfo.Invalidate();
 
-          // 設定 SPR 資料提供者
-          if (this.SprActionViewer != null)
+          // 載入 Sprite*.idx (從已開啟的客戶端資料夾)
+          if (!string.IsNullOrEmpty(this._SelectedFolder))
           {
-            this.SprActionViewer.SetSpriteDataProvider(this.GetSpriteDataForEntry);
+            LoadSpriteIdxForSprList(this._SelectedFolder);
           }
 
-          // 顯示動作檢視器
+          // 顯示動作檢視器 (這會建立 SprActionViewer 如果還不存在)
           this.ShowSprActionViewer();
+
+          // 設定 SPR 資料提供者 (必須在 ShowSprActionViewer 之後)
+          this.SprActionViewer.SetSpriteDataProvider(this.GetSpriteDataByKey);
 
           // 儲存最後開啟的檔案路徑
           this._LastSprListFile = dlg.FileName;
@@ -338,7 +351,8 @@ namespace PakViewer
           // 更新勾選狀態
           this.chkSprListMode.Checked = true;
 
-          this.tssMessage.Text = $"已載入 SPR 列表: {Path.GetFileName(dlg.FileName)} ({this._SprListFile.Entries.Count} 條目)";
+          int spriteCount = this._SprListSpriteRecords?.Count ?? 0;
+          this.tssMessage.Text = $"已載入 SPR 列表: {Path.GetFileName(dlg.FileName)} ({this._SprListFile.Entries.Count} 條目, {spriteCount} 圖檔)";
           this.tssRecordCount.Text = $"Records:{this._SprListFile.Entries.Count}";
           this.tssShowInListView.Text = $"Shown:{this._FilteredSprListEntries.Count}";
         }
@@ -525,10 +539,17 @@ namespace PakViewer
         this._IsSprListMode = true;
         this._LastSprListFile = filePath;
 
+        // 載入 Sprite*.idx (從已開啟的客戶端資料夾)
+        if (!string.IsNullOrEmpty(this._SelectedFolder))
+        {
+          LoadSpriteIdxForSprList(this._SelectedFolder);
+        }
+
         // 更新左側列表欄位
         this.lvIndexInfo.Columns.Clear();
         this.lvIndexInfo.Columns.Add("ID", 60, HorizontalAlignment.Right);
         this.lvIndexInfo.Columns.Add("名稱", 120, HorizontalAlignment.Left);
+        this.lvIndexInfo.Columns.Add("圖檔", 60, HorizontalAlignment.Right);
         this.lvIndexInfo.Columns.Add("圖數", 50, HorizontalAlignment.Right);
         this.lvIndexInfo.Columns.Add("類型", 80, HorizontalAlignment.Left);
         this.lvIndexInfo.Columns.Add("動作", 50, HorizontalAlignment.Right);
@@ -537,21 +558,19 @@ namespace PakViewer
         this.lvIndexInfo.VirtualListSize = this._FilteredSprListEntries.Count;
         this.lvIndexInfo.Invalidate();
 
-        // 設定 SPR 資料提供者
-        if (this.SprActionViewer != null)
-        {
-          this.SprActionViewer.SetSpriteDataProvider(this.GetSpriteDataForEntry);
-        }
-
-        // 顯示動作檢視器
+        // 顯示動作檢視器 (這會建立 SprActionViewer 如果還不存在)
         this.ShowSprActionViewer();
+
+        // 設定 SPR 資料提供者 (必須在 ShowSprActionViewer 之後)
+        this.SprActionViewer.SetSpriteDataProvider(this.GetSpriteDataByKey);
 
         // 更新勾選狀態 (避免重複觸發事件)
         this.chkSprListMode.CheckedChanged -= new EventHandler(this.chkSprListMode_CheckedChanged);
         this.chkSprListMode.Checked = true;
         this.chkSprListMode.CheckedChanged += new EventHandler(this.chkSprListMode_CheckedChanged);
 
-        this.tssMessage.Text = $"已載入 SPR 列表: {Path.GetFileName(filePath)} ({this._SprListFile.Entries.Count} 條目)";
+        int spriteCount = this._SprListSpriteRecords?.Count ?? 0;
+        this.tssMessage.Text = $"已載入 SPR 列表: {Path.GetFileName(filePath)} ({this._SprListFile.Entries.Count} 條目, {spriteCount} 圖檔)";
         this.tssRecordCount.Text = $"Records:{this._SprListFile.Entries.Count}";
         this.tssShowInListView.Text = $"Shown:{this._FilteredSprListEntries.Count}";
       }
@@ -563,6 +582,89 @@ namespace PakViewer
       finally
       {
         this.Cursor = Cursors.Default;
+      }
+    }
+
+    private void LoadSpriteIdxForSprList(string folder)
+    {
+      // 清空舊資料
+      this._SprListSpriteRecords = new Dictionary<string, (L1PakTools.IndexRecord record, string pakFile, bool isProtected)>();
+
+      if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+      {
+        this.tssMessage.Text = $"LoadSpriteIdx: 資料夾無效 ({folder ?? "null"})";
+        return;
+      }
+
+      // 找到所有 Sprite*.idx 檔案
+      string[] spriteFiles = Directory.GetFiles(folder, "Sprite*.idx", SearchOption.TopDirectoryOnly);
+      if (spriteFiles.Length == 0)
+      {
+        this.tssMessage.Text = $"LoadSpriteIdx: 找不到 Sprite*.idx (在 {folder})";
+        return;
+      }
+
+      foreach (string idxFile in spriteFiles)
+      {
+        string pakFile = idxFile.Replace(".idx", ".pak");
+        if (!File.Exists(pakFile))
+          continue;
+
+        // 載入並判斷是否加密 (使用與 LoadIndexData 相同的邏輯)
+        byte[] indexData = File.ReadAllBytes(idxFile);
+        int recordCount = (indexData.Length - 4) / 28;
+        if (indexData.Length < 32 || (indexData.Length - 4) % 28 != 0)
+          continue;
+        if ((long) BitConverter.ToUInt32(indexData, 0) != (long) recordCount)
+          continue;
+
+        bool isProtected = false;
+        if (!Regex.IsMatch(Encoding.Default.GetString(indexData, 8, 20), "^([a-zA-Z0-9_\\-\\.']+)", RegexOptions.IgnoreCase))
+        {
+          if (!Regex.IsMatch(L1PakTools.Decode_Index_FirstRecord(indexData).FileName, "^([a-zA-Z0-9_\\-\\.']+)", RegexOptions.IgnoreCase))
+            continue;
+          isProtected = true;
+          indexData = L1PakTools.Decode(indexData, 4);
+        }
+
+        // 直接解析 records (不使用 CreatIndexRecords，因為它依賴 _IsPackFileProtected)
+        int startOffset = isProtected ? 0 : 4;
+        int recordCount2 = (indexData.Length - startOffset) / 28;
+
+        // 建立檔名 -> Record 的映射
+        // 檔名格式: "3227-5.spr" -> key = "3227-5"
+        for (int i = 0; i < recordCount2; i++)
+        {
+          int idx = startOffset + i * 28;
+          var record = new L1PakTools.IndexRecord(indexData, idx);
+          string key = Path.GetFileNameWithoutExtension(record.FileName);
+          this._SprListSpriteRecords[key] = (record, pakFile, isProtected);
+        }
+      }
+    }
+
+    private byte[] GetSpriteDataByKey(string spriteKey)
+    {
+      if (this._SprListSpriteRecords == null || !this._SprListSpriteRecords.TryGetValue(spriteKey, out var info))
+        return null;
+
+      try
+      {
+        using (var fs = new FileStream(info.pakFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+          byte[] data = new byte[info.record.FileSize];
+          fs.Seek(info.record.Offset, SeekOrigin.Begin);
+          fs.Read(data, 0, info.record.FileSize);
+          if (info.isProtected)
+          {
+            data = L1PakTools.Decode(data, 0);
+          }
+          return data;
+        }
+      }
+      catch
+      {
+        return null;
       }
     }
 
@@ -1182,6 +1284,7 @@ namespace PakViewer
         var entry = this._FilteredSprListEntries[e.ItemIndex];
         var listItem = new ListViewItem(entry.Id.ToString());
         listItem.SubItems.Add(entry.Name);
+        listItem.SubItems.Add(entry.SpriteId.ToString());  // 圖檔編號
         listItem.SubItems.Add(entry.ImageCount.ToString());
         listItem.SubItems.Add(entry.TypeName);
         listItem.SubItems.Add(entry.Actions.Count.ToString());

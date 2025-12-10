@@ -28,29 +28,35 @@ namespace PakViewer
 
         // 動畫相關
         private L1Spr.Frame[] _currentFrames;
-        private Func<int, byte[]> _getSpriteDataFunc;
+        private Func<string, byte[]> _getSpriteDataFunc;  // 參數是 "spriteId-direction" 格式
 
         // 展開面板的動畫狀態
         private int _currentFrameIndex;
         private List<Panel> _frameBoxes = new List<Panel>();
         private Panel _highlightBox;
-        private int _selectedDirection = 4; // 預設向下 (0=上, 1=右上, 2=右, 3=右下, 4=下, 5=左下, 6=左, 7=左上)
+        private int _selectedDirection = 5; // 預設向下 (0=左上, 1=上, 2=右上, 3=右, 4=右下, 5=下, 6=左下, 7=左)
         private List<Button> _directionButtons = new List<Button>();
+
+        // 圖片預覽區
+        private PictureBox _previewPictureBox;
+        private Panel _previewPanel;
+        private Label _previewInfoLabel;
+        private const int PREVIEW_HEIGHT = 140;  // 增加高度以容納資訊標籤
 
         // 常數
         private const int FRAME_BOX_WIDTH = 50;
         private const int FRAME_BOX_HEIGHT = 36;
         private const int FRAME_BOX_MARGIN = 1;
 
-        // 動畫時間參數：1 單位時間 = 1/24 秒 ≈ 41.67ms
-        private const double UNIT_TIME_MS = 1000.0 / 24.0;  // 約 41.67ms
+        // 動畫時間參數：1 單位時間 = 1 秒 (可調整)
+        private const double UNIT_TIME_MS = 200.0;  // 1 單位 = 1000ms = 1秒
 
         public ucSprActionViewer()
         {
             InitializeComponent();
         }
 
-        public void SetSpriteDataProvider(Func<int, byte[]> getSpriteDataFunc)
+        public void SetSpriteDataProvider(Func<string, byte[]> getSpriteDataFunc)
         {
             _getSpriteDataFunc = getSpriteDataFunc;
         }
@@ -68,11 +74,13 @@ namespace PakViewer
                 return;
             }
 
-            var info = $"#{entry.Id} {entry.Name} | 圖片:{entry.ImageCount} | 類型:{entry.TypeName} | 動作:{entry.Actions.Count}";
+            var info = $"#{entry.Id} {entry.Name} | 圖檔:{entry.SpriteId} | 圖數:{entry.ImageCount} | 類型:{entry.TypeName} | 動作:{entry.Actions.Count}";
             if (entry.ShadowId.HasValue) info += $" | 影子:#{entry.ShadowId}";
             lblEntryInfo.Text = info;
 
-            LoadSpriteData(entry.Id);
+            // sprite 資料會在展開動作時根據方向載入
+            _currentFrames = null;
+            _loadedSpriteKey = null;
             ShowActions(entry);
         }
 
@@ -127,20 +135,52 @@ namespace PakViewer
             this.ResumeLayout(false);
         }
 
-        private void LoadSpriteData(int entryId)
+        private string _lastLoadError;  // Debug 用
+        private string _loadedSpriteKey;  // 目前載入的 sprite key
+
+        private void LoadSpriteData(int spriteId, int imageId, int direction)
         {
+            // sprite 檔案名稱 = spriteId-{imageId + direction}
+            // 例如：spriteId=3225, imageId=16, direction=4 → 3225-20.spr
+            int subId = imageId + direction;
+            string spriteKey = $"{spriteId}-{subId}";
+
+            // 如果已經載入同一個 sprite，不需要重新載入
+            if (_loadedSpriteKey == spriteKey && _currentFrames != null)
+                return;
+
             _currentFrames = null;
-            if (_getSpriteDataFunc == null) return;
+            _lastLoadError = null;
+            _loadedSpriteKey = null;
+
+            if (_getSpriteDataFunc == null)
+            {
+                _lastLoadError = $"無資料提供者 ({spriteKey})";
+                return;
+            }
 
             try
             {
-                var sprData = _getSpriteDataFunc(entryId);
-                if (sprData != null)
+                var sprData = _getSpriteDataFunc(spriteKey);
+                if (sprData == null)
                 {
-                    _currentFrames = L1Spr.Load(sprData);
+                    _lastLoadError = $"找不到 {spriteKey}.spr";
+                    return;
+                }
+                _currentFrames = L1Spr.Load(sprData);
+                if (_currentFrames == null || _currentFrames.Length == 0)
+                {
+                    _lastLoadError = $"{spriteKey}.spr 解析失敗";
+                }
+                else
+                {
+                    _loadedSpriteKey = spriteKey;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _lastLoadError = $"載入錯誤: {ex.Message}";
+            }
         }
 
         private void ShowActions(SprListEntry entry)
@@ -321,6 +361,9 @@ namespace PakViewer
             _frameBoxes.Clear();
             _highlightBox = null;
             _directionButtons.Clear();
+            _previewPictureBox = null;
+            _previewPanel = null;
+            _previewInfoLabel = null;
         }
 
         private void ExpandPanel(Panel panel, SprListEntry entry, SprAction action)
@@ -357,11 +400,12 @@ namespace PakViewer
                 // 方向選擇器 (3x3 九宮格) - 只顯示數字 0-7
                 int btnSize = 24;
                 int gridStartX = 4;
+                // 方向: 0=左上, 1=上, 2=右上, 3=右, 4=右下, 5=下, 6=左下, 7=左 (從左上順時針)
                 var dirPositions = new (int dir, int col, int row)[]
                 {
-                    (7, 0, 0), (0, 1, 0), (1, 2, 0),
-                    (6, 0, 1), (-1, 1, 1), (2, 2, 1),  // -1 = 中間空白
-                    (5, 0, 2), (4, 1, 2), (3, 2, 2),
+                    (0, 0, 0), (1, 1, 0), (2, 2, 0),   // 左上, 上, 右上
+                    (7, 0, 1), (-1, 1, 1), (3, 2, 1),  // 左, 中間空白, 右
+                    (6, 0, 2), (5, 1, 2), (4, 2, 2),   // 左下, 下, 右下
                 };
 
                 foreach (var (dir, col, row) in dirPositions)
@@ -404,14 +448,18 @@ namespace PakViewer
                 for (int i = 0; i < action.Frames.Count; i++)
                 {
                     var frame = action.Frames[i];
-                    var frameBox = CreateFrameBox(frame, i);
+                    var frameBox = CreateFrameBox(frame, i, _selectedDirection);  // 傳入當前方向
                     frameBox.Location = new Point(xPos, 2);
                     frameContainer.Controls.Add(frameBox);
                     _frameBoxes.Add(frameBox);
                     xPos += FRAME_BOX_WIDTH + FRAME_BOX_MARGIN;
                 }
 
-                panel.Height = containerY + containerHeight + 4;
+                // 圖片預覽區 (在幀格子下方)
+                int previewY = containerY + containerHeight + 4;
+                CreatePreviewPanel(panel, 4, previewY, width - 8);
+
+                panel.Height = previewY + PREVIEW_HEIGHT + 8;
             }
             else
             {
@@ -440,14 +488,18 @@ namespace PakViewer
 
                 panel.Controls.Add(frameContainer);
 
-                panel.Height = startY + containerHeight + 8;
+                // 圖片預覽區 (在幀格子下方)
+                int previewY = startY + containerHeight + 4;
+                CreatePreviewPanel(panel, 4, previewY, width - 8);
+
+                panel.Height = previewY + PREVIEW_HEIGHT + 8;
             }
 
             // 開始動畫
             timerAnimation.Start();
         }
 
-        private Panel CreateFrameBox(SprFrame frame, int index)
+        private Panel CreateFrameBox(SprFrame frame, int index, int direction = -1)
         {
             var box = new Panel
             {
@@ -458,14 +510,25 @@ namespace PakViewer
                 Tag = index
             };
 
-            // 上層：幀編號 (例如 "0.0")
-            // 如果有音效，顯示音效圖示
-            var topText = $"{frame.ImageId}.{frame.FrameIndex}";
+            // 上層：幀編號
+            // 顯示 "{ImageId+direction}.{FrameIndex}" (實際的 sprite 子編號)
+            // 有向動作: ImageId + direction (例如 ImageId=32, direction=4 → 36.0)
+            // 無向動作: ImageId (例如 32.0)
+            int subId = direction >= 0 ? frame.ImageId + direction : frame.ImageId;
+            string topText = $"{subId}.{frame.FrameIndex}";
+
+            // 特殊符號：
+            // [XXX = 播放音效 XXX
+            // ]XXX = 疊加顯示圖檔 XXX
+            // ! = 觸發對方被打動作/聲音
             if (frame.SoundIds.Count > 0)
             {
-                topText += $"[{frame.SoundIds[0]}]";
+                topText += $"[{frame.SoundIds[0]}";
             }
-            // 其他修飾符
+            if (frame.OverlayIds.Count > 0)
+            {
+                topText += $"]{frame.OverlayIds[0]}";
+            }
             if (frame.TriggerHit) topText += "!";
 
             var lblTop = new Label
@@ -495,7 +558,15 @@ namespace PakViewer
 
             // ToolTip 顯示完整資訊
             var tip = new ToolTip();
-            var tipText = $"幀 {index}: {frame.ImageId}.{frame.FrameIndex}\n";
+            string tipText;
+            if (direction >= 0)
+            {
+                tipText = $"幀 {index}: 方向{direction}.{frame.FrameIndex}\n";
+            }
+            else
+            {
+                tipText = $"幀 {index}: {frame.ImageId}.{frame.FrameIndex}\n";
+            }
             tipText += $"持續: {frame.Duration} 單位 = {durationMs:F0}ms ({seconds:F3}秒)";
             if (frame.SoundIds.Count > 0) tipText += $"\n聲音: [{string.Join(", ", frame.SoundIds)}]";
             if (frame.TriggerHit) tipText += "\n觸發攻擊 (!)";
@@ -504,6 +575,114 @@ namespace PakViewer
             tip.SetToolTip(box, tipText);
 
             return box;
+        }
+
+        private void CreatePreviewPanel(Panel parentPanel, int x, int y, int width)
+        {
+            // 預覽區外框
+            _previewPanel = new Panel
+            {
+                Location = new Point(x, y),
+                Size = new Size(width, PREVIEW_HEIGHT),
+                BackColor = Color.FromArgb(30, 30, 33),
+                BorderStyle = BorderStyle.FixedSingle,
+                Tag = "previewPanel"
+            };
+
+            // 圖片顯示 (上方區域)
+            _previewPictureBox = new PictureBox
+            {
+                Location = new Point(0, 0),
+                Size = new Size(width - 2, PREVIEW_HEIGHT - 24),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = Color.Transparent
+            };
+            _previewPanel.Controls.Add(_previewPictureBox);
+
+            // 圖檔資訊標籤 (底部)
+            _previewInfoLabel = new Label
+            {
+                Location = new Point(0, PREVIEW_HEIGHT - 24),
+                Size = new Size(width - 2, 22),
+                ForeColor = Color.LightGreen,
+                BackColor = Color.FromArgb(25, 25, 28),
+                Font = new Font("Consolas", 9),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Text = "載入中..."
+            };
+            _previewPanel.Controls.Add(_previewInfoLabel);
+
+            parentPanel.Controls.Add(_previewPanel);
+
+            // 初始顯示第一幀
+            UpdatePreviewImage(0);
+        }
+
+        private void UpdatePreviewImage(int frameIndex)
+        {
+            if (_previewPictureBox == null) return;
+
+            if (_expandedAction == null)
+            {
+                if (_previewInfoLabel != null) _previewInfoLabel.Text = "錯誤: 無動作";
+                return;
+            }
+            if (_currentEntry == null)
+            {
+                if (_previewInfoLabel != null) _previewInfoLabel.Text = "錯誤: 無條目";
+                return;
+            }
+
+            if (frameIndex < 0 || frameIndex >= _expandedAction.Frames.Count)
+            {
+                _previewPictureBox.Image = null;
+                if (_previewInfoLabel != null) _previewInfoLabel.Text = $"錯誤: 幀索引 {frameIndex} 超出範圍";
+                return;
+            }
+
+            var sprFrame = _expandedAction.Frames[frameIndex];
+
+            // sprite 檔案名稱 = spriteId-{ImageId + direction}
+            // 例如：spriteId=3225, ImageId=16, direction=4 → 3225-20.spr
+            int direction = _expandedAction.IsDirectional ? _selectedDirection : 0;
+            int subId = sprFrame.ImageId + direction;
+
+            // 載入對應的 sprite 資料
+            LoadSpriteData(_currentEntry.SpriteId, sprFrame.ImageId, direction);
+
+            if (_currentFrames == null)
+            {
+                if (_previewInfoLabel != null) _previewInfoLabel.Text = _lastLoadError ?? "錯誤: 無圖檔資料";
+                return;
+            }
+
+            // 實際的圖片索引就是 FrameIndex
+            int actualFrameIndex = sprFrame.FrameIndex;
+
+            // 更新資訊標籤: SpriteId-subId #幀索引
+            if (_previewInfoLabel != null)
+            {
+                _previewInfoLabel.Text = $"{_currentEntry.SpriteId}-{subId} #{actualFrameIndex}";
+            }
+
+            // 確保索引在範圍內
+            if (actualFrameIndex < 0 || actualFrameIndex >= _currentFrames.Length)
+            {
+                _previewPictureBox.Image = null;
+                if (_previewInfoLabel != null)
+                    _previewInfoLabel.Text = $"{_currentEntry.SpriteId}-{subId} #? (超出範圍 {actualFrameIndex}/{_currentFrames.Length})";
+                return;
+            }
+
+            try
+            {
+                var frame = _currentFrames[actualFrameIndex];
+                _previewPictureBox.Image = frame.image;
+            }
+            catch
+            {
+                _previewPictureBox.Image = null;
+            }
         }
 
         private void DirectionButton_Click(object sender, EventArgs e)
@@ -558,12 +737,15 @@ namespace PakViewer
             for (int i = 0; i < _expandedAction.Frames.Count; i++)
             {
                 var frame = _expandedAction.Frames[i];
-                var frameBox = CreateFrameBox(frame, i);
+                var frameBox = CreateFrameBox(frame, i, _selectedDirection);  // 傳入當前方向
                 frameBox.Location = new Point(xPos, 2);
                 frameContainer.Controls.Add(frameBox);
                 _frameBoxes.Add(frameBox);
                 xPos += FRAME_BOX_WIDTH + FRAME_BOX_MARGIN;
             }
+
+            // 方向改變後更新預覽圖片
+            UpdatePreviewImage(0);
 
             // 重新開始動畫
             timerAnimation.Start();
@@ -593,6 +775,9 @@ namespace PakViewer
             {
                 _highlightBox = _frameBoxes[_currentFrameIndex];
                 _highlightBox.BackColor = Color.FromArgb(80, 120, 80);
+
+                // 更新預覽圖片
+                UpdatePreviewImage(_currentFrameIndex);
 
                 // 根據幀的 Duration 調整間隔
                 // Duration 單位時間 = 1/24 秒，例如 Duration=4 → 4/24秒 ≈ 167ms
