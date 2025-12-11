@@ -359,7 +359,7 @@ namespace PakViewer
           this.ShowSprActionViewer();
 
           // 設定 SPR 資料提供者 (必須在 ShowSprActionViewer 之後)
-          this.SprActionViewer.SetSpriteDataProvider(this.GetSpriteDataByKey);
+          this.SprActionViewer.SetSpriteDataProvider(this.GetSpriteDataBySpriteKey);
 
           // 儲存最後開啟的檔案路徑
           this._LastSprListFile = dlg.FileName;
@@ -657,7 +657,7 @@ namespace PakViewer
         this.ShowSprActionViewer();
 
         // 設定 SPR 資料提供者 (必須在 ShowSprActionViewer 之後)
-        this.SprActionViewer.SetSpriteDataProvider(this.GetSpriteDataByKey);
+        this.SprActionViewer.SetSpriteDataProvider(this.GetSpriteDataBySpriteKey);
 
         // 更新勾選狀態 (避免重複觸發事件)
         this.chkSprListMode.CheckedChanged -= new EventHandler(this.chkSprListMode_CheckedChanged);
@@ -738,9 +738,11 @@ namespace PakViewer
       }
     }
 
+    /// <summary>
+    /// 給 Sprite 模式用 (spriteKey 格式: "pakFile|fileName")
+    /// </summary>
     private byte[] GetSpriteDataByKey(string spriteKey)
     {
-      // spriteKey 格式: "pakFile|fileName"
       string[] parts = spriteKey.Split('|');
       if (parts.Length != 2)
         return null;
@@ -748,7 +750,6 @@ namespace PakViewer
       string pakFile = parts[0];
       string fileName = parts[1];
 
-      // 優先從 _SpritePackages 查找 (Sprite 模式)
       if (this._SpritePackages != null && this._SpritePackages.TryGetValue(pakFile, out var packageInfo))
       {
         foreach (var record in packageInfo.records)
@@ -777,7 +778,14 @@ namespace PakViewer
         }
       }
 
-      // 備用: 從 _SprListSpriteRecords 查找 (List SPR 模式)
+      return null;
+    }
+
+    /// <summary>
+    /// 給 SprList 模式用 (spriteKey 格式: "3225-0" spriteId-subId)
+    /// </summary>
+    private byte[] GetSpriteDataBySpriteKey(string spriteKey)
+    {
       if (this._SprListSpriteRecords != null && this._SprListSpriteRecords.TryGetValue(spriteKey, out var info))
       {
         try
