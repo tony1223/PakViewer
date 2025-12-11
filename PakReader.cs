@@ -772,34 +772,22 @@ namespace PakViewer
 
             try
             {
-                Console.WriteLine($"[Delete] PAK: {pakFile}");
-                Console.WriteLine($"[Delete] 原始記錄: {records.Length}, 刪除: {indicesToDelete.Length}, 保留: {keepRecords.Count}");
-
                 // 寫入新 PAK
                 var newRecords = new System.Collections.Generic.List<L1PakTools.IndexRecord>();
                 int currentOffset = 0;
-                long totalBytesWritten = 0;
 
                 using (var srcStream = new FileStream(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 using (var dstStream = new FileStream(tempPakFile, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
-                    Console.WriteLine($"[Delete] 原始 PAK 大小: {srcStream.Length}");
-
                     foreach (var rec in keepRecords)
                     {
                         // 從原始 PAK 讀取檔案資料
                         byte[] fileData = new byte[rec.FileSize];
                         srcStream.Seek(rec.Offset, SeekOrigin.Begin);
-                        int bytesRead = srcStream.Read(fileData, 0, rec.FileSize);
-
-                        if (bytesRead != rec.FileSize)
-                        {
-                            Console.WriteLine($"[Delete] 警告: {rec.FileName} 讀取不完整 {bytesRead}/{rec.FileSize}");
-                        }
+                        srcStream.Read(fileData, 0, rec.FileSize);
 
                         // 寫入新 PAK
                         dstStream.Write(fileData, 0, fileData.Length);
-                        totalBytesWritten += fileData.Length;
 
                         // 建立新記錄（更新 offset）
                         newRecords.Add(new L1PakTools.IndexRecord(
@@ -810,15 +798,11 @@ namespace PakViewer
 
                         currentOffset += rec.FileSize;
                     }
-
-                    Console.WriteLine($"[Delete] 新 PAK 寫入: {totalBytesWritten} bytes");
                 }
 
                 // 寫入新 IDX
                 var newRecordsArray = newRecords.ToArray();
                 RebuildIndex(tempIdxFile, newRecordsArray, isProtected);
-
-                Console.WriteLine($"[Delete] 新 IDX 記錄數: {newRecordsArray.Length}");
 
                 // 驗證暫存檔存在且大小正確
                 if (!File.Exists(tempPakFile))
@@ -831,8 +815,6 @@ namespace PakViewer
                 }
 
                 long tempPakSize = new FileInfo(tempPakFile).Length;
-                long tempIdxSize = new FileInfo(tempIdxFile).Length;
-                Console.WriteLine($"[Delete] 暫存檔大小: PAK={tempPakSize}, IDX={tempIdxSize}");
 
                 // 驗證暫存 PAK 大小合理 (應該 > 0 且 <= 原始大小)
                 long originalPakSize = new FileInfo(pakFile).Length;
@@ -851,13 +833,10 @@ namespace PakViewer
                 File.Delete(idxFile);
                 File.Move(tempIdxFile, idxFile);
 
-                Console.WriteLine($"[Delete] 完成: PAK={new FileInfo(pakFile).Length}, IDX={new FileInfo(idxFile).Length}");
-
                 return (null, newRecordsArray);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Delete] 錯誤: {ex.Message}");
                 // 清理暫存檔
                 if (File.Exists(tempPakFile)) File.Delete(tempPakFile);
                 if (File.Exists(tempIdxFile)) File.Delete(tempIdxFile);
