@@ -45,17 +45,45 @@ namespace PakViewer.Models
                 if (!typeId.HasValue) return "未知";
                 return typeId.Value switch
                 {
-                    0 => "特效/影子",
-                    4 => "告示牌",
-                    5 => "玩家角色",
-                    6 => "載具",
+                    0 => "影子/法術",
+                    1 => "裝飾品",
+                    5 => "玩家/NPC",
+                    6 => "可對話NPC",
+                    7 => "寶箱/開關",
                     8 => "門",
                     9 => "物品",
-                    10 => "怪物/NPC",
-                    12 => "女僕",
+                    10 => "怪物",
+                    11 => "城牆/城門",
+                    12 => "新NPC",
+                    14 => "盟屋告示牌",
+                    15 => "拍賣告示板",
                     _ => $"未知({typeId})"
                 };
             }
+        }
+
+        /// <summary>
+        /// 取得類型名稱（用於分類）
+        /// </summary>
+        public static string GetTypeNameById(int? typeId)
+        {
+            if (!typeId.HasValue) return "未分類";
+            return typeId.Value switch
+            {
+                0 => "影子/法術",
+                1 => "裝飾品",
+                5 => "玩家/NPC",
+                6 => "可對話NPC",
+                7 => "寶箱/開關",
+                8 => "門",
+                9 => "物品",
+                10 => "怪物",
+                11 => "城牆/城門",
+                12 => "新NPC",
+                14 => "盟屋告示牌",
+                15 => "拍賣告示板",
+                _ => $"其他({typeId})"
+            };
         }
 
         private int? GetAttributeIntValue(int attrId)

@@ -78,6 +78,19 @@ namespace PakViewer
                     TestSpriteLoad(args[1], args[2]);
                     break;
 
+                case "testdel":
+                    // 測試批次刪除: testdel <client_folder>
+                    if (args.Length < 2) { Console.WriteLine("Usage: testdel <client_folder>"); return; }
+                    TestBatchDelete(args[1]);
+                    break;
+
+                case "cleanup":
+                    // 清理未連結的大型 sprite: cleanup <client_folder> <list.spr> [min_size_mb]
+                    if (args.Length < 3) { Console.WriteLine("Usage: cleanup <client_folder> <list.spr> [min_size_mb=1]"); return; }
+                    int minSizeMB = args.Length > 3 && int.TryParse(args[3], out int mb) ? mb : 1;
+                    CleanupUnlinkedSprites(args[1], args[2], minSizeMB);
+                    break;
+
                 default:
                     ShowHelp();
                     break;
@@ -144,7 +157,7 @@ namespace PakViewer
                 return Encoding.GetEncoding("big5");
         }
 
-        static (L1PakTools.IndexRecord[] records, bool isProtected)? LoadIndex(string idxFile)
+        public static (L1PakTools.IndexRecord[] records, bool isProtected)? LoadIndex(string idxFile)
         {
             if (!File.Exists(idxFile))
             {
@@ -741,99 +754,347 @@ namespace PakViewer
         public static (string error, L1PakTools.IndexRecord[] newRecords) DeleteFilesCore(
             string idxFile, string pakFile, L1PakTools.IndexRecord[] records, int[] indicesToDelete, bool isProtected)
         {
-            // Create backup files
-            string pakBackup = pakFile + ".bak";
-            string idxBackup = idxFile + ".bak";
+            // 建立要刪除的索引集合
+            var deleteIndices = new System.Collections.Generic.HashSet<int>(indicesToDelete);
 
-            if (File.Exists(pakBackup)) File.Delete(pakBackup);
-            if (File.Exists(idxBackup)) File.Delete(idxBackup);
+            // 建立保留的記錄清單
+            var keepRecords = new System.Collections.Generic.List<L1PakTools.IndexRecord>();
+            for (int i = 0; i < records.Length; i++)
+            {
+                if (!deleteIndices.Contains(i))
+                {
+                    keepRecords.Add(records[i]);
+                }
+            }
 
-            File.Copy(pakFile, pakBackup);
-            File.Copy(idxFile, idxBackup);
+            string tempPakFile = pakFile + ".tmp";
+            string tempIdxFile = idxFile + ".tmp";
 
             try
             {
-                // Read entire PAK file
-                byte[] pakData = File.ReadAllBytes(pakFile);
+                Console.WriteLine($"[Delete] PAK: {pakFile}");
+                Console.WriteLine($"[Delete] 原始記錄: {records.Length}, 刪除: {indicesToDelete.Length}, 保留: {keepRecords.Count}");
 
-                // Create new records list (excluding deleted files)
-                var newRecordsList = new System.Collections.Generic.List<L1PakTools.IndexRecord>();
-                var deleteIndices = new System.Collections.Generic.HashSet<int>(indicesToDelete);
-
-                for (int i = 0; i < records.Length; i++)
-                {
-                    if (!deleteIndices.Contains(i))
-                    {
-                        newRecordsList.Add(records[i]);
-                    }
-                }
-
-                // Build new PAK file data by copying segments
-                var newPakData = new System.Collections.Generic.List<byte>();
+                // 寫入新 PAK
+                var newRecords = new System.Collections.Generic.List<L1PakTools.IndexRecord>();
                 int currentOffset = 0;
+                long totalBytesWritten = 0;
 
-                for (int i = 0; i < records.Length; i++)
+                using (var srcStream = new FileStream(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var dstStream = new FileStream(tempPakFile, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
-                    var rec = records[i];
+                    Console.WriteLine($"[Delete] 原始 PAK 大小: {srcStream.Length}");
 
-                    // Check if this is a file to delete
-                    bool shouldDelete = deleteIndices.Contains(i);
-
-                    if (!shouldDelete)
+                    foreach (var rec in keepRecords)
                     {
-                        // Copy data from PAK
+                        // 從原始 PAK 讀取檔案資料
                         byte[] fileData = new byte[rec.FileSize];
-                        Array.Copy(pakData, rec.Offset, fileData, 0, rec.FileSize);
-                        newPakData.AddRange(fileData);
+                        srcStream.Seek(rec.Offset, SeekOrigin.Begin);
+                        int bytesRead = srcStream.Read(fileData, 0, rec.FileSize);
 
-                        // Update offset for this record
-                        int recordIndex = newRecordsList.FindIndex(r =>
-                            r.FileName == rec.FileName &&
-                            r.Offset == rec.Offset &&
-                            r.FileSize == rec.FileSize);
-
-                        if (recordIndex >= 0)
+                        if (bytesRead != rec.FileSize)
                         {
-                            newRecordsList[recordIndex] = new L1PakTools.IndexRecord(
-                                rec.FileName,
-                                rec.FileSize,
-                                currentOffset
-                            );
+                            Console.WriteLine($"[Delete] 警告: {rec.FileName} 讀取不完整 {bytesRead}/{rec.FileSize}");
                         }
+
+                        // 寫入新 PAK
+                        dstStream.Write(fileData, 0, fileData.Length);
+                        totalBytesWritten += fileData.Length;
+
+                        // 建立新記錄（更新 offset）
+                        newRecords.Add(new L1PakTools.IndexRecord(
+                            rec.FileName,
+                            rec.FileSize,
+                            currentOffset
+                        ));
 
                         currentOffset += rec.FileSize;
                     }
+
+                    Console.WriteLine($"[Delete] 新 PAK 寫入: {totalBytesWritten} bytes");
                 }
 
-                // Write new PAK file
-                File.WriteAllBytes(pakFile, newPakData.ToArray());
+                // 寫入新 IDX
+                var newRecordsArray = newRecords.ToArray();
+                RebuildIndex(tempIdxFile, newRecordsArray, isProtected);
 
-                // Rebuild IDX file
-                var newRecordsArray = newRecordsList.ToArray();
-                RebuildIndex(idxFile, newRecordsArray, isProtected);
+                Console.WriteLine($"[Delete] 新 IDX 記錄數: {newRecordsArray.Length}");
 
-                // Delete backups on success
-                File.Delete(pakBackup);
-                File.Delete(idxBackup);
+                // 驗證暫存檔存在且大小正確
+                if (!File.Exists(tempPakFile))
+                {
+                    return ($"暫存 PAK 檔案不存在: {tempPakFile}", null);
+                }
+                if (!File.Exists(tempIdxFile))
+                {
+                    return ($"暫存 IDX 檔案不存在: {tempIdxFile}", null);
+                }
+
+                long tempPakSize = new FileInfo(tempPakFile).Length;
+                long tempIdxSize = new FileInfo(tempIdxFile).Length;
+                Console.WriteLine($"[Delete] 暫存檔大小: PAK={tempPakSize}, IDX={tempIdxSize}");
+
+                // 驗證暫存 PAK 大小合理 (應該 > 0 且 <= 原始大小)
+                long originalPakSize = new FileInfo(pakFile).Length;
+                if (tempPakSize == 0 && keepRecords.Count > 0)
+                {
+                    return ($"暫存 PAK 檔案大小為 0，但應該保留 {keepRecords.Count} 個檔案", null);
+                }
+                if (tempPakSize > originalPakSize)
+                {
+                    return ($"暫存 PAK 檔案大小 ({tempPakSize}) 大於原始檔案 ({originalPakSize})", null);
+                }
+
+                // 刪除舊檔，重命名新檔
+                File.Delete(pakFile);
+                File.Move(tempPakFile, pakFile);
+                File.Delete(idxFile);
+                File.Move(tempIdxFile, idxFile);
+
+                Console.WriteLine($"[Delete] 完成: PAK={new FileInfo(pakFile).Length}, IDX={new FileInfo(idxFile).Length}");
 
                 return (null, newRecordsArray);
             }
             catch (Exception ex)
             {
-                // Restore from backups
-                if (File.Exists(pakBackup))
-                {
-                    File.Copy(pakBackup, pakFile, true);
-                    File.Delete(pakBackup);
-                }
-                if (File.Exists(idxBackup))
-                {
-                    File.Copy(idxBackup, idxFile, true);
-                    File.Delete(idxBackup);
-                }
+                Console.WriteLine($"[Delete] 錯誤: {ex.Message}");
+                // 清理暫存檔
+                if (File.Exists(tempPakFile)) File.Delete(tempPakFile);
+                if (File.Exists(tempIdxFile)) File.Delete(tempIdxFile);
 
                 return (ex.Message, null);
             }
+        }
+
+        static void CleanupUnlinkedSprites(string folder, string listSprPath, int minSizeMB)
+        {
+            Console.WriteLine($"=== 清理未連結的大型 Sprite ===");
+            Console.WriteLine($"資料夾: {folder}");
+            Console.WriteLine($"List.spr: {listSprPath}");
+            Console.WriteLine($"最小 size: {minSizeMB} MB (整個 SpriteId 合計)");
+
+            // 1. 讀取 list.spr，收集所有連結的 SpriteId
+            var linkedSpriteIds = new HashSet<int>();
+            try
+            {
+                var listSpr = SprListParser.LoadFromFile(listSprPath);
+                foreach (var entry in listSpr.Entries)
+                {
+                    linkedSpriteIds.Add(entry.SpriteId);
+                }
+                Console.WriteLine($"List.spr 連結了 {linkedSpriteIds.Count} 個 SpriteId");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"無法讀取 list.spr: {ex.Message}");
+                return;
+            }
+
+            // 2. 找所有 Sprite*.idx，掃描所有檔案，計算每個 SpriteId 的總 size
+            var idxFiles = Directory.GetFiles(folder, "Sprite*.idx");
+            Console.WriteLine($"找到 {idxFiles.Length} 個 idx 檔案");
+
+            // SpriteId -> 總 size
+            var spriteIdTotalSize = new Dictionary<int, long>();
+            // SpriteId -> List of (idxFile, recordIndex, fileSize)
+            var spriteIdFiles = new Dictionary<int, List<(string idxFile, int recordIndex, int fileSize)>>();
+
+            foreach (var idxFile in idxFiles)
+            {
+                string pakFile = idxFile.Replace(".idx", ".pak");
+                if (!File.Exists(pakFile)) continue;
+
+                var result = LoadIndex(idxFile);
+                if (result == null) continue;
+
+                var (records, isProtected) = result.Value;
+
+                for (int i = 0; i < records.Length; i++)
+                {
+                    var rec = records[i];
+                    if (!rec.FileName.EndsWith(".spr", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // 取得 SpriteId (檔名格式: "1234-5.spr" -> SpriteId = 1234)
+                    string nameWithoutExt = Path.GetFileNameWithoutExtension(rec.FileName);
+                    int dashIdx = nameWithoutExt.IndexOf('-');
+                    if (dashIdx <= 0) continue;
+
+                    if (!int.TryParse(nameWithoutExt.Substring(0, dashIdx), out int spriteId))
+                        continue;
+
+                    // 累計 size
+                    if (!spriteIdTotalSize.ContainsKey(spriteId))
+                    {
+                        spriteIdTotalSize[spriteId] = 0;
+                        spriteIdFiles[spriteId] = new List<(string, int, int)>();
+                    }
+                    spriteIdTotalSize[spriteId] += rec.FileSize;
+                    spriteIdFiles[spriteId].Add((idxFile, i, rec.FileSize));
+                }
+            }
+
+            Console.WriteLine($"掃描到 {spriteIdTotalSize.Count} 個不同的 SpriteId");
+
+            // 3. 找出未連結且總 size > 閾值的 SpriteId
+            long minSizeBytes = minSizeMB * 1024L * 1024L;
+            var spriteIdsToDelete = new HashSet<int>();
+
+            foreach (var kvp in spriteIdTotalSize)
+            {
+                int spriteId = kvp.Key;
+                long totalSize = kvp.Value;
+
+                if (!linkedSpriteIds.Contains(spriteId) && totalSize >= minSizeBytes)
+                {
+                    spriteIdsToDelete.Add(spriteId);
+                }
+            }
+
+            Console.WriteLine($"找到 {spriteIdsToDelete.Count} 個未連結且 >= {minSizeMB}MB 的 SpriteId");
+
+            // 顯示前 10 個要刪除的 SpriteId
+            int shown = 0;
+            foreach (var spriteId in spriteIdsToDelete.OrderByDescending(id => spriteIdTotalSize[id]))
+            {
+                if (shown >= 10) { Console.WriteLine("  ..."); break; }
+                var files = spriteIdFiles[spriteId];
+                Console.WriteLine($"  SpriteId {spriteId}: {files.Count} 個檔案, {spriteIdTotalSize[spriteId] / 1024.0 / 1024.0:F2} MB");
+                shown++;
+            }
+
+            if (spriteIdsToDelete.Count == 0)
+            {
+                Console.WriteLine("\n無需刪除任何檔案");
+                return;
+            }
+
+            // 4. 按 PAK 檔案分組要刪除的索引
+            // idxFile -> List of recordIndex
+            var deleteByPak = new Dictionary<string, List<int>>();
+
+            foreach (var spriteId in spriteIdsToDelete)
+            {
+                foreach (var (idxFile, recordIndex, _) in spriteIdFiles[spriteId])
+                {
+                    if (!deleteByPak.ContainsKey(idxFile))
+                        deleteByPak[idxFile] = new List<int>();
+                    deleteByPak[idxFile].Add(recordIndex);
+                }
+            }
+
+            // 5. 執行刪除
+            int totalDeleted = 0;
+            long totalSizeDeleted = 0;
+
+            foreach (var kvp in deleteByPak)
+            {
+                string idxFile = kvp.Key;
+                var toDelete = kvp.Value;
+
+                string pakFile = idxFile.Replace(".idx", ".pak");
+                var result = LoadIndex(idxFile);
+                if (result == null) continue;
+
+                var (records, isProtected) = result.Value;
+
+                long sizeToDelete = toDelete.Sum(i => (long)records[i].FileSize);
+
+                Console.WriteLine($"\n{Path.GetFileName(idxFile)}: 刪除 {toDelete.Count} 個檔案 ({sizeToDelete / 1024.0 / 1024.0:F1} MB)");
+
+                var (error, newRecords) = DeleteFilesCore(idxFile, pakFile, records, toDelete.ToArray(), isProtected);
+
+                if (error != null)
+                {
+                    Console.WriteLine($"  錯誤: {error}");
+                }
+                else
+                {
+                    Console.WriteLine($"  成功!");
+                    totalDeleted += toDelete.Count;
+                    totalSizeDeleted += sizeToDelete;
+                }
+            }
+
+            Console.WriteLine($"\n=== 清理完成 ===");
+            Console.WriteLine($"刪除 {spriteIdsToDelete.Count} 個 SpriteId，共 {totalDeleted} 個檔案，釋放 {totalSizeDeleted / 1024.0 / 1024.0:F1} MB");
+        }
+
+        static void TestBatchDelete(string folder)
+        {
+            Console.WriteLine($"=== 測試批次刪除 ===");
+            Console.WriteLine($"資料夾: {folder}");
+
+            // 找所有 Sprite*.idx
+            var idxFiles = Directory.GetFiles(folder, "Sprite*.idx");
+            Console.WriteLine($"找到 {idxFiles.Length} 個 idx 檔案");
+
+            var random = new Random();
+
+            // 每個 PAK 隨機刪除 3-5 個 .spr 檔案
+            foreach (var idxFile in idxFiles.Take(3)) // 只測試前 3 個
+            {
+                string pakFile = idxFile.Replace(".idx", ".pak");
+                if (!File.Exists(pakFile))
+                {
+                    Console.WriteLine($"跳過: {Path.GetFileName(idxFile)} (pak 不存在)");
+                    continue;
+                }
+
+                var result = LoadIndex(idxFile);
+                if (result == null)
+                {
+                    Console.WriteLine($"跳過: {Path.GetFileName(idxFile)} (無法載入)");
+                    continue;
+                }
+
+                var (records, isProtected) = result.Value;
+                Console.WriteLine($"\n處理: {Path.GetFileName(idxFile)}");
+                Console.WriteLine($"  記錄數: {records.Length}, 加密: {isProtected}");
+                Console.WriteLine($"  PAK 大小: {new FileInfo(pakFile).Length}");
+                Console.WriteLine($"  IDX 大小: {new FileInfo(idxFile).Length}");
+
+                // 找出所有 .spr 檔案的索引
+                var sprIndices = new System.Collections.Generic.List<int>();
+                for (int i = 0; i < records.Length; i++)
+                {
+                    if (records[i].FileName.EndsWith(".spr", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sprIndices.Add(i);
+                    }
+                }
+
+                if (sprIndices.Count < 5)
+                {
+                    Console.WriteLine($"  跳過: spr 檔案太少 ({sprIndices.Count})");
+                    continue;
+                }
+
+                // 隨機選 3-5 個刪除
+                int deleteCount = random.Next(3, 6);
+                var toDelete = sprIndices.OrderBy(x => random.Next()).Take(deleteCount).ToArray();
+
+                Console.WriteLine($"  要刪除 {toDelete.Length} 個檔案:");
+                foreach (var idx in toDelete)
+                {
+                    Console.WriteLine($"    [{idx}] {records[idx].FileName}");
+                }
+
+                var (error, newRecords) = DeleteFilesCore(idxFile, pakFile, records, toDelete, isProtected);
+
+                if (error != null)
+                {
+                    Console.WriteLine($"  錯誤: {error}");
+                }
+                else
+                {
+                    Console.WriteLine($"  成功! 新記錄數: {newRecords.Length}");
+                    Console.WriteLine($"  新 PAK 大小: {new FileInfo(pakFile).Length}");
+                    Console.WriteLine($"  新 IDX 大小: {new FileInfo(idxFile).Length}");
+                }
+            }
+
+            Console.WriteLine("\n=== 測試完成 ===");
         }
 
         static void DeleteFiles(string idxFile, string[] filesToDelete)

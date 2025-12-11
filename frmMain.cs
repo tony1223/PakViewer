@@ -38,6 +38,13 @@ namespace PakViewer
     private List<SpriteGroup> _SpriteGroups;
     private List<object> _SpriteDisplayItems; // 可以是 SpriteGroup 或 int (realIndex)
     private HashSet<string> _ExpandedGroups;
+    // Sprite Mode + list.spr 分類
+    private SprListFile _SpriteModeListSpr;  // 載入的 list.spr
+    private Dictionary<int, SprListEntry> _SpriteIdToEntry;  // SpriteId -> Entry 映射
+    private Button btnLoadListSpr;  // 載入 list.spr 按鈕
+    private ComboBox cmbSpriteTypeFilter;  // 類型過濾下拉選單 (Sprite Mode)
+    private ComboBox cmbSprListTypeFilter;  // 類型過濾下拉選單 (List SPR Mode)
+    private int? _SprListTypeFilter;  // List SPR 模式的類型過濾值
     private int _SpriteSortColumn = -1;
     private bool _SpriteSortAscending = true;
     // Sprite 模式 Tab 相關
@@ -145,6 +152,8 @@ namespace PakViewer
     private CheckBox chkSkipSaveConfirm;
     private System.ComponentModel.BackgroundWorker bgSearchWorker;
     private int _CurrentEditingRealIndex = -1;
+    private System.Windows.Forms.Timer _SelectionTimer;
+    private int _LastSelectedCount = -1;
     private bool _TextModified = false;
     private bool _IsCurrentFileXmlEncrypted = false;
     private Encoding _CurrentXmlEncoding = null;
@@ -191,6 +200,12 @@ namespace PakViewer
       });
       this.mnuQuit.Click += (EventHandler) ((sender, e) => this.Close());
       L1PakTools.ShowProgress(this.tssProgress);
+
+      // 初始化選取計算 Timer (每 100ms 檢查一次)
+      this._SelectionTimer = new System.Windows.Forms.Timer();
+      this._SelectionTimer.Interval = 100;
+      this._SelectionTimer.Tick += SelectionTimer_Tick;
+      this._SelectionTimer.Start();
 
       // 啟動時自動載入上次的資料夾和 idx 檔案
       this.LoadLastSession();
@@ -394,11 +409,23 @@ namespace PakViewer
       this._IsSprListMode = false;
       this._SprListFile = null;
       this._FilteredSprListEntries = null;
+      this._SprListTypeFilter = null;
+      this._LastSprListFile = null;
+
+      // 清除記憶的 list.spr 路徑
+      Settings.Default.LastSprListFile = "";
+      Settings.Default.Save();
 
       // 取消事件處理避免無窮迴圈
       this.chkSprListMode.CheckedChanged -= new EventHandler(this.chkSprListMode_CheckedChanged);
       this.chkSprListMode.Checked = false;
       this.chkSprListMode.CheckedChanged += new EventHandler(this.chkSprListMode_CheckedChanged);
+
+      // 隱藏類型過濾下拉選單
+      if (this.cmbSprListTypeFilter != null)
+      {
+        this.cmbSprListTypeFilter.Visible = false;
+      }
 
       // 還原左側列表欄位
       this.lvIndexInfo.Columns.Clear();
@@ -430,7 +457,7 @@ namespace PakViewer
         {
           try
           {
-            using (var fs = new FileStream(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var fs = new FileStream(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
               byte[] data = new byte[record.FileSize];
               fs.Seek(record.Offset, SeekOrigin.Begin);
@@ -554,6 +581,9 @@ namespace PakViewer
         this.lvIndexInfo.Columns.Add("類型", 80, HorizontalAlignment.Left);
         this.lvIndexInfo.Columns.Add("動作", 50, HorizontalAlignment.Right);
 
+        // 初始化類型過濾下拉選單
+        InitSprListTypeFilter();
+
         // 更新列表
         this.lvIndexInfo.VirtualListSize = this._FilteredSprListEntries.Count;
         this.lvIndexInfo.Invalidate();
@@ -650,7 +680,7 @@ namespace PakViewer
 
       try
       {
-        using (var fs = new FileStream(info.pakFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var fs = new FileStream(info.pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
         {
           byte[] data = new byte[info.record.FileSize];
           fs.Seek(info.record.Offset, SeekOrigin.Begin);
@@ -666,6 +696,216 @@ namespace PakViewer
       {
         return null;
       }
+    }
+
+    // ============ Sprite Mode + list.spr 分類功能 ============
+
+    private void btnLoadListSpr_Click(object sender, EventArgs e)
+    {
+      using (var dlg = new OpenFileDialog())
+      {
+        dlg.Title = "選擇 list.spr 檔案";
+        dlg.Filter = "SPR List|*.spr;*.txt|All files|*.*";
+        if (!string.IsNullOrEmpty(this._SelectedFolder))
+          dlg.InitialDirectory = this._SelectedFolder;
+
+        if (dlg.ShowDialog() == DialogResult.OK)
+        {
+          LoadListSprForSpriteMode(dlg.FileName);
+        }
+      }
+    }
+
+    private void LoadListSprForSpriteMode(string filePath)
+    {
+      try
+      {
+        this.Cursor = Cursors.WaitCursor;
+
+        // 解析 list.spr
+        this._SpriteModeListSpr = SprListParser.LoadFromFile(filePath);
+
+        // 建立 SpriteId -> Entry 映射
+        this._SpriteIdToEntry = new Dictionary<int, SprListEntry>();
+        foreach (var entry in this._SpriteModeListSpr.Entries)
+        {
+          int spriteId = entry.SpriteId;
+          if (!this._SpriteIdToEntry.ContainsKey(spriteId))
+          {
+            this._SpriteIdToEntry[spriteId] = entry;
+          }
+        }
+
+        // 收集所有類型
+        var types = new HashSet<int?>();
+        types.Add(null); // 未連結
+        foreach (var entry in this._SpriteModeListSpr.Entries)
+        {
+          types.Add(entry.TypeId);
+        }
+
+        // 更新類型過濾下拉選單
+        this.cmbSpriteTypeFilter.Items.Clear();
+        this.cmbSpriteTypeFilter.Items.Add("全部");
+        this.cmbSpriteTypeFilter.Items.Add("未連結");
+        foreach (var typeId in types.Where(t => t.HasValue).OrderBy(t => t.Value))
+        {
+          string typeName = SprListEntry.GetTypeNameById(typeId);
+          this.cmbSpriteTypeFilter.Items.Add($"{typeId}: {typeName}");
+        }
+        this.cmbSpriteTypeFilter.SelectedIndex = 0;
+
+        // 重新建立分組
+        BuildSpriteGroups();
+        BuildSpriteDisplayItems();
+        this.lvIndexInfo.VirtualListSize = this._SpriteDisplayItems.Count;
+        this.lvIndexInfo.Invalidate();
+
+        int linkedCount = this._SpriteIdToEntry.Count;
+        this.tssMessage.Text = $"已載入 list.spr: {linkedCount} 個連結";
+      }
+      catch (Exception ex)
+      {
+        MessageBox.Show($"載入失敗: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+      }
+      finally
+      {
+        this.Cursor = Cursors.Default;
+      }
+    }
+
+    private void cmbSpriteTypeFilter_SelectedIndexChanged(object sender, EventArgs e)
+    {
+      if (!this._IsSpriteMode || this._SpriteModeListSpr == null)
+        return;
+
+      // 重新建立分組（會套用類型過濾）
+      BuildSpriteGroups();
+      BuildSpriteDisplayItems();
+      this.lvIndexInfo.VirtualListSize = this._SpriteDisplayItems.Count;
+      this.lvIndexInfo.Invalidate();
+    }
+
+    // ============ List SPR Mode 類型篩選 ============
+
+    private void InitSprListTypeFilter()
+    {
+      if (this._SprListFile == null) return;
+
+      // 收集所有類型
+      var types = new HashSet<int?>();
+      foreach (var entry in this._SprListFile.Entries)
+      {
+        types.Add(entry.TypeId);
+      }
+
+      // 填入下拉選單
+      this.cmbSprListTypeFilter.Items.Clear();
+      this.cmbSprListTypeFilter.Items.Add("全部類型");
+      foreach (var typeId in types.Where(t => t.HasValue).OrderBy(t => t.Value))
+      {
+        string typeName = SprListEntry.GetTypeNameById(typeId);
+        this.cmbSprListTypeFilter.Items.Add($"{typeId}: {typeName}");
+      }
+      // 無類型的條目
+      if (types.Contains(null))
+      {
+        this.cmbSprListTypeFilter.Items.Add("無類型");
+      }
+
+      this.cmbSprListTypeFilter.SelectedIndex = 0;
+      this._SprListTypeFilter = null;
+      this.cmbSprListTypeFilter.Visible = true;
+    }
+
+    private void cmbSprListTypeFilter_SelectedIndexChanged(object sender, EventArgs e)
+    {
+      if (!this._IsSprListMode || this._SprListFile == null)
+        return;
+
+      string selected = this.cmbSprListTypeFilter.SelectedItem?.ToString() ?? "";
+
+      if (selected == "全部類型" || this.cmbSprListTypeFilter.SelectedIndex == 0)
+      {
+        this._SprListTypeFilter = null;
+        this._FilteredSprListEntries = this._SprListFile.Entries;
+      }
+      else if (selected == "無類型")
+      {
+        this._SprListTypeFilter = null;
+        this._FilteredSprListEntries = this._SprListFile.Entries
+          .Where(e => !e.TypeId.HasValue)
+          .ToList();
+      }
+      else
+      {
+        // 格式 "10: 怪物"
+        int colonIdx = selected.IndexOf(':');
+        if (colonIdx > 0 && int.TryParse(selected.Substring(0, colonIdx), out int filterType))
+        {
+          this._SprListTypeFilter = filterType;
+          this._FilteredSprListEntries = this._SprListFile.Entries
+            .Where(e => e.TypeId == filterType)
+            .ToList();
+        }
+      }
+
+      // 更新列表
+      this.lvIndexInfo.VirtualListSize = this._FilteredSprListEntries.Count;
+      this.lvIndexInfo.Invalidate();
+      this.tssShowInListView.Text = $"Shown:{this._FilteredSprListEntries.Count}";
+    }
+
+    /// <summary>
+    /// 取得 sprite prefix (如 "3225-") 對應的 list.spr 類型
+    /// </summary>
+    private int? GetSpriteTypeForPrefix(string prefix)
+    {
+      if (this._SpriteIdToEntry == null)
+        return null;
+
+      // prefix 格式為 "3225-"，取出數字部分
+      string numPart = prefix.TrimEnd('-');
+      if (int.TryParse(numPart, out int spriteId))
+      {
+        if (this._SpriteIdToEntry.TryGetValue(spriteId, out var entry))
+        {
+          return entry.TypeId;
+        }
+      }
+      return null;
+    }
+
+    /// <summary>
+    /// 檢查 sprite group 是否符合當前類型過濾
+    /// </summary>
+    private bool MatchesTypeFilter(SpriteGroup group)
+    {
+      if (this.cmbSpriteTypeFilter == null || this.cmbSpriteTypeFilter.SelectedIndex <= 0)
+        return true; // "全部"
+
+      string selected = this.cmbSpriteTypeFilter.SelectedItem?.ToString() ?? "";
+      int? groupType = GetSpriteTypeForPrefix(group.Prefix);
+
+      if (selected == "未連結")
+      {
+        // 未連結 = SpriteIdToEntry 裡找不到
+        string numPart = group.Prefix.TrimEnd('-');
+        if (int.TryParse(numPart, out int spriteId))
+        {
+          return this._SpriteIdToEntry == null || !this._SpriteIdToEntry.ContainsKey(spriteId);
+        }
+        return true;
+      }
+
+      // 格式 "10: 怪物"
+      int colonIdx = selected.IndexOf(':');
+      if (colonIdx > 0 && int.TryParse(selected.Substring(0, colonIdx), out int filterType))
+      {
+        return groupType == filterType;
+      }
+
+      return true;
     }
 
     private void chkSpriteMode_CheckedChanged(object sender, EventArgs e)
@@ -697,11 +937,21 @@ namespace PakViewer
         SetupSpriteModeTab();
 
         this.LoadSpriteMode();
+
+        // 顯示 list.spr 分類控件
+        this.btnLoadListSpr.Visible = true;
+        this.cmbSpriteTypeFilter.Visible = true;
       }
       else
       {
         // 切換回一般模式
         RemoveSpriteModeTab();
+
+        // 隱藏 list.spr 分類控件
+        this.btnLoadListSpr.Visible = false;
+        this.cmbSpriteTypeFilter.Visible = false;
+        this._SpriteModeListSpr = null;
+        this._SpriteIdToEntry = null;
 
         this._SpritePackages = null;
         this.cmbIdxFiles.Enabled = true;
@@ -773,6 +1023,7 @@ namespace PakViewer
       // 加入頁籤
       this.tabSpriteMode.TabPages.Add(this.tabSprites);
       this.tabSpriteMode.TabPages.Add(this.tabOtherFiles);
+      this.tabSpriteMode.SelectedIndexChanged += (s, ev) => this._LastSelectedCount = -1; // 切換 Tab 時重算
 
       // 替換 splitContainer2.Panel2 的內容
       this.splitContainer2.Panel2.Controls.Clear();
@@ -1222,9 +1473,13 @@ namespace PakViewer
     {
       this._SpriteDisplayItems = new List<object>();
 
-      // 先加入 .spr 群組
+      // 先加入 .spr 群組（套用類型過濾）
       foreach (var group in this._SpriteGroups)
       {
+        // 檢查是否符合類型過濾
+        if (!MatchesTypeFilter(group))
+          continue;
+
         this._SpriteDisplayItems.Add(group);
         if (group.IsExpanded)
         {
@@ -1311,9 +1566,20 @@ namespace PakViewer
             string displayPrefix = group.Prefix.TrimEnd('-');
             string expandIcon = group.IsExpanded ? "▼ " : "▶ ";
             string sizeText = string.Format("{0:F1}", group.TotalSize / 1024.0);
+
+            // 取得類型資訊
+            string typeInfo = "";
+            if (this._SpriteIdToEntry != null && int.TryParse(displayPrefix, out int spriteId))
+            {
+              if (this._SpriteIdToEntry.TryGetValue(spriteId, out var entry))
+              {
+                typeInfo = $" [{entry.TypeName}:{entry.Name}]";
+              }
+            }
+
             // ListView 的 SubItems[0] 就是 Text 本身，所以需要手動添加其餘欄位
             var listItem = new ListViewItem("");  // No. 欄位空白
-            listItem.SubItems.Add(expandIcon + displayPrefix + " (" + group.ItemIndexes.Count + ")");  // FileName
+            listItem.SubItems.Add(expandIcon + displayPrefix + " (" + group.ItemIndexes.Count + ")" + typeInfo);  // FileName
             listItem.SubItems.Add(sizeText);  // Size
             listItem.SubItems.Add("");  // Position
             listItem.BackColor = System.Drawing.Color.LightSteelBlue;
@@ -1451,6 +1717,92 @@ namespace PakViewer
 
     private void lvIndexInfo_ItemChecked(object sender, ItemCheckedEventArgs e)
     {
+    }
+
+    private void SelectionTimer_Tick(object sender, EventArgs e)
+    {
+      // 只在 Sprite 模式下計算選取大小
+      if (!this._IsSpriteMode)
+        return;
+
+      // 判斷目前選中的 Tab
+      bool isOtherFilesTab = this.tabSpriteMode != null &&
+                             this.tabSpriteMode.SelectedTab == this.tabOtherFiles;
+
+      int selectedCount;
+      long totalSize = 0;
+      int fileCount = 0;
+
+      if (isOtherFilesTab && this.lvOtherFiles != null && this._OtherFilesIndexes != null)
+      {
+        // 其他檔案 Tab
+        selectedCount = this.lvOtherFiles.SelectedIndices.Count;
+
+        if (selectedCount == this._LastSelectedCount)
+          return;
+        this._LastSelectedCount = selectedCount;
+
+        if (selectedCount == 0)
+        {
+          this.tssCheckedCount.Text = "已選：0";
+          return;
+        }
+
+        foreach (int virtualIndex in this.lvOtherFiles.SelectedIndices)
+        {
+          if (virtualIndex < 0 || virtualIndex >= this._OtherFilesIndexes.Count)
+            continue;
+          int realIndex = this._OtherFilesIndexes[virtualIndex];
+          if (realIndex >= 0 && realIndex < this._IndexRecords.Length)
+          {
+            totalSize += this._IndexRecords[realIndex].FileSize;
+            fileCount++;
+          }
+        }
+      }
+      else if (this._SpriteDisplayItems != null)
+      {
+        // SPR 檔案 Tab
+        selectedCount = this.lvIndexInfo.SelectedIndices.Count;
+
+        if (selectedCount == this._LastSelectedCount)
+          return;
+        this._LastSelectedCount = selectedCount;
+
+        if (selectedCount == 0)
+        {
+          this.tssCheckedCount.Text = "已選：0";
+          return;
+        }
+
+        foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
+        {
+          if (virtualIndex < 0 || virtualIndex >= this._SpriteDisplayItems.Count)
+            continue;
+          object item = this._SpriteDisplayItems[virtualIndex];
+          if (item is SpriteGroup group)
+          {
+            totalSize += group.TotalSize;
+            fileCount += group.ItemIndexes.Count;
+          }
+          else if (item is int fileRealIndex)
+          {
+            if (fileRealIndex >= 0 && fileRealIndex < this._IndexRecords.Length)
+            {
+              totalSize += this._IndexRecords[fileRealIndex].FileSize;
+              fileCount++;
+            }
+          }
+        }
+      }
+      else
+      {
+        return;
+      }
+
+      double sizeMB = totalSize / 1024.0 / 1024.0;
+      string sizeStr = sizeMB >= 1 ? $"{sizeMB:F2} MB" : $"{totalSize / 1024.0:F1} KB";
+      this.tssCheckedCount.Text = $"已選：{selectedCount} 項 ({fileCount} 檔案), {sizeStr}";
     }
 
     private void lvIndexInfo_SelectedIndexChanged(object sender, EventArgs e)
@@ -2049,8 +2401,8 @@ namespace PakViewer
         $"  {Path.GetFileName(kv.Key)}: {kv.Value.indices.Count} 個檔案"));
 
       string message = allFileNames.Count == 1
-        ? $"確定要刪除 \"{allFileNames[0]}\" 嗎？\n\n將從以下 PAK 檔案中刪除：\n{pakInfo}\n\n修改前將會建立備份。"
-        : $"確定要刪除選取的 {allFileNames.Count} 個檔案嗎？\n\n將從以下 PAK 檔案中刪除：\n{pakInfo}\n\n修改前將會建立備份。";
+        ? $"確定要刪除 \"{allFileNames[0]}\" 嗎？\n\n將從以下 PAK 檔案中刪除：\n{pakInfo}"
+        : $"確定要刪除選取的 {allFileNames.Count} 個檔案嗎？\n\n將從以下 PAK 檔案中刪除：\n{pakInfo}";
 
       DialogResult result = MessageBox.Show(
         message,
@@ -2063,23 +2415,31 @@ namespace PakViewer
 
       try
       {
+        this.Cursor = Cursors.WaitCursor;
         int totalDeleted = 0;
         var errors = new List<string>();
+        int pakCount = deleteByPak.Count;
+        int pakIndex = 0;
 
         // 逐一處理每個 PAK 檔案
         foreach (var kvp in deleteByPak)
         {
-          string idxFile = kvp.Key;
-          string pakFile = idxFile.Replace(".idx", ".pak");
+          pakIndex++;
+          string pakFile = kvp.Key;  // key 是 pakFile (與 _SpritePackages 一致)
+          string idxFile = pakFile.Replace(".pak", ".idx");
           var indicesToDelete = kvp.Value.indices;
 
+          // 更新狀態
+          this.tssMessage.Text = $"正在處理 {Path.GetFileName(pakFile)} ({pakIndex}/{pakCount})，刪除 {indicesToDelete.Count} 個檔案...";
+          Application.DoEvents();
+
           // 取得該 PAK 的記錄
-          if (!this._SpritePackages.TryGetValue(idxFile, out var packageInfo))
+          if (!this._SpritePackages.TryGetValue(pakFile, out var packageInfo))
             continue;
 
           var (records, isProtected) = packageInfo;
 
-          // 呼叫刪除功能
+          // 呼叫刪除功能（同一個 PAK 的所有檔案一次處理）
           var (error, newRecords) = PakReader.DeleteFilesCore(
             idxFile,
             pakFile,
@@ -2089,13 +2449,18 @@ namespace PakViewer
 
           if (error != null)
           {
-            errors.Add($"{Path.GetFileName(idxFile)}: {error}");
+            errors.Add($"{Path.GetFileName(pakFile)}: {error}");
           }
           else
           {
-            // 更新 _SpritePackages 中的記錄
-            this._SpritePackages[idxFile] = (newRecords, isProtected);
             totalDeleted += indicesToDelete.Count;
+
+            // 從磁碟重新載入該 PAK 的 index（offset 已變更）
+            var reloaded = PakReader.LoadIndex(idxFile);
+            if (reloaded.HasValue)
+            {
+              this._SpritePackages[pakFile] = reloaded.Value;
+            }
           }
         }
 
@@ -2126,6 +2491,10 @@ namespace PakViewer
       catch (Exception ex)
       {
         MessageBox.Show("刪除檔案時發生錯誤：" + ex.Message, "刪除錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+      }
+      finally
+      {
+        this.Cursor = Cursors.Default;
       }
     }
 
@@ -3749,6 +4118,30 @@ namespace PakViewer
       this.palToolbar.Controls.Add((Control) this.cmbIdxFiles);
       this.palToolbar.Controls.Add((Control) this.chkSpriteMode);
       this.palToolbar.Controls.Add((Control) this.chkSprListMode);
+      // Sprite Mode 分類控件
+      this.btnLoadListSpr = new Button();
+      this.btnLoadListSpr.Location = new Point(500, 24);
+      this.btnLoadListSpr.Size = new Size(80, 22);
+      this.btnLoadListSpr.Text = "載入list.spr";
+      this.btnLoadListSpr.Font = new Font("Microsoft JhengHei UI", 8);
+      this.btnLoadListSpr.Visible = false;
+      this.btnLoadListSpr.Click += new EventHandler(this.btnLoadListSpr_Click);
+      this.palToolbar.Controls.Add((Control) this.btnLoadListSpr);
+      this.cmbSpriteTypeFilter = new ComboBox();
+      this.cmbSpriteTypeFilter.Location = new Point(585, 24);
+      this.cmbSpriteTypeFilter.Size = new Size(100, 22);
+      this.cmbSpriteTypeFilter.DropDownStyle = ComboBoxStyle.DropDownList;
+      this.cmbSpriteTypeFilter.Visible = false;
+      this.cmbSpriteTypeFilter.SelectedIndexChanged += new EventHandler(this.cmbSpriteTypeFilter_SelectedIndexChanged);
+      this.palToolbar.Controls.Add((Control) this.cmbSpriteTypeFilter);
+      // List SPR 模式的類型過濾下拉選單
+      this.cmbSprListTypeFilter = new ComboBox();
+      this.cmbSprListTypeFilter.Location = new Point(500, 24);
+      this.cmbSprListTypeFilter.Size = new Size(120, 22);
+      this.cmbSprListTypeFilter.DropDownStyle = ComboBoxStyle.DropDownList;
+      this.cmbSprListTypeFilter.Visible = false;
+      this.cmbSprListTypeFilter.SelectedIndexChanged += new EventHandler(this.cmbSprListTypeFilter_SelectedIndexChanged);
+      this.palToolbar.Controls.Add((Control) this.cmbSprListTypeFilter);
       this.palToolbar.Dock = DockStyle.Top;
       this.palToolbar.Location = new Point(0, 24);
       this.palToolbar.Name = "palToolbar";
