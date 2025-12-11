@@ -118,6 +118,7 @@ namespace PakViewer
     private ucSprViewer SprViewer;
     private ucSprListViewer SprListViewer;
     private ucSprActionViewer SprActionViewer;
+    private ucSprDetailViewer SprDetailViewer;
     private ToolStripMenuItem mnuOpenSprList;
     private SprListFile _SprListFile;
     private List<SprListEntry> _FilteredSprListEntries;
@@ -406,6 +407,68 @@ namespace PakViewer
       this._InviewData = InviewDataType.SprList;
     }
 
+    private void ShowSprDetailViewer()
+    {
+      // 隱藏其他檢視器
+      this.TextViewer.Visible = false;
+      this.TextCompViewer.Visible = false;
+      this.ImageViewer.Visible = false;
+      this.SprViewer.Visible = false;
+      this.SprListViewer.Visible = false;
+      if (this.SprActionViewer != null)
+        this.SprActionViewer.Visible = false;
+
+      // 確保 SprDetailViewer 存在
+      if (this.SprDetailViewer == null)
+      {
+        this.SprDetailViewer = new ucSprDetailViewer();
+        this.SprDetailViewer.Dock = DockStyle.Fill;
+        this.SprDetailViewer.SetSpriteDataProvider(this.GetSpriteDataByKey);
+        this.splitContainer1.Panel2.Controls.Add(this.SprDetailViewer);
+      }
+
+      this.SprDetailViewer.Visible = true;
+      this.SprDetailViewer.BringToFront();
+    }
+
+    private void ShowSpriteGroupDetail(SpriteGroup group)
+    {
+      // 顯示 detail viewer
+      ShowSprDetailViewer();
+
+      // 準備檔案清單
+      var files = new List<ucSprDetailViewer.SprFileInfo>();
+      foreach (int realIndex in group.ItemIndexes)
+      {
+        var record = this._IndexRecords[realIndex];
+        files.Add(new ucSprDetailViewer.SprFileInfo
+        {
+          RealIndex = realIndex,
+          FileName = record.FileName,
+          FileSize = record.FileSize,
+          Offset = record.Offset,
+          SourcePak = record.SourcePak
+        });
+      }
+
+      // 取得類型資訊
+      string displayPrefix = group.Prefix.TrimEnd('-');
+      string typeInfo = "";
+      if (this._SpriteIdToEntry != null && int.TryParse(displayPrefix, out int spriteId))
+      {
+        if (this._SpriteIdToEntry.TryGetValue(spriteId, out var entry))
+        {
+          typeInfo = $" [{entry.TypeName}:{entry.Name}]";
+        }
+      }
+
+      // 更新狀態列
+      this.tssMessage.Text = $"{displayPrefix} - {files.Count} 個檔案{typeInfo}";
+
+      // 顯示群組的檔案
+      this.SprDetailViewer.ShowGroup(group.Prefix, files);
+    }
+
     private void ExitSprListMode()
     {
       this._IsSprListMode = false;
@@ -677,27 +740,67 @@ namespace PakViewer
 
     private byte[] GetSpriteDataByKey(string spriteKey)
     {
-      if (this._SprListSpriteRecords == null || !this._SprListSpriteRecords.TryGetValue(spriteKey, out var info))
+      // spriteKey 格式: "pakFile|fileName"
+      string[] parts = spriteKey.Split('|');
+      if (parts.Length != 2)
         return null;
 
-      try
+      string pakFile = parts[0];
+      string fileName = parts[1];
+
+      // 優先從 _SpritePackages 查找 (Sprite 模式)
+      if (this._SpritePackages != null && this._SpritePackages.TryGetValue(pakFile, out var packageInfo))
       {
-        using (var fs = new FileStream(info.pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        foreach (var record in packageInfo.records)
         {
-          byte[] data = new byte[info.record.FileSize];
-          fs.Seek(info.record.Offset, SeekOrigin.Begin);
-          fs.Read(data, 0, info.record.FileSize);
-          if (info.isProtected)
+          if (record.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase))
           {
-            data = L1PakTools.Decode(data, 0);
+            try
+            {
+              using (var fs = new FileStream(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+              {
+                byte[] data = new byte[record.FileSize];
+                fs.Seek(record.Offset, SeekOrigin.Begin);
+                fs.Read(data, 0, record.FileSize);
+                if (packageInfo.isProtected)
+                {
+                  data = L1PakTools.Decode(data, 0);
+                }
+                return data;
+              }
+            }
+            catch
+            {
+              return null;
+            }
           }
-          return data;
         }
       }
-      catch
+
+      // 備用: 從 _SprListSpriteRecords 查找 (List SPR 模式)
+      if (this._SprListSpriteRecords != null && this._SprListSpriteRecords.TryGetValue(spriteKey, out var info))
       {
-        return null;
+        try
+        {
+          using (var fs = new FileStream(info.pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+          {
+            byte[] data = new byte[info.record.FileSize];
+            fs.Seek(info.record.Offset, SeekOrigin.Begin);
+            fs.Read(data, 0, info.record.FileSize);
+            if (info.isProtected)
+            {
+              data = L1PakTools.Decode(data, 0);
+            }
+            return data;
+          }
+        }
+        catch
+        {
+          return null;
+        }
       }
+
+      return null;
     }
 
     // ============ Sprite Mode + list.spr 分類功能 ============
@@ -1002,6 +1105,12 @@ namespace PakViewer
       this.tabSprites.Controls.Add(this.lvIndexInfo);
       this.lvIndexInfo.Dock = DockStyle.Fill;
 
+      // 設置 master-detail 模式的欄位
+      this.lvIndexInfo.Columns.Clear();
+      this.lvIndexInfo.Columns.Add("SpriteId", 80, HorizontalAlignment.Left);
+      this.lvIndexInfo.Columns.Add("資訊", 180, HorizontalAlignment.Left);
+      this.lvIndexInfo.Columns.Add("大小(KB)", 80, HorizontalAlignment.Right);
+
       // 創建其他檔案頁籤
       this.tabOtherFiles = new TabPage("其他檔案");
 
@@ -1030,6 +1139,15 @@ namespace PakViewer
       // 替換 splitContainer2.Panel2 的內容
       this.splitContainer2.Panel2.Controls.Clear();
       this.splitContainer2.Panel2.Controls.Add(this.tabSpriteMode);
+
+      // 創建右側 Detail Viewer
+      if (this.SprDetailViewer == null)
+      {
+        this.SprDetailViewer = new ucSprDetailViewer();
+        this.SprDetailViewer.Dock = DockStyle.Fill;
+        this.SprDetailViewer.SetSpriteDataProvider(this.GetSpriteDataByKey);
+        this.splitContainer1.Panel2.Controls.Add(this.SprDetailViewer);
+      }
     }
 
     private void RemoveSpriteModeTab()
@@ -1042,6 +1160,20 @@ namespace PakViewer
       this.splitContainer2.Panel2.Controls.Clear();
       this.splitContainer2.Panel2.Controls.Add(this.lvIndexInfo);
       this.lvIndexInfo.Dock = DockStyle.Fill;
+
+      // 還原原來的欄位
+      this.lvIndexInfo.Columns.Clear();
+      this.lvIndexInfo.Columns.Add("No.", 70, HorizontalAlignment.Right);
+      this.lvIndexInfo.Columns.Add("FileName", 150, HorizontalAlignment.Left);
+      this.lvIndexInfo.Columns.Add("Size(KB)", 80, HorizontalAlignment.Right);
+      this.lvIndexInfo.Columns.Add("Position", 70, HorizontalAlignment.Right);
+
+      // 隱藏 SprDetailViewer
+      if (this.SprDetailViewer != null)
+      {
+        this.SprDetailViewer.Visible = false;
+        this.SprDetailViewer.Clear();
+      }
 
       // 清理
       this.lvOtherFiles.Dispose();
@@ -1233,18 +1365,19 @@ namespace PakViewer
           continue;
 
         // 為每個記錄設定來源 PAK
+        var recordsWithSource = new L1PakTools.IndexRecord[records.Length];
         for (int i = 0; i < records.Length; i++)
         {
-          records[i] = new L1PakTools.IndexRecord(
+          recordsWithSource[i] = new L1PakTools.IndexRecord(
             records[i].FileName,
             records[i].FileSize,
             records[i].Offset,
             pakFile
           );
-          allRecords.Add(records[i]);
+          allRecords.Add(recordsWithSource[i]);
         }
 
-        this._SpritePackages[pakFile] = (records, this._IsPackFileProtected);
+        this._SpritePackages[pakFile] = (recordsWithSource, this._IsPackFileProtected);
         totalFiles++;
       }
 
@@ -1475,7 +1608,7 @@ namespace PakViewer
     {
       this._SpriteDisplayItems = new List<object>();
 
-      // 先加入 .spr 群組（套用類型過濾）
+      // 只加入 .spr 群組 (master-only view，不展開子項)
       foreach (var group in this._SpriteGroups)
       {
         // 檢查是否符合類型過濾
@@ -1483,13 +1616,7 @@ namespace PakViewer
           continue;
 
         this._SpriteDisplayItems.Add(group);
-        if (group.IsExpanded)
-        {
-          foreach (int idx in group.ItemIndexes)
-          {
-            this._SpriteDisplayItems.Add(idx);
-          }
-        }
+        // 移除展開邏輯 - 子項目現在由右側 detail viewer 顯示
       }
 
       // 收集非 .spr 的檔案到 _OtherFilesIndexes (用於第二個 Tab)
@@ -1550,12 +1677,21 @@ namespace PakViewer
         return;
       }
 
-      // Sprite 模式使用不同的顯示邏輯
+      // Sprite 模式使用不同的顯示邏輯 (master-detail view，只顯示群組)
       if (this._IsSpriteMode && this._SpriteDisplayItems != null)
       {
+        // 建立空白項目的輔助方法 (3 欄: SpriteId, 資訊, 大小)
+        ListViewItem createEmptyItem()
+        {
+          var item = new ListViewItem("");
+          item.SubItems.Add("");
+          item.SubItems.Add("");
+          return item;
+        }
+
         if (e.ItemIndex < 0 || e.ItemIndex >= this._SpriteDisplayItems.Count)
         {
-          e.Item = new ListViewItem("");
+          e.Item = createEmptyItem();
           return;
         }
 
@@ -1566,7 +1702,6 @@ namespace PakViewer
           {
             // 顯示群組標題（移除結尾的 -）
             string displayPrefix = group.Prefix.TrimEnd('-');
-            string expandIcon = group.IsExpanded ? "▼ " : "▶ ";
             string sizeText = string.Format("{0:F1}", group.TotalSize / 1024.0);
 
             // 取得類型資訊
@@ -1579,45 +1714,20 @@ namespace PakViewer
               }
             }
 
-            // ListView 的 SubItems[0] 就是 Text 本身，所以需要手動添加其餘欄位
-            var listItem = new ListViewItem("");  // No. 欄位空白
-            listItem.SubItems.Add(expandIcon + displayPrefix + " (" + group.ItemIndexes.Count + ")" + typeInfo);  // FileName
-            listItem.SubItems.Add(sizeText);  // Size
-            listItem.SubItems.Add("");  // Position
-            listItem.BackColor = System.Drawing.Color.LightSteelBlue;
-            listItem.Font = new System.Drawing.Font(this.lvIndexInfo.Font, System.Drawing.FontStyle.Bold);
-            e.Item = listItem;
-          }
-          else if (item is int realIndex)
-          {
-            var record = this._IndexRecords[realIndex];
-            // 所有群組子項目都縮排顯示
-            string displayName = "\t" + record.FileName;
-
-            string sizeText = string.Format("{0:F1}", record.FileSize / 1024.0);
-            var listItem = new ListViewItem(string.Format("{0, 5}", realIndex + 1));
-            listItem.SubItems.Add(displayName);
-            listItem.SubItems.Add(sizeText);
-            listItem.SubItems.Add(record.Offset.ToString("X8"));
-            listItem.Checked = this._CheckedIndexes.Contains(realIndex);
+            // 顯示: SpriteId (檔案數) [類型:名稱]
+            var listItem = new ListViewItem(displayPrefix);  // SpriteId
+            listItem.SubItems.Add("(" + group.ItemIndexes.Count + ")" + typeInfo);  // 檔案數 + 類型
+            listItem.SubItems.Add(sizeText);  // Size (KB)
             e.Item = listItem;
           }
           else
           {
-            var listItem = new ListViewItem("");
-            listItem.SubItems.Add("");
-            listItem.SubItems.Add("");
-            listItem.SubItems.Add("");
-            e.Item = listItem;
+            e.Item = createEmptyItem();
           }
         }
         catch
         {
-          var listItem = new ListViewItem("");
-          listItem.SubItems.Add("");
-          listItem.SubItems.Add("");
-          listItem.SubItems.Add("");
-          e.Item = listItem;
+          e.Item = createEmptyItem();
         }
         return;
       }
@@ -1831,7 +1941,7 @@ namespace PakViewer
         return;
       }
 
-      // Sprite 模式下處理群組點擊
+      // Sprite 模式下處理群組點擊 - 顯示 detail
       if (this._IsSpriteMode && this._SpriteDisplayItems != null)
       {
         if (selectedVirtualIndex >= this._SpriteDisplayItems.Count)
@@ -1839,23 +1949,14 @@ namespace PakViewer
 
         object item = this._SpriteDisplayItems[selectedVirtualIndex];
 
-        // 如果點擊的是群組，展開/收合
+        // 如果點擊的是群組，在右側 detail viewer 顯示
         if (item is SpriteGroup group)
         {
-          group.IsExpanded = !group.IsExpanded;
-          if (group.IsExpanded)
-            this._ExpandedGroups.Add(group.Prefix);
-          else
-            this._ExpandedGroups.Remove(group.Prefix);
-
-          // 重建顯示列表
-          BuildSpriteDisplayItems();
-          this.lvIndexInfo.VirtualListSize = this._SpriteDisplayItems.Count;
-          this.lvIndexInfo.Invalidate();
+          ShowSpriteGroupDetail(group);
           return;
         }
 
-        // 如果是檔案項目，繼續正常處理
+        // 如果是檔案項目，繼續正常處理 (不應該發生，因為現在只顯示 master)
         if (!(item is int))
           return;
       }
@@ -3232,6 +3333,14 @@ namespace PakViewer
       if ((int) e.KeyChar != 13)
         return;
       TextBox textBox = (TextBox) sender;
+
+      // Sprite 模式下篩選 SpriteId
+      if (this._IsSpriteMode && this._SpriteGroups != null)
+      {
+        FilterSpriteGroups(textBox.Text);
+        return;
+      }
+
       if (this._IndexRecords == null || this._IndexRecords.Length <= 0)
         return;
 
@@ -3267,6 +3376,57 @@ namespace PakViewer
       this.lvIndexInfo.Focus();
       this.tssRecordCount.Text = string.Format("全部：{0}", (object) this._IndexRecords.Length);
       this.tssShowInListView.Text = string.Format("顯示：{0}", (object) this._FilteredIndexes.Count);
+    }
+
+    private void FilterSpriteGroups(string searchText)
+    {
+      // 重建顯示列表，只包含符合條件的群組
+      this._SpriteDisplayItems = new List<object>();
+
+      foreach (var group in this._SpriteGroups)
+      {
+        // 先檢查類型過濾
+        if (!MatchesTypeFilter(group))
+          continue;
+
+        // SpriteId 篩選
+        string prefix = group.Prefix.TrimEnd('-');
+        if (!string.IsNullOrEmpty(searchText))
+        {
+          // 支援 ^ 前綴匹配
+          if (searchText.StartsWith("^"))
+          {
+            string pattern = searchText.Substring(1);
+            if (!prefix.StartsWith(pattern, StringComparison.OrdinalIgnoreCase))
+              continue;
+          }
+          else
+          {
+            // 一般包含匹配
+            if (prefix.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) == -1)
+              continue;
+          }
+        }
+
+        this._SpriteDisplayItems.Add(group);
+      }
+
+      // 更新 ListView
+      this.lvIndexInfo.VirtualListSize = this._SpriteDisplayItems.Count;
+      this.lvIndexInfo.Invalidate();
+
+      if (this._SpriteDisplayItems.Count > 0)
+      {
+        this.lvIndexInfo.SelectedIndices.Clear();
+        this.lvIndexInfo.SelectedIndices.Add(0);
+      }
+
+      this.lvIndexInfo.Focus();
+
+      // 更新狀態列
+      int totalGroups = this._SpriteGroups?.Count ?? 0;
+      this.tssRecordCount.Text = $"全部：{totalGroups} 組";
+      this.tssShowInListView.Text = $"顯示：{this._SpriteDisplayItems.Count} 組";
     }
 
     private void btnContentSearch_Click(object sender, EventArgs e)
