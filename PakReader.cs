@@ -866,6 +866,130 @@ namespace PakViewer
             }
         }
 
+        /// <summary>
+        /// 壓縮 PAK 中所有 PNG 檔案
+        /// </summary>
+        /// <param name="idxFile">IDX 檔案路徑</param>
+        /// <param name="progress">進度回報 (已完成數, 總數, 目前檔名)</param>
+        /// <returns>(成功數, 原始大小, 新大小, 錯誤訊息)</returns>
+        public static (int successCount, long originalSize, long newSize, string error) OptimizePakPng(
+            string idxFile, Action<int, int, string> progress = null)
+        {
+            string pakFile = idxFile.Replace(".idx", ".pak");
+
+            if (!File.Exists(idxFile) || !File.Exists(pakFile))
+                return (0, 0, 0, "找不到 IDX 或 PAK 檔案");
+
+            var result = LoadIndex(idxFile);
+            if (result == null)
+                return (0, 0, 0, "無法讀取 IDX 檔案");
+
+            var (records, isProtected) = result.Value;
+
+            // 找出所有 PNG 檔案
+            var pngIndices = new List<int>();
+            for (int i = 0; i < records.Length; i++)
+            {
+                if (records[i].FileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                    pngIndices.Add(i);
+            }
+
+            if (pngIndices.Count == 0)
+                return (0, 0, 0, null); // 沒有 PNG，不是錯誤
+
+            long originalPakSize = new FileInfo(pakFile).Length;
+            int successCount = 0;
+            var newRecords = new List<L1PakTools.IndexRecord>();
+            var newDataList = new List<byte[]>();
+
+            // 處理所有記錄
+            using (var srcStream = new FileStream(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                for (int i = 0; i < records.Length; i++)
+                {
+                    var rec = records[i];
+                    byte[] fileData = new byte[rec.FileSize];
+                    srcStream.Seek(rec.Offset, SeekOrigin.Begin);
+                    srcStream.Read(fileData, 0, rec.FileSize);
+
+                    bool isPng = rec.FileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase);
+
+                    if (isPng)
+                    {
+                        progress?.Invoke(successCount + 1, pngIndices.Count, rec.FileName);
+
+                        // 解碼（如果需要）
+                        byte[] pngData = isProtected ? L1PakTools.Decode(fileData, 0) : fileData;
+
+                        // 壓縮 PNG
+                        var (optimizedData, savedBytes, error) = Utility.PngOptimizer.OptimizeData(pngData);
+
+                        if (error == null && savedBytes > 0)
+                        {
+                            // 壓縮成功且有節省空間
+                            fileData = isProtected ? L1PakTools.Encode(optimizedData, 0) : optimizedData;
+                            successCount++;
+                        }
+                        else if (error == null)
+                        {
+                            // 已經是最佳，保持原樣
+                            successCount++;
+                        }
+                        // 如果有錯誤，保留原始資料
+                    }
+
+                    newDataList.Add(fileData);
+                    newRecords.Add(new L1PakTools.IndexRecord(rec.FileName, fileData.Length, 0));
+                }
+            }
+
+            // 寫入新 PAK
+            string tempPakFile = pakFile + ".tmp";
+            string tempIdxFile = idxFile + ".tmp";
+
+            try
+            {
+                int currentOffset = 0;
+                using (var dstStream = new FileStream(tempPakFile, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    for (int i = 0; i < newDataList.Count; i++)
+                    {
+                        var data = newDataList[i];
+                        dstStream.Write(data, 0, data.Length);
+
+                        newRecords[i] = new L1PakTools.IndexRecord(
+                            newRecords[i].FileName,
+                            data.Length,
+                            currentOffset);
+
+                        currentOffset += data.Length;
+                    }
+                }
+
+                // 寫入新 IDX
+                RebuildIndex(tempIdxFile, newRecords.ToArray(), isProtected);
+
+                // 驗證並替換
+                if (!File.Exists(tempPakFile) || !File.Exists(tempIdxFile))
+                    return (0, 0, 0, "暫存檔建立失敗");
+
+                long newPakSize = new FileInfo(tempPakFile).Length;
+
+                File.Delete(pakFile);
+                File.Move(tempPakFile, pakFile);
+                File.Delete(idxFile);
+                File.Move(tempIdxFile, idxFile);
+
+                return (successCount, originalPakSize, newPakSize, null);
+            }
+            catch (Exception ex)
+            {
+                if (File.Exists(tempPakFile)) File.Delete(tempPakFile);
+                if (File.Exists(tempIdxFile)) File.Delete(tempIdxFile);
+                return (0, 0, 0, ex.Message);
+            }
+        }
+
         static void CleanupUnlinkedSprites(string folder, string listSprPath, int minSizeMB)
         {
             Console.WriteLine($"=== 清理未連結的大型 Sprite ===");

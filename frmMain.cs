@@ -86,6 +86,7 @@ namespace PakViewer
     private ToolStripMenuItem tsmSelectAll;
     private ToolStripSeparator toolStripSeparator10;
     private ToolStripMenuItem tsmDelete;
+    private ToolStripMenuItem tsmOptimizePng;
     private StatusStrip statusStrip1;
     private ToolStripStatusLabel tssMessage;
     private ToolStripProgressBar tssProgress;
@@ -106,6 +107,7 @@ namespace PakViewer
     private ToolStripMenuItem mnuTools_Add;
     private ToolStripSeparator toolStripSeparator9;
     private ToolStripMenuItem mnuTools_Update;
+    private ToolStripMenuItem mnuTools_OptimizePng;
     private ToolStripStatusLabel tssRecordCount;
     private ToolStripStatusLabel tssShowInListView;
     private ToolStripStatusLabel tssCheckedCount;
@@ -2545,6 +2547,217 @@ namespace PakViewer
       }
     }
 
+    private void tsmOptimizePng_Click(object sender, EventArgs e)
+    {
+      if (this._IndexRecords == null || this.lvIndexInfo.SelectedIndices.Count == 0)
+        return;
+
+      // 收集選取的 PNG 檔案
+      var pngFiles = new List<(int realIndex, string fileName, string pakFile)>();
+
+      foreach (int idx in this.lvIndexInfo.SelectedIndices)
+      {
+        int realIndex = this._IsSpriteMode && this._SpriteDisplayItems != null
+          ? (idx < this._SpriteDisplayItems.Count && this._SpriteDisplayItems[idx] is int ri ? ri : -1)
+          : (this._FilteredIndexes != null && idx < this._FilteredIndexes.Count ? this._FilteredIndexes[idx] : -1);
+
+        if (realIndex < 0 || realIndex >= this._IndexRecords.Length)
+          continue;
+
+        var record = this._IndexRecords[realIndex];
+        if (!record.FileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+          continue;
+
+        string pakFile = this._IsSpriteMode && !string.IsNullOrEmpty(record.SourcePak)
+          ? record.SourcePak
+          : this._PackFileName;
+
+        pngFiles.Add((realIndex, record.FileName, pakFile));
+      }
+
+      if (pngFiles.Count == 0)
+      {
+        MessageBox.Show("沒有選取 PNG 檔案", "壓縮 PNG", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return;
+      }
+
+      // 確認對話框
+      if (MessageBox.Show(
+        $"確定要壓縮 {pngFiles.Count} 個 PNG 檔案嗎？\n\n此操作會直接修改 PAK 檔案中的 PNG 資料。",
+        "確認壓縮",
+        MessageBoxButtons.YesNo,
+        MessageBoxIcon.Question) != DialogResult.Yes)
+        return;
+
+      try
+      {
+        this.Cursor = Cursors.WaitCursor;
+        int successCount = 0;
+        long totalSaved = 0;
+        var errors = new List<string>();
+
+        for (int i = 0; i < pngFiles.Count; i++)
+        {
+          var (realIndex, fileName, pakFile) = pngFiles[i];
+          this.tssMessage.Text = $"壓縮中 ({i + 1}/{pngFiles.Count}): {fileName}";
+          Application.DoEvents();
+
+          try
+          {
+            // 讀取 PNG 資料
+            var record = this._IndexRecords[realIndex];
+            byte[] pngData;
+
+            using (var fs = new FileStream(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+              fs.Seek(record.Offset, SeekOrigin.Begin);
+              pngData = new byte[record.FileSize];
+              fs.Read(pngData, 0, record.FileSize);
+
+              if (this._IsPackFileProtected)
+                pngData = L1PakTools.Decode(pngData, 0);
+            }
+
+            // 壓縮
+            var (optimizedData, savedBytes, error) = Utility.PngOptimizer.OptimizeData(pngData);
+
+            if (error != null)
+            {
+              errors.Add($"{fileName}: {error}");
+              continue;
+            }
+
+            if (savedBytes <= 0)
+            {
+              // 已經是最佳壓縮，不需要更新
+              successCount++;
+              continue;
+            }
+
+            // 如果大小改變，需要更新 PAK（使用 update 邏輯）
+            // 注意：PNG 壓縮後通常會變小，需要重建 PAK
+            // 這裡簡化處理：只有大小不變時才直接覆蓋
+
+            if (optimizedData.Length == pngData.Length)
+            {
+              // 大小相同，可以直接覆蓋
+              byte[] dataToWrite = this._IsPackFileProtected
+                ? L1PakTools.Encode(optimizedData, 0)
+                : optimizedData;
+
+              using (var fs = new FileStream(pakFile, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+              {
+                fs.Seek(record.Offset, SeekOrigin.Begin);
+                fs.Write(dataToWrite, 0, dataToWrite.Length);
+              }
+
+              successCount++;
+              totalSaved += savedBytes;
+            }
+            else
+            {
+              // 大小改變，需要重建 PAK - 暫不支援
+              errors.Add($"{fileName}: 壓縮後大小改變 ({pngData.Length} → {optimizedData.Length})，需重建 PAK (暫不支援)");
+            }
+          }
+          catch (Exception ex)
+          {
+            errors.Add($"{fileName}: {ex.Message}");
+          }
+        }
+
+        // 顯示結果
+        string resultMsg = $"完成！成功壓縮 {successCount}/{pngFiles.Count} 個檔案";
+        if (totalSaved > 0)
+          resultMsg += $"\n節省空間: {totalSaved / 1024.0:F2} KB";
+
+        if (errors.Count > 0)
+        {
+          resultMsg += $"\n\n錯誤 ({errors.Count}):\n" + string.Join("\n", errors.Take(10));
+          if (errors.Count > 10)
+            resultMsg += $"\n... 還有 {errors.Count - 10} 個錯誤";
+        }
+
+        this.tssMessage.Text = $"已壓縮 {successCount} 個 PNG，節省 {totalSaved / 1024.0:F2} KB";
+        MessageBox.Show(resultMsg, "壓縮完成", MessageBoxButtons.OK,
+          errors.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+      }
+      finally
+      {
+        this.Cursor = Cursors.Default;
+      }
+    }
+
+    private async void mnuTools_OptimizePng_Click(object sender, EventArgs e)
+    {
+      // 選擇要處理的資料夾（或使用目前開啟的資料夾）
+      string targetFolder = this._IsSpriteMode ? this._SelectedFolder : Path.GetDirectoryName(this._PackFileName);
+
+      if (string.IsNullOrEmpty(targetFolder) || !Directory.Exists(targetFolder))
+      {
+        // 開啟資料夾選擇對話框
+        using (var fbd = new FolderBrowserDialog())
+        {
+          fbd.Description = "選擇包含 PAK 檔案的資料夾";
+          if (fbd.ShowDialog() != DialogResult.OK)
+            return;
+          targetFolder = fbd.SelectedPath;
+        }
+      }
+
+      // 找出所有 idx 檔案
+      var idxFiles = Directory.GetFiles(targetFolder, "*.idx");
+      if (idxFiles.Length == 0)
+      {
+        MessageBox.Show("找不到任何 IDX 檔案", "批次壓縮 PNG", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return;
+      }
+
+      // 確認對話框
+      if (MessageBox.Show(
+        $"在 {Path.GetFileName(targetFolder)} 中找到 {idxFiles.Length} 個 PAK 檔案。\n\n" +
+        "確定要壓縮所有 PAK 中的 PNG 檔案嗎？\n\n" +
+        "注意：此操作會重建所有 PAK 檔案，請確保已備份。",
+        "確認批次壓縮",
+        MessageBoxButtons.YesNo,
+        MessageBoxIcon.Question) != DialogResult.Yes)
+        return;
+
+      // 使用進度視窗
+      using (var progressForm = new frmPngOptimizeProgress())
+      {
+        // 顯示視窗並開始處理
+        progressForm.Show(this);
+        await progressForm.ProcessAsync(idxFiles);
+
+        // 更新狀態列
+        long totalSaved = progressForm.TotalOriginalSize - progressForm.TotalNewSize;
+        this.tssMessage.Text = $"壓縮完成！節省 {totalSaved / 1024.0 / 1024.0:F2} MB";
+
+        // 如果有開啟 PAK，重新載入
+        if (progressForm.TotalPngCount > 0)
+        {
+          if (this._IsSpriteMode)
+          {
+            this.LoadSpriteMode();
+          }
+          else if (!string.IsNullOrEmpty(this._PackFileName))
+          {
+            string idxFile = this._PackFileName.Replace(".pak", ".idx");
+            if (File.Exists(idxFile))
+            {
+              byte[] idxData = this.LoadIndexData(idxFile);
+              if (idxData != null)
+              {
+                this._IndexRecords = this.CreatIndexRecords(idxData);
+                this.ShowRecords(this._IndexRecords);
+              }
+            }
+          }
+        }
+      }
+    }
+
     private void tsmCopyFileName_Click(object sender, EventArgs e)
     {
       if (this.lvIndexInfo.SelectedIndices.Count == 0 || this._FilteredIndexes == null)
@@ -3548,6 +3761,29 @@ namespace PakViewer
       this.tsmCompare.Enabled = this._InviewData == frmMain.InviewDataType.Text;
       // Sprite 模式下也允許刪除功能
       this.tsmDelete.Enabled = true;
+
+      // 壓縮 PNG 選單項目：只在有選取 .png 檔案時顯示
+      bool hasPngSelected = false;
+      if (this._IndexRecords != null && this.lvIndexInfo.SelectedIndices.Count > 0)
+      {
+        foreach (int idx in this.lvIndexInfo.SelectedIndices)
+        {
+          int realIndex = this._IsSpriteMode && this._SpriteDisplayItems != null
+            ? (idx < this._SpriteDisplayItems.Count && this._SpriteDisplayItems[idx] is int ri ? ri : -1)
+            : (this._FilteredIndexes != null && idx < this._FilteredIndexes.Count ? this._FilteredIndexes[idx] : -1);
+
+          if (realIndex >= 0 && realIndex < this._IndexRecords.Length)
+          {
+            string fileName = this._IndexRecords[realIndex].FileName;
+            if (fileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            {
+              hasPngSelected = true;
+              break;
+            }
+          }
+        }
+      }
+      this.tsmOptimizePng.Visible = hasPngSelected;
     }
 
     protected override void Dispose(bool disposing)
@@ -3829,11 +4065,18 @@ namespace PakViewer
       this.mnuLanguage_EN.Name = "mnuLanguage_EN";
       this.mnuLanguage_EN.Size = new Size(133, 22);
       this.mnuLanguage_EN.Text = "&English";
-      this.mnuTools.DropDownItems.AddRange(new ToolStripItem[9]
+      this.mnuTools_OptimizePng = new ToolStripMenuItem();
+      this.mnuTools_OptimizePng.Name = "mnuTools_OptimizePng";
+      this.mnuTools_OptimizePng.Size = new Size(160, 22);
+      this.mnuTools_OptimizePng.Text = "批次壓縮 PNG(&P)...";
+      this.mnuTools_OptimizePng.ToolTipText = "壓縮 PAK 中所有 PNG 檔案";
+      this.mnuTools_OptimizePng.Click += new EventHandler(this.mnuTools_OptimizePng_Click);
+      this.mnuTools.DropDownItems.AddRange(new ToolStripItem[10]
       {
         (ToolStripItem) this.mnuTools_Export,
         (ToolStripItem) this.mnuTools_ExportTo,
         (ToolStripItem) this.mnuTools_Delete,
+        (ToolStripItem) this.mnuTools_OptimizePng,
         (ToolStripItem) this.toolStripSeparator8,
         (ToolStripItem) this.mnuTools_Add,
         (ToolStripItem) this.mnuTools_Update,
@@ -3987,11 +4230,18 @@ namespace PakViewer
       this.SprListViewer.Size = new Size(324, 277);
       this.SprListViewer.TabIndex = 6;
       this.SprListViewer.Visible = false;
-      this.ctxMenu.Items.AddRange(new ToolStripItem[10]
+      this.tsmOptimizePng = new ToolStripMenuItem();
+      this.tsmOptimizePng.Name = "tsmOptimizePng";
+      this.tsmOptimizePng.Size = new Size(136, 22);
+      this.tsmOptimizePng.Text = "壓縮 PNG(&O)";
+      this.tsmOptimizePng.ToolTipText = "無損壓縮選取的 PNG 檔案";
+      this.tsmOptimizePng.Click += new EventHandler(this.tsmOptimizePng_Click);
+      this.ctxMenu.Items.AddRange(new ToolStripItem[11]
       {
         (ToolStripItem) this.tsmCopyFileName,
         (ToolStripItem) this.tsmExport,
         (ToolStripItem) this.tsmExportTo,
+        (ToolStripItem) this.tsmOptimizePng,
         (ToolStripItem) this.toolStripSeparator6,
         (ToolStripItem) this.tsmUnselectAll,
         (ToolStripItem) this.tsmSelectAll,

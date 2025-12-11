@@ -110,3 +110,28 @@ if (-not $NoZip) {
 Write-Host ""
 Write-Host "Requirements: .NET 10.0 Runtime (Windows)" -ForegroundColor Yellow
 Write-Host "Download: https://dotnet.microsoft.com/download/dotnet/10.0" -ForegroundColor Yellow
+
+# Git tag and push
+Write-Host ""
+Write-Host "Creating git tag..." -ForegroundColor Yellow
+$tagName = "v$version"
+
+# Create tag
+git tag $tagName
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "  Tag created: $tagName" -ForegroundColor Green
+
+    # Push tag to origin
+    Write-Host "Pushing tag to origin..." -ForegroundColor Yellow
+    git push origin $tagName
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Tag pushed: $tagName" -ForegroundColor Green
+    } else {
+        Write-Host "  Failed to push tag!" -ForegroundColor Red
+    }
+} else {
+    Write-Host "  Failed to create tag (may already exist)" -ForegroundColor Red
+}
+
+Write-Host ""
+Write-Host "=== Done ===" -ForegroundColor Cyan

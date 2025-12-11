@@ -80,6 +80,12 @@ Auto-detection by filename:
 - `-j.` suffix: Shift_JIS (Japanese)
 - `-h.` suffix: GB2312 (Simplified Chinese)
 
+## Third-Party Libraries
+
+- [oxipng](https://github.com/oxipng/oxipng) v10.0.0 - Lossless PNG compression tool (MIT License)
+  - Used for optimizing PNG files without quality loss
+  - Embedded as a resource and extracted on first use
+
 ## Credits
 
 Original project was from 99net's moore.
