@@ -121,6 +121,7 @@ namespace PakViewer.Utility
             public string Path { get; set; }
             public int Offset { get; set; }
             public int Size { get; set; }
+            public byte Type { get; set; }
 
             /// <summary>
             /// 來源 DAT 檔案完整路徑
@@ -334,105 +335,61 @@ namespace PakViewer.Utility
 
         /// <summary>
         /// 解析解密後的索引數據
+        ///
+        /// Index Entry 結構：
+        /// - 4 bytes: path_len (路徑長度，little-endian)
+        /// - path_len bytes: path (路徑字串)
+        /// - 4 bytes: offset (檔案偏移，little-endian)
+        /// - 4 bytes: size (檔案大小，little-endian)
+        /// - 1 byte: type (類型)
         /// </summary>
         public static List<DatIndexEntry> ParseIndex(byte[] data, string sourceDatFile = null)
         {
             var entries = new List<DatIndexEntry>();
             int pos = 0;
 
-            // 轉換副檔名為 bytes
-            var extensionBytes = new List<byte[]>();
-            foreach (var ext in EXTENSIONS)
+            while (pos + 13 <= data.Length)  // 最小 entry 大小: 4 + 0 + 4 + 4 + 1 = 13
             {
-                extensionBytes.Add(Encoding.UTF8.GetBytes(ext));
-            }
-
-            byte[] imagePrefix = Encoding.UTF8.GetBytes("Image/");
-            byte[] soundPrefix = Encoding.UTF8.GetBytes("Sound");
-            byte[] dataPrefix = Encoding.UTF8.GetBytes("Data");
-
-            while (pos < data.Length - 20)
-            {
-                // 檢查是否為路徑開始
-                int pathStart = -1;
-
-                if (pos + 6 <= data.Length &&
-                    (StartsWith(data, pos, imagePrefix) ||
-                     StartsWith(data, pos, soundPrefix) ||
-                     StartsWith(data, pos, dataPrefix)))
+                try
                 {
-                    pathStart = pos;
+                    // 讀取 path_len (4 bytes, little-endian)
+                    int pathLen = BitConverter.ToInt32(data, pos);
+
+                    // 驗證 path_len 合理性
+                    if (pathLen <= 0 || pathLen > 500 || pos + 4 + pathLen + 9 > data.Length)
+                    {
+                        // 無效的 entry，可能已經到達結尾或資料損壞
+                        break;
+                    }
+
+                    // 讀取 path (path_len bytes)
+                    string path = Encoding.UTF8.GetString(data, pos + 4, pathLen);
+
+                    // 讀取 offset (4 bytes, little-endian)
+                    int offset = BitConverter.ToInt32(data, pos + 4 + pathLen);
+
+                    // 讀取 size (4 bytes, little-endian)
+                    int size = BitConverter.ToInt32(data, pos + 4 + pathLen + 4);
+
+                    // 讀取 type (1 byte)
+                    byte type = data[pos + 4 + pathLen + 8];
+
+                    // 驗證資料合理性
+                    if (size >= 0 && size < 500_000_000 && offset >= 0)
+                    {
+                        var entry = new DatIndexEntry(path, offset, size, sourceDatFile);
+                        entry.Type = type;
+                        entries.Add(entry);
+                    }
+
+                    // 移動到下一個 entry
+                    pos += 4 + pathLen + 4 + 4 + 1;
                 }
-                else if (pos >= 3 && data[pos - 1] == 0 && data[pos - 2] == 0 && data[pos - 3] == 0)
+                catch
                 {
-                    if (pos + 6 <= data.Length &&
-                        (StartsWith(data, pos, imagePrefix) ||
-                         StartsWith(data, pos, soundPrefix) ||
-                         StartsWith(data, pos, dataPrefix)))
-                    {
-                        pathStart = pos;
-                    }
+                    // 解析錯誤，結束
+                    break;
                 }
-
-                if (pathStart >= 0)
-                {
-                    // 找路徑結尾 (副檔名)
-                    int pathEnd = -1;
-                    byte[] foundExt = null;
-
-                    foreach (var ext in extensionBytes)
-                    {
-                        int extPos = IndexOf(data, ext, pathStart, Math.Min(pathStart + 300, data.Length));
-                        if (extPos != -1)
-                        {
-                            pathEnd = extPos + ext.Length;
-                            foundExt = ext;
-                            break;
-                        }
-                    }
-
-                    if (pathEnd == -1)
-                    {
-                        pos++;
-                        continue;
-                    }
-
-                    string path;
-                    try
-                    {
-                        path = Encoding.UTF8.GetString(data, pathStart, pathEnd - pathStart);
-                    }
-                    catch
-                    {
-                        pos++;
-                        continue;
-                    }
-
-                    // 讀取 offset 和 size
-                    int infoPos = pathEnd;
-
-                    // 跳過可能的 null padding
-                    while (infoPos < data.Length && data[infoPos] == 0)
-                    {
-                        infoPos++;
-                    }
-
-                    if (infoPos + 8 <= data.Length)
-                    {
-                        int fileOffset = BitConverter.ToInt32(data, infoPos);
-                        int fileSize = BitConverter.ToInt32(data, infoPos + 4);
-
-                        // 驗證合理性
-                        if (fileSize > 0 && fileSize < 100_000_000 && fileOffset >= 0 && fileOffset < 1_000_000_000)
-                        {
-                            entries.Add(new DatIndexEntry(path, fileOffset, fileSize, sourceDatFile));
-                            pos = infoPos + 8;
-                            continue;
-                        }
-                    }
-                }
-
-                pos++;
             }
 
             return entries;
