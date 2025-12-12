@@ -14,6 +14,7 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -163,6 +164,18 @@ namespace PakViewer
     private string _SelectedFolder;
     private List<int> _FilteredIndexes;
     private HashSet<int> _CheckedIndexes;
+
+    // DAT 模式相關
+    private bool _IsDatMode = false;
+    private List<string> _DatFiles;  // 開啟的 DAT 檔案路徑列表
+    private List<DatTools.DatFile> _DatFileObjects;  // 解析後的 DAT 檔案物件
+    private List<DatTools.DatIndexEntry> _AllDatEntries;  // 所有 DAT 檔案的條目 (合併)
+    private List<DatTools.DatIndexEntry> _FilteredDatEntries;  // 篩選後的條目
+    private Dictionary<string, List<DatTools.DatIndexEntry>> _DatGroups;  // 按目錄分組
+    private List<string> _DatGroupKeys;  // 分組鍵列表
+    private ToolStripMenuItem mnuOpenDat;  // 開啟 DAT 檔案選單
+    private ListView lvDatFiles;  // 檔案列表 ListView
+    private ucImgViewer DatImageViewer;  // DAT 圖片檢視器
 
     public frmMain()
     {
@@ -4080,10 +4093,18 @@ namespace PakViewer
       this.menuStrip1.Size = new Size(792, 24);
       this.menuStrip1.TabIndex = 2;
       this.menuStrip1.Text = "menuStrip1";
-      this.mnuFile.DropDownItems.AddRange(new ToolStripItem[7]
+      // 建立開啟 DAT 檔案選單項
+      this.mnuOpenDat = new ToolStripMenuItem();
+      this.mnuOpenDat.Name = "mnuOpenDat";
+      this.mnuOpenDat.Size = new Size(180, 22);
+      this.mnuOpenDat.Text = "開啟天M DAT檔(&D)...";
+      this.mnuOpenDat.Click += new EventHandler(this.mnuOpenDat_Click);
+
+      this.mnuFile.DropDownItems.AddRange(new ToolStripItem[8]
       {
         (ToolStripItem) this.mnuOpen,
         (ToolStripItem) this.mnuOpenSprList,
+        (ToolStripItem) this.mnuOpenDat,
         (ToolStripItem) this.toolStripSeparator1,
         (ToolStripItem) this.mnuCreatResource,
         (ToolStripItem) this.mnuRebuild,
@@ -4776,6 +4797,612 @@ namespace PakViewer
         return this.sorting * (int.Parse(text1.Replace(",", "")) - int.Parse(text2.Replace(",", "")));
       }
     }
+
+    // ============================================================================
+    // DAT 模式相關方法
+    // ============================================================================
+
+    /// <summary>
+    /// 開啟天M DAT檔案選單點擊事件
+    /// </summary>
+    private void mnuOpenDat_Click(object sender, EventArgs e)
+    {
+      using (var dlg = new OpenFileDialog())
+      {
+        dlg.Title = "選擇天M DAT檔案 (可複選)";
+        dlg.Filter = "DAT 檔案 (*.dat)|*.dat|所有檔案 (*.*)|*.*";
+        dlg.Multiselect = true;
+
+        // 使用上次的資料夾
+        if (!string.IsNullOrEmpty(this._SelectedFolder))
+          dlg.InitialDirectory = this._SelectedFolder;
+
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+          return;
+
+        // 退出其他模式
+        if (this._IsSprListMode)
+          this.ExitSprListMode();
+        if (this._IsSpriteMode)
+          this.ExitSpriteMode();
+        if (this._IsDatMode)
+          this.ExitDatMode();
+
+        this.Cursor = Cursors.WaitCursor;
+        try
+        {
+          LoadDatFiles(dlg.FileNames);
+        }
+        finally
+        {
+          this.Cursor = Cursors.Default;
+        }
+      }
+    }
+
+    /// <summary>
+    /// 載入 DAT 檔案
+    /// </summary>
+    private void LoadDatFiles(string[] filePaths)
+    {
+      this._DatFiles = new List<string>(filePaths);
+      this._DatFileObjects = new List<DatTools.DatFile>();
+      this._AllDatEntries = new List<DatTools.DatIndexEntry>();
+      this._DatGroups = new Dictionary<string, List<DatTools.DatIndexEntry>>();
+
+      this.tssProgressName.Text = "載入 DAT 檔案...";
+      this.tssProgress.Value = 0;
+      this.tssProgress.Maximum = filePaths.Length;
+
+      foreach (string filePath in filePaths)
+      {
+        try
+        {
+          var datFile = new DatTools.DatFile(filePath);
+          datFile.ReadFooter();
+          datFile.DecryptIndex();
+          datFile.ParseEntries();
+
+          this._DatFileObjects.Add(datFile);
+          this._AllDatEntries.AddRange(datFile.Entries);
+
+          this.tssProgress.Value++;
+          Application.DoEvents();
+        }
+        catch (Exception ex)
+        {
+          MessageBox.Show($"載入 {Path.GetFileName(filePath)} 失敗：{ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+      }
+
+      // 建立目錄分組
+      BuildDatGroups();
+
+      // 設定 DAT 模式
+      this._IsDatMode = true;
+      SetupDatModeUI();
+
+      // 更新狀態列
+      this.tssRecordCount.Text = $"DAT: {this._DatFileObjects.Count} 個檔案";
+      this.tssShowInListView.Text = $"項目: {this._AllDatEntries.Count}";
+      this.tssProgressName.Text = "";
+      this.tssProgress.Value = 0;
+    }
+
+    /// <summary>
+    /// 建立 DAT 目錄分組
+    /// </summary>
+    private void BuildDatGroups()
+    {
+      this._DatGroups = new Dictionary<string, List<DatTools.DatIndexEntry>>();
+
+      foreach (var entry in this._AllDatEntries)
+      {
+        // 取得目錄路徑 (第一層或第二層)
+        string path = entry.Path.TrimStart('/', '\\');
+        string[] parts = path.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+
+        string groupKey;
+        if (parts.Length >= 2)
+        {
+          // 使用前兩層目錄作為分組鍵 (e.g. "Image/BM")
+          groupKey = parts[0] + "/" + parts[1];
+        }
+        else if (parts.Length == 1)
+        {
+          // 只有檔名，使用根目錄
+          groupKey = "(root)";
+        }
+        else
+        {
+          groupKey = "(unknown)";
+        }
+
+        if (!this._DatGroups.ContainsKey(groupKey))
+        {
+          this._DatGroups[groupKey] = new List<DatTools.DatIndexEntry>();
+        }
+        this._DatGroups[groupKey].Add(entry);
+      }
+
+      // 排序分組鍵
+      this._DatGroupKeys = this._DatGroups.Keys.OrderBy(k => k).ToList();
+    }
+
+    /// <summary>
+    /// 設定 DAT 模式 UI (簡化版 - 直接顯示檔案列表)
+    /// </summary>
+    private void SetupDatModeUI()
+    {
+      if (this.lvDatFiles != null)
+        return;
+
+      // 隱藏其他檢視器
+      this.TextViewer.Visible = false;
+      this.ImageViewer.Visible = false;
+      this.SprViewer.Visible = false;
+      this.TextCompViewer.Visible = false;
+      if (this.SprListViewer != null) this.SprListViewer.Visible = false;
+      if (this.SprDetailViewer != null) this.SprDetailViewer.Visible = false;
+
+      // 建立檔案列表 ListView
+      this.lvDatFiles = new ListView();
+      this.lvDatFiles.Dock = DockStyle.Fill;
+      this.lvDatFiles.View = View.Details;
+      this.lvDatFiles.FullRowSelect = true;
+      this.lvDatFiles.GridLines = true;
+      this.lvDatFiles.VirtualMode = true;
+      this.lvDatFiles.Columns.Add("檔名", 250, HorizontalAlignment.Left);
+      this.lvDatFiles.Columns.Add("大小", 80, HorizontalAlignment.Right);
+      this.lvDatFiles.Columns.Add("來源 DAT", 120, HorizontalAlignment.Left);
+      this.lvDatFiles.RetrieveVirtualItem += lvDatFiles_RetrieveVirtualItem;
+      this.lvDatFiles.SelectedIndexChanged += lvDatFiles_SelectedIndexChanged;
+      this.lvDatFiles.ContextMenuStrip = CreateDatFileContextMenu();
+
+      // 替換 splitContainer2.Panel2 的內容
+      this.splitContainer2.Panel2.Controls.Clear();
+      this.splitContainer2.Panel2.Controls.Add(this.lvDatFiles);
+
+      // 建立右側圖片檢視器
+      this.DatImageViewer = new ucImgViewer();
+      this.DatImageViewer.Dock = DockStyle.Fill;
+      this.splitContainer1.Panel2.Controls.Clear();
+      this.splitContainer1.Panel2.Controls.Add(this.DatImageViewer);
+
+      // 初始化篩選後的條目為全部
+      this._FilteredDatEntries = new List<DatTools.DatIndexEntry>(this._AllDatEntries);
+      this.lvDatFiles.VirtualListSize = this._FilteredDatEntries.Count;
+    }
+
+    /// <summary>
+    /// 建立 DAT 檔案列表右鍵選單
+    /// </summary>
+    private ContextMenuStrip CreateDatFileContextMenu()
+    {
+      var menu = new ContextMenuStrip();
+
+      var exportPng = new ToolStripMenuItem("匯出為 PNG...");
+      exportPng.Click += (s, e) => ExportDatFilesAsPng();
+      menu.Items.Add(exportPng);
+
+      var exportOriginal = new ToolStripMenuItem("匯出原始檔案...");
+      exportOriginal.Click += (s, e) => ExportDatFilesOriginal();
+      menu.Items.Add(exportOriginal);
+
+      menu.Items.Add(new ToolStripSeparator());
+
+      var exportAllZip = new ToolStripMenuItem("匯出全部為 ZIP...");
+      exportAllZip.Click += (s, e) => ExportAllDatToZip();
+      menu.Items.Add(exportAllZip);
+
+      menu.Items.Add(new ToolStripSeparator());
+
+      var selectAll = new ToolStripMenuItem("全選");
+      selectAll.Click += (s, e) => {
+        for (int i = 0; i < this.lvDatFiles.VirtualListSize; i++)
+          this.lvDatFiles.SelectedIndices.Add(i);
+      };
+      menu.Items.Add(selectAll);
+
+      return menu;
+    }
+
+    /// <summary>
+    /// 退出 DAT 模式
+    /// </summary>
+    private void ExitDatMode()
+    {
+      if (!this._IsDatMode)
+        return;
+
+      this._IsDatMode = false;
+
+      // 清理 UI
+      if (this.lvDatFiles != null)
+      {
+        this.splitContainer2.Panel2.Controls.Clear();
+        this.lvDatFiles.Dispose();
+        this.lvDatFiles = null;
+      }
+
+      if (this.DatImageViewer != null)
+      {
+        this.splitContainer1.Panel2.Controls.Clear();
+        this.DatImageViewer.Dispose();
+        this.DatImageViewer = null;
+      }
+
+      // 清理資料
+      this._DatFiles = null;
+      this._DatFileObjects = null;
+      this._AllDatEntries = null;
+      this._FilteredDatEntries = null;
+      this._DatGroups = null;
+      this._DatGroupKeys = null;
+
+      // 還原原始 UI
+      this.splitContainer2.Panel2.Controls.Add(this.lvIndexInfo);
+      this.lvIndexInfo.Dock = DockStyle.Fill;
+
+      this.splitContainer1.Panel2.Controls.Add(this.TextViewer);
+      this.splitContainer1.Panel2.Controls.Add(this.ImageViewer);
+      this.splitContainer1.Panel2.Controls.Add(this.SprViewer);
+      this.splitContainer1.Panel2.Controls.Add(this.TextCompViewer);
+    }
+
+    /// <summary>
+    /// 退出 Sprite 模式 (如果存在的話)
+    /// </summary>
+    private void ExitSpriteMode()
+    {
+      if (!this._IsSpriteMode)
+        return;
+
+      this._IsSpriteMode = false;
+      this.chkSpriteMode.Checked = false;
+      RemoveSpriteModeTab();
+    }
+
+    /// <summary>
+    /// DAT 檔案列表虛擬項目檢索
+    /// </summary>
+    private void lvDatFiles_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
+    {
+      if (this._FilteredDatEntries == null || e.ItemIndex < 0 || e.ItemIndex >= this._FilteredDatEntries.Count)
+      {
+        e.Item = new ListViewItem("");
+        e.Item.SubItems.Add("");
+        e.Item.SubItems.Add("");
+        return;
+      }
+
+      var entry = this._FilteredDatEntries[e.ItemIndex];
+      var item = new ListViewItem(entry.Path);
+      item.SubItems.Add(FormatFileSize(entry.Size));
+      item.SubItems.Add(entry.SourceDatName ?? "");
+      item.Tag = entry;
+      e.Item = item;
+    }
+
+    /// <summary>
+    /// DAT 檔案列表選擇變更
+    /// </summary>
+    private void lvDatFiles_SelectedIndexChanged(object sender, EventArgs e)
+    {
+      if (this.lvDatFiles.SelectedIndices.Count == 0)
+        return;
+
+      int selectedIndex = this.lvDatFiles.SelectedIndices[0];
+      if (this._FilteredDatEntries == null || selectedIndex >= this._FilteredDatEntries.Count)
+        return;
+
+      var entry = this._FilteredDatEntries[selectedIndex];
+      DisplayDatEntry(entry);
+    }
+
+    /// <summary>
+    /// 顯示 DAT 條目內容
+    /// </summary>
+    private void DisplayDatEntry(DatTools.DatIndexEntry entry)
+    {
+      try
+      {
+        // 找到對應的 DatFile
+        var datFile = this._DatFileObjects.FirstOrDefault(d => d.FilePath == entry.SourceDatFile);
+        if (datFile == null)
+          return;
+
+        byte[] data = datFile.ExtractFile(entry);
+
+        string ext = Path.GetExtension(entry.Path).ToLower();
+        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".bmp" || ext == ".webp")
+        {
+          // 顯示圖片
+          using (var ms = new MemoryStream(data))
+          {
+            var img = Image.FromStream(ms);
+            this.DatImageViewer.Image = new Bitmap(img);
+          }
+        }
+        else
+        {
+          // 非圖片檔案，清空顯示
+          this.DatImageViewer.Image = null;
+        }
+
+        this.tssMessage.Text = $"{entry.Path} ({FormatFileSize(entry.Size)})";
+      }
+      catch (Exception ex)
+      {
+        this.tssMessage.Text = $"載入失敗: {ex.Message}";
+        this.DatImageViewer.Image = null;
+      }
+    }
+
+    /// <summary>
+    /// 匯出所有 DAT 為 ZIP
+    /// </summary>
+    private void ExportAllDatToZip()
+    {
+      if (this._AllDatEntries == null || this._AllDatEntries.Count == 0)
+      {
+        MessageBox.Show("沒有可匯出的檔案。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return;
+      }
+
+      using (var dlg = new SaveFileDialog())
+      {
+        dlg.Title = "匯出所有 DAT 為 ZIP";
+        dlg.Filter = "ZIP 檔案 (*.zip)|*.zip";
+        dlg.FileName = "LineageM_Export.zip";
+
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+          return;
+
+        this.Cursor = Cursors.WaitCursor;
+        this.tssProgressName.Text = "匯出中...";
+        this.tssProgress.Value = 0;
+        this.tssProgress.Maximum = this._AllDatEntries.Count;
+
+        try
+        {
+          using (var zipStream = new FileStream(dlg.FileName, FileMode.Create))
+          using (var archive = new System.IO.Compression.ZipArchive(zipStream, ZipArchiveMode.Create))
+          {
+            foreach (var entry in this._AllDatEntries)
+            {
+              var datFile = this._DatFileObjects.FirstOrDefault(d => d.FilePath == entry.SourceDatFile);
+              if (datFile == null) continue;
+
+              try
+              {
+                byte[] data = datFile.ExtractFile(entry);
+                // 使用 DAT 檔名 + 內部路徑避免衝突
+                string entryPath = entry.SourceDatName + "/" + entry.Path.TrimStart('/', '\\').Replace('\\', '/');
+                var zipEntry = archive.CreateEntry(entryPath, CompressionLevel.Optimal);
+
+                using (var entryStream = zipEntry.Open())
+                {
+                  entryStream.Write(data, 0, data.Length);
+                }
+              }
+              catch { }
+
+              this.tssProgress.Value++;
+              if (this.tssProgress.Value % 100 == 0)
+                Application.DoEvents();
+            }
+          }
+
+          MessageBox.Show($"匯出完成！\n共 {this._AllDatEntries.Count} 個檔案。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+          MessageBox.Show($"匯出失敗：{ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+          this.Cursor = Cursors.Default;
+          this.tssProgressName.Text = "";
+          this.tssProgress.Value = 0;
+        }
+      }
+    }
+
+    /// <summary>
+    /// 匯出選中的 DAT 檔案為 PNG
+    /// </summary>
+    private void ExportDatFilesAsPng()
+    {
+      if (this.lvDatFiles.SelectedIndices.Count == 0)
+      {
+        MessageBox.Show("請先選擇要匯出的檔案。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return;
+      }
+
+      // 收集選中的條目
+      var selectedEntries = new List<DatTools.DatIndexEntry>();
+      foreach (int idx in this.lvDatFiles.SelectedIndices)
+      {
+        if (idx >= 0 && idx < this._FilteredDatEntries.Count)
+          selectedEntries.Add(this._FilteredDatEntries[idx]);
+      }
+
+      if (selectedEntries.Count == 0)
+        return;
+
+      using (var dlg = new FolderBrowserDialog())
+      {
+        dlg.Description = "選擇匯出目錄";
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+          return;
+
+        this.Cursor = Cursors.WaitCursor;
+        this.tssProgressName.Text = "匯出中...";
+        this.tssProgress.Value = 0;
+        this.tssProgress.Maximum = selectedEntries.Count;
+
+        int success = 0;
+        try
+        {
+          foreach (var entry in selectedEntries)
+          {
+            var datFile = this._DatFileObjects.FirstOrDefault(d => d.FilePath == entry.SourceDatFile);
+            if (datFile == null) continue;
+
+            try
+            {
+              byte[] data = datFile.ExtractFile(entry);
+              string ext = Path.GetExtension(entry.Path).ToLower();
+
+              // 只處理圖片檔案
+              if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".bmp" || ext == ".webp")
+              {
+                string fileName = Path.GetFileNameWithoutExtension(entry.Path) + ".png";
+                string destPath = Path.Combine(dlg.SelectedPath, fileName);
+
+                // 避免檔名衝突
+                int counter = 1;
+                while (File.Exists(destPath))
+                {
+                  fileName = Path.GetFileNameWithoutExtension(entry.Path) + $"_{counter}.png";
+                  destPath = Path.Combine(dlg.SelectedPath, fileName);
+                  counter++;
+                }
+
+                using (var ms = new MemoryStream(data))
+                using (var img = Image.FromStream(ms))
+                {
+                  img.Save(destPath, ImageFormat.Png);
+                }
+                success++;
+              }
+              else
+              {
+                // 非圖片檔案，直接儲存原始格式
+                string fileName = Path.GetFileName(entry.Path);
+                string destPath = Path.Combine(dlg.SelectedPath, fileName);
+
+                int counter = 1;
+                while (File.Exists(destPath))
+                {
+                  fileName = Path.GetFileNameWithoutExtension(entry.Path) + $"_{counter}" + ext;
+                  destPath = Path.Combine(dlg.SelectedPath, fileName);
+                  counter++;
+                }
+
+                File.WriteAllBytes(destPath, data);
+                success++;
+              }
+            }
+            catch { }
+
+            this.tssProgress.Value++;
+            Application.DoEvents();
+          }
+
+          MessageBox.Show($"匯出完成！\n成功：{success} 個檔案。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+          MessageBox.Show($"匯出失敗：{ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+          this.Cursor = Cursors.Default;
+          this.tssProgressName.Text = "";
+          this.tssProgress.Value = 0;
+        }
+      }
+    }
+
+    /// <summary>
+    /// 匯出選中的 DAT 檔案 (原始格式)
+    /// </summary>
+    private void ExportDatFilesOriginal()
+    {
+      if (this.lvDatFiles.SelectedIndices.Count == 0)
+      {
+        MessageBox.Show("請先選擇要匯出的檔案。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return;
+      }
+
+      // 收集選中的條目
+      var selectedEntries = new List<DatTools.DatIndexEntry>();
+      foreach (int idx in this.lvDatFiles.SelectedIndices)
+      {
+        if (idx >= 0 && idx < this._FilteredDatEntries.Count)
+          selectedEntries.Add(this._FilteredDatEntries[idx]);
+      }
+
+      if (selectedEntries.Count == 0)
+        return;
+
+      using (var dlg = new FolderBrowserDialog())
+      {
+        dlg.Description = "選擇匯出目錄";
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+          return;
+
+        this.Cursor = Cursors.WaitCursor;
+        this.tssProgressName.Text = "匯出中...";
+        this.tssProgress.Value = 0;
+        this.tssProgress.Maximum = selectedEntries.Count;
+
+        int success = 0;
+        try
+        {
+          foreach (var entry in selectedEntries)
+          {
+            var datFile = this._DatFileObjects.FirstOrDefault(d => d.FilePath == entry.SourceDatFile);
+            if (datFile == null) continue;
+
+            try
+            {
+              byte[] data = datFile.ExtractFile(entry);
+              string safePath = entry.Path.TrimStart('/', '\\');
+              string destPath = Path.Combine(dlg.SelectedPath, safePath);
+              Directory.CreateDirectory(Path.GetDirectoryName(destPath));
+              File.WriteAllBytes(destPath, data);
+              success++;
+            }
+            catch { }
+
+            this.tssProgress.Value++;
+            Application.DoEvents();
+          }
+
+          MessageBox.Show($"匯出完成！\n成功：{success} 個檔案。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+          MessageBox.Show($"匯出失敗：{ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+          this.Cursor = Cursors.Default;
+          this.tssProgressName.Text = "";
+          this.tssProgress.Value = 0;
+        }
+      }
+    }
+
+    /// <summary>
+    /// 格式化檔案大小
+    /// </summary>
+    private string FormatFileSize(long bytes)
+    {
+      if (bytes < 1024)
+        return $"{bytes} B";
+      else if (bytes < 1024 * 1024)
+        return $"{bytes / 1024.0:F1} KB";
+      else
+        return $"{bytes / (1024.0 * 1024.0):F2} MB";
+    }
+
+    // ============================================================================
+    // 結束 DAT 模式相關方法
+    // ============================================================================
 
     private enum InviewDataType
     {
