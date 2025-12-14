@@ -177,6 +177,14 @@ namespace PakViewer
     private ListView lvDatFiles;  // 檔案列表 ListView
     private ucImgViewer DatImageViewer;  // DAT 圖片檢視器
 
+    // 相簿模式相關
+    private bool _IsGalleryMode = false;
+    private ucGalleryViewer GalleryViewer;
+    private ucGalleryViewer GalleryViewerOther;  // 用於「其他檔案」Tab
+    private CheckBox chkGalleryMode;
+    private List<GalleryItem> _GalleryItems;
+    private List<GalleryItem> _GalleryItemsOther;  // 用於「其他檔案」Tab
+
     public frmMain()
     {
       this.InitializeComponent();
@@ -1112,6 +1120,384 @@ namespace PakViewer
       }
     }
 
+    private void chkGalleryMode_CheckedChanged(object sender, EventArgs e)
+    {
+      this._IsGalleryMode = this.chkGalleryMode.Checked;
+
+      if (this._IsGalleryMode)
+      {
+        EnterGalleryMode();
+      }
+      else
+      {
+        ExitGalleryMode();
+      }
+    }
+
+    private void EnterGalleryMode()
+    {
+      // 建立 GalleryViewer 如果還不存在
+      if (this.GalleryViewer == null)
+      {
+        this.GalleryViewer = new ucGalleryViewer();
+        this.GalleryViewer.Dock = DockStyle.Fill;
+        this.GalleryViewer.ThumbnailLoader = LoadThumbnailForGallery;
+        this.GalleryViewer.ItemSelected += GalleryViewer_ItemSelected;
+        this.GalleryViewer.ItemDoubleClicked += GalleryViewer_ItemDoubleClicked;
+      }
+
+      // 根據目前模式準備圖片項目列表
+      this._GalleryItems = new List<GalleryItem>();
+
+      if (this._IsSpriteMode && this._IndexRecords != null)
+      {
+        // Sprite 模式：SPR Tab 顯示 .spr 檔案（每個 SpriteId 只顯示第一個）
+        var seenPrefixes = new HashSet<string>();
+        for (int i = 0; i < this._IndexRecords.Length; i++)
+        {
+          var record = this._IndexRecords[i];
+          string ext = Path.GetExtension(record.FileName).ToLower();
+          if (ext == ".spr")
+          {
+            // 取得 prefix (如 "1234-" 從 "1234-5.spr")
+            string nameWithoutExt = Path.GetFileNameWithoutExtension(record.FileName);
+            int dashIndex = nameWithoutExt.LastIndexOf('-');
+            string prefix = dashIndex > 0 ? nameWithoutExt.Substring(0, dashIndex + 1) : nameWithoutExt;
+
+            // 只加入每個 prefix 的第一個檔案
+            if (!seenPrefixes.Contains(prefix))
+            {
+              seenPrefixes.Add(prefix);
+              this._GalleryItems.Add(new GalleryItem
+              {
+                Index = i,
+                FileName = prefix.TrimEnd('-'),  // 顯示 SpriteId
+                FileSize = record.FileSize,
+                Offset = record.Offset,
+                SourcePak = record.SourcePak
+              });
+            }
+          }
+        }
+
+        // 建立「其他檔案」Tab 的 GalleryViewer
+        if (this.GalleryViewerOther == null)
+        {
+          this.GalleryViewerOther = new ucGalleryViewer();
+          this.GalleryViewerOther.Dock = DockStyle.Fill;
+          this.GalleryViewerOther.ThumbnailLoader = LoadThumbnailForGalleryOther;
+          this.GalleryViewerOther.ItemSelected += GalleryViewerOther_ItemSelected;
+          this.GalleryViewerOther.ItemDoubleClicked += GalleryViewerOther_ItemDoubleClicked;
+        }
+
+        // 其他檔案：顯示 .img, .png, .tbt 等圖片
+        this._GalleryItemsOther = new List<GalleryItem>();
+        if (this._OtherFilesIndexes != null)
+        {
+          foreach (int idx in this._OtherFilesIndexes)
+          {
+            var record = this._IndexRecords[idx];
+            string ext = Path.GetExtension(record.FileName).ToLower();
+            if (ext == ".img" || ext == ".png" || ext == ".tbt" || ext == ".til")
+            {
+              this._GalleryItemsOther.Add(new GalleryItem
+              {
+                Index = idx,
+                FileName = record.FileName,
+                FileSize = record.FileSize,
+                Offset = record.Offset,
+                SourcePak = record.SourcePak
+              });
+            }
+          }
+        }
+
+        // 替換兩個 Tab 的內容
+        this.tabSprites.Controls.Clear();
+        this.tabSprites.Controls.Add(this.GalleryViewer);
+        this.tabOtherFiles.Controls.Clear();
+        this.tabOtherFiles.Controls.Add(this.GalleryViewerOther);
+
+        this.GalleryViewer.Visible = true;
+        this.GalleryViewer.SetItems(this._GalleryItems);
+        this.GalleryViewerOther.Visible = true;
+        this.GalleryViewerOther.SetItems(this._GalleryItemsOther);
+
+        this.tssMessage.Text = $"相簿模式: SPR {this._GalleryItems.Count} 個, 其他 {this._GalleryItemsOther.Count} 個";
+      }
+      else if (this._FilteredIndexes != null && this._IndexRecords != null)
+      {
+        // 一般模式：從篩選後的列表中取得圖片檔案
+        foreach (int idx in this._FilteredIndexes)
+        {
+          var record = this._IndexRecords[idx];
+          string ext = Path.GetExtension(record.FileName).ToLower();
+          if (ext == ".spr" || ext == ".img" || ext == ".png" || ext == ".tbt" || ext == ".til")
+          {
+            this._GalleryItems.Add(new GalleryItem
+            {
+              Index = idx,
+              FileName = record.FileName,
+              FileSize = record.FileSize,
+              Offset = record.Offset,
+              SourcePak = record.SourcePak
+            });
+          }
+        }
+
+        // 一般模式下替換 splitContainer2.Panel2 內容
+        this.lvIndexInfo.Visible = false;
+        if (!this.splitContainer2.Panel2.Controls.Contains(this.GalleryViewer))
+        {
+          this.splitContainer2.Panel2.Controls.Clear();
+          this.splitContainer2.Panel2.Controls.Add(this.GalleryViewer);
+        }
+
+        this.GalleryViewer.Visible = true;
+        this.GalleryViewer.SetItems(this._GalleryItems);
+        this.tssMessage.Text = $"相簿模式: 顯示 {this._GalleryItems.Count} 個圖片檔案";
+      }
+    }
+
+    private void ExitGalleryMode()
+    {
+      if (this.GalleryViewer != null)
+      {
+        this.GalleryViewer.Clear();
+        this.GalleryViewer.Visible = false;
+      }
+
+      if (this.GalleryViewerOther != null)
+      {
+        this.GalleryViewerOther.Clear();
+        this.GalleryViewerOther.Visible = false;
+      }
+
+      // 還原 ListView
+      if (this._IsSpriteMode && this.tabSpriteMode != null)
+      {
+        // 還原 SPR Tab
+        if (!this.tabSprites.Controls.Contains(this.lvIndexInfo))
+        {
+          this.tabSprites.Controls.Clear();
+          this.tabSprites.Controls.Add(this.lvIndexInfo);
+        }
+        // 還原其他檔案 Tab
+        if (this.lvOtherFiles != null && !this.tabOtherFiles.Controls.Contains(this.lvOtherFiles))
+        {
+          this.tabOtherFiles.Controls.Clear();
+          this.tabOtherFiles.Controls.Add(this.lvOtherFiles);
+        }
+      }
+      else
+      {
+        if (!this.splitContainer2.Panel2.Controls.Contains(this.lvIndexInfo))
+        {
+          this.splitContainer2.Panel2.Controls.Clear();
+          this.splitContainer2.Panel2.Controls.Add(this.lvIndexInfo);
+        }
+      }
+
+      this.lvIndexInfo.Visible = true;
+      this.lvIndexInfo.Dock = DockStyle.Fill;
+
+      this.tssMessage.Text = "";
+    }
+
+    private Image LoadThumbnailForGallery(int itemIndex)
+    {
+      if (this._GalleryItems == null || itemIndex < 0 || itemIndex >= this._GalleryItems.Count)
+        return null;
+
+      var item = this._GalleryItems[itemIndex];
+      if (this._IndexRecords == null || item.Index < 0 || item.Index >= this._IndexRecords.Length)
+        return null;
+
+      var record = this._IndexRecords[item.Index];
+
+      // 決定 PAK 檔案路徑
+      string pakFile;
+      if (this._IsSpriteMode && !string.IsNullOrEmpty(record.SourcePak))
+      {
+        pakFile = record.SourcePak;
+      }
+      else
+      {
+        if (string.IsNullOrEmpty(this._PackFileName))
+          return null;
+        pakFile = this._PackFileName.Replace(".idx", ".pak");
+      }
+
+      if (!File.Exists(pakFile))
+        return null;
+
+      try
+      {
+        byte[] data;
+        using (var fs = new FileStream(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+          data = new byte[record.FileSize];
+          fs.Seek(record.Offset, SeekOrigin.Begin);
+          fs.Read(data, 0, record.FileSize);
+        }
+
+        // 解碼（如果需要）
+        if (this._IsPackFileProtected)
+        {
+          data = L1PakTools.Decode(data, 0);
+        }
+
+        // 根據副檔名處理
+        string ext = Path.GetExtension(record.FileName).ToLower();
+        Image result = null;
+
+        switch (ext)
+        {
+          case ".spr":
+            // SPR 檔案：取得第一個 frame
+            var frames = L1Spr.Load(data);
+            if (frames != null && frames.Length > 0)
+            {
+              result = frames[0].image;
+            }
+            break;
+
+          case ".img":
+            result = ImageConvert.Load_IMG(data);
+            break;
+
+          case ".png":
+          case ".bmp":
+            using (var ms = new MemoryStream(data))
+            {
+              result = Image.FromStream(ms);
+            }
+            break;
+
+          case ".tbt":
+            result = ImageConvert.Load_TBT(data);
+            break;
+
+          case ".til":
+            result = ImageConvert.Load_TIL(data);
+            break;
+        }
+
+        return result;
+      }
+      catch
+      {
+        return null;
+      }
+    }
+
+    private void GalleryViewer_ItemSelected(object sender, GalleryItemSelectedEventArgs e)
+    {
+      if (e.Item == null)
+        return;
+
+      // 載入並顯示選取的檔案
+      LoadAndDisplayFile(e.Item.Index);
+    }
+
+    private void GalleryViewer_ItemDoubleClicked(object sender, GalleryItemSelectedEventArgs e)
+    {
+      if (e.Item == null)
+        return;
+
+      // 雙擊時也是載入檔案
+      LoadAndDisplayFile(e.Item.Index);
+    }
+
+    private Image LoadThumbnailForGalleryOther(int itemIndex)
+    {
+      if (this._GalleryItemsOther == null || itemIndex < 0 || itemIndex >= this._GalleryItemsOther.Count)
+        return null;
+
+      var item = this._GalleryItemsOther[itemIndex];
+      if (this._IndexRecords == null || item.Index < 0 || item.Index >= this._IndexRecords.Length)
+        return null;
+
+      var record = this._IndexRecords[item.Index];
+
+      // 決定 PAK 檔案路徑
+      string pakFile;
+      if (!string.IsNullOrEmpty(record.SourcePak))
+      {
+        pakFile = record.SourcePak;
+      }
+      else
+      {
+        if (string.IsNullOrEmpty(this._PackFileName))
+          return null;
+        pakFile = this._PackFileName.Replace(".idx", ".pak");
+      }
+
+      if (!File.Exists(pakFile))
+        return null;
+
+      try
+      {
+        byte[] data;
+        using (var fs = new FileStream(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+          data = new byte[record.FileSize];
+          fs.Seek(record.Offset, SeekOrigin.Begin);
+          fs.Read(data, 0, record.FileSize);
+        }
+
+        if (this._IsPackFileProtected)
+        {
+          data = L1PakTools.Decode(data, 0);
+        }
+
+        string ext = Path.GetExtension(record.FileName).ToLower();
+        Image result = null;
+
+        switch (ext)
+        {
+          case ".img":
+            result = ImageConvert.Load_IMG(data);
+            break;
+          case ".png":
+          case ".bmp":
+            using (var ms = new MemoryStream(data))
+            {
+              result = Image.FromStream(ms);
+            }
+            break;
+          case ".tbt":
+            result = ImageConvert.Load_TBT(data);
+            break;
+          case ".til":
+            result = ImageConvert.Load_TIL(data);
+            break;
+        }
+
+        return result;
+      }
+      catch
+      {
+        return null;
+      }
+    }
+
+    private void GalleryViewerOther_ItemSelected(object sender, GalleryItemSelectedEventArgs e)
+    {
+      if (e.Item == null)
+        return;
+
+      LoadAndDisplayFile(e.Item.Index);
+    }
+
+    private void GalleryViewerOther_ItemDoubleClicked(object sender, GalleryItemSelectedEventArgs e)
+    {
+      if (e.Item == null)
+        return;
+
+      LoadAndDisplayFile(e.Item.Index);
+    }
+
     private void SetupSpriteModeTab()
     {
       if (this.tabSpriteMode != null)
@@ -1547,6 +1933,102 @@ namespace PakViewer
       this.tssRecordCount.Text = string.Format("全部：{0}", (object) Records.Length);
       this.tssShowInListView.Text = string.Format("顯示：{0}", (object) this._FilteredIndexes.Count);
       this.tssCheckedCount.Text = string.Format("已選：{0}", (object) this._CheckedIndexes.Count);
+
+      // 如果相簿模式開啟，更新相簿內容
+      if (this._IsGalleryMode)
+      {
+        RefreshGalleryMode();
+      }
+    }
+
+    /// <summary>
+    /// 重新整理相簿模式的內容（篩選後）
+    /// </summary>
+    private void RefreshGalleryMode()
+    {
+      if (!this._IsGalleryMode || this._IndexRecords == null)
+        return;
+
+      this._GalleryItems = new List<GalleryItem>();
+
+      if (this._IsSpriteMode)
+      {
+        // Sprite 模式：SPR Tab 顯示 .spr 檔案（每個 SpriteId 只顯示第一個）
+        var seenPrefixes = new HashSet<string>();
+        foreach (int idx in this._FilteredIndexes)
+        {
+          var record = this._IndexRecords[idx];
+          string ext = Path.GetExtension(record.FileName).ToLower();
+          if (ext == ".spr")
+          {
+            string nameWithoutExt = Path.GetFileNameWithoutExtension(record.FileName);
+            int dashIndex = nameWithoutExt.LastIndexOf('-');
+            string prefix = dashIndex > 0 ? nameWithoutExt.Substring(0, dashIndex + 1) : nameWithoutExt;
+
+            if (!seenPrefixes.Contains(prefix))
+            {
+              seenPrefixes.Add(prefix);
+              this._GalleryItems.Add(new GalleryItem
+              {
+                Index = idx,
+                FileName = prefix.TrimEnd('-'),
+                FileSize = record.FileSize,
+                Offset = record.Offset,
+                SourcePak = record.SourcePak
+              });
+            }
+          }
+        }
+
+        // 其他檔案
+        this._GalleryItemsOther = new List<GalleryItem>();
+        if (this._OtherFilesIndexes != null)
+        {
+          foreach (int idx in this._OtherFilesIndexes)
+          {
+            var record = this._IndexRecords[idx];
+            string ext = Path.GetExtension(record.FileName).ToLower();
+            if (ext == ".img" || ext == ".png" || ext == ".tbt" || ext == ".til")
+            {
+              this._GalleryItemsOther.Add(new GalleryItem
+              {
+                Index = idx,
+                FileName = record.FileName,
+                FileSize = record.FileSize,
+                Offset = record.Offset,
+                SourcePak = record.SourcePak
+              });
+            }
+          }
+        }
+
+        this.GalleryViewer?.SetItems(this._GalleryItems);
+        this.GalleryViewerOther?.SetItems(this._GalleryItemsOther);
+        this.tssMessage.Text = $"相簿模式: SPR {this._GalleryItems.Count} 個, 其他 {this._GalleryItemsOther?.Count ?? 0} 個";
+      }
+      else
+      {
+        // 一般模式
+        foreach (int idx in this._FilteredIndexes)
+        {
+          var record = this._IndexRecords[idx];
+          string ext = Path.GetExtension(record.FileName).ToLower();
+          if (ext == ".spr" || ext == ".img" || ext == ".png" || ext == ".tbt" || ext == ".til")
+          {
+            this._GalleryItems.Add(new GalleryItem
+            {
+              Index = idx,
+              FileName = record.FileName,
+              FileSize = record.FileSize,
+              Offset = record.Offset,
+              SourcePak = record.SourcePak
+            });
+          }
+        }
+
+        this.GalleryViewer?.SetItems(this._GalleryItems);
+        this.tssMessage.Text = $"相簿模式: 顯示 {this._GalleryItems.Count} 個圖片檔案";
+      }
     }
 
     private void BuildSpriteGroups()
@@ -4624,6 +5106,16 @@ namespace PakViewer
       this.chkSprListMode.TabIndex = 3;
       this.chkSprListMode.Text = "List SPR 模式";
       this.chkSprListMode.CheckedChanged += new EventHandler(this.chkSprListMode_CheckedChanged);
+      // chkGalleryMode (在搜尋那排右邊)
+      this.chkGalleryMode = new CheckBox();
+      this.chkGalleryMode.AutoSize = true;
+      this.chkGalleryMode.Location = new Point(295, 8);
+      this.chkGalleryMode.Name = "chkGalleryMode";
+      this.chkGalleryMode.Size = new Size(80, 16);
+      this.chkGalleryMode.TabIndex = 10;
+      this.chkGalleryMode.Text = "相簿模式";
+      this.chkGalleryMode.CheckedChanged += new EventHandler(this.chkGalleryMode_CheckedChanged);
+      this.palContentSearch.Controls.Add((Control) this.chkGalleryMode);
       // palContentSearch
       this.palContentSearch.Controls.Add((Control) this.lblContentSearch);
       this.palContentSearch.Controls.Add((Control) this.txtContentSearch);
