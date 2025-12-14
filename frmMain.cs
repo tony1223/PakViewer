@@ -3362,6 +3362,13 @@ namespace PakViewer
         return;
       }
 
+      // DAT 模式下篩選
+      if (this._IsDatMode && this._AllDatEntries != null)
+      {
+        FilterDatEntries(textBox.Text);
+        return;
+      }
+
       if (this._IndexRecords == null || this._IndexRecords.Length <= 0)
         return;
 
@@ -5061,6 +5068,49 @@ namespace PakViewer
       this._IsSpriteMode = false;
       this.chkSpriteMode.Checked = false;
       RemoveSpriteModeTab();
+    }
+
+    /// <summary>
+    /// DAT 模式篩選
+    /// </summary>
+    private void FilterDatEntries(string searchText)
+    {
+      if (this._AllDatEntries == null)
+        return;
+
+      if (string.IsNullOrEmpty(searchText))
+      {
+        // 顯示全部
+        this._FilteredDatEntries = new List<DatTools.DatIndexEntry>(this._AllDatEntries);
+      }
+      else if (searchText.StartsWith("^"))
+      {
+        // 開頭比對
+        string pattern = searchText.Substring(1);
+        this._FilteredDatEntries = this._AllDatEntries
+          .Where(e => e.Path.StartsWith(pattern, StringComparison.CurrentCultureIgnoreCase))
+          .ToList();
+      }
+      else
+      {
+        // 包含比對
+        this._FilteredDatEntries = this._AllDatEntries
+          .Where(e => e.Path.IndexOf(searchText, StringComparison.CurrentCultureIgnoreCase) >= 0)
+          .ToList();
+      }
+
+      this.lvDatFiles.VirtualListSize = this._FilteredDatEntries.Count;
+      this.lvDatFiles.Invalidate();
+
+      if (this._FilteredDatEntries.Count > 0)
+      {
+        this.lvDatFiles.SelectedIndices.Clear();
+        this.lvDatFiles.SelectedIndices.Add(0);
+      }
+
+      this.lvDatFiles.Focus();
+      this.tssRecordCount.Text = $"全部：{this._AllDatEntries.Count}";
+      this.tssShowInListView.Text = $"顯示：{this._FilteredDatEntries.Count}";
     }
 
     /// <summary>
