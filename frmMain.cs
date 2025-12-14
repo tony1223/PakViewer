@@ -28,6 +28,7 @@ namespace PakViewer
   {
     private string _PackFileName;
     private bool _IsPackFileProtected;
+    private bool _IsDESProtected;  // DES ECB 加密
     private L1PakTools.IndexRecord[] _IndexRecords;
     private string _TextLanguage;
     private frmMain.InviewDataType _InviewData;
@@ -1840,25 +1841,104 @@ namespace PakViewer
       if ((long) BitConverter.ToUInt32(numArray, 0) != (long) num)
         return (byte[]) null;
       this._IsPackFileProtected = false;
+      this._IsDESProtected = false;
       this.tssLocker.Visible = false;
-      if (!Regex.IsMatch(Encoding.Default.GetString(numArray, 8, 20), "^([a-zA-Z0-9_\\-\\.']+)", RegexOptions.IgnoreCase))
+
+      // 讀取第一條記錄的 size（未解密）
+      int rawFirstSize = BitConverter.ToInt32(numArray, 4 + 24);
+
+      // 檢查檔名是否有效 AND size 是否合理（非負數且不過大）
+      bool filenameValid = Regex.IsMatch(Encoding.Default.GetString(numArray, 8, 20), "^([a-zA-Z0-9_\\-\\.']+)", RegexOptions.IgnoreCase);
+      bool sizeValid = rawFirstSize >= 0 && rawFirstSize < 100000000; // 小於 100MB
+
+      if (!filenameValid || !sizeValid)
       {
-        if (!Regex.IsMatch(L1PakTools.Decode_Index_FirstRecord(numArray).FileName, "^([a-zA-Z0-9_\\-\\.']+)", RegexOptions.IgnoreCase))
-          return (byte[]) null;
-        this._IsPackFileProtected = true;
-        this.tssLocker.Visible = true;
-        this.tssProgressName.Text = "解碼中... ";
-        numArray = L1PakTools.Decode(numArray, 4);
+        // 嘗試 L1 解密
+        var firstRecord = L1PakTools.Decode_Index_FirstRecord(numArray);
+        bool l1FilenameValid = Regex.IsMatch(firstRecord.FileName, "^([a-zA-Z0-9_\\-\\.']+)", RegexOptions.IgnoreCase);
+        bool l1SizeValid = firstRecord.FileSize >= 0 && firstRecord.FileSize < 100000000;
+
+        if (l1FilenameValid && l1SizeValid)
+        {
+          // L1 解密成功
+          this._IsPackFileProtected = true;
+          this.tssLocker.Visible = true;
+          this.tssProgressName.Text = "解碼中... ";
+          numArray = L1PakTools.Decode(numArray, 4);
+          this.tssProgressName.Text = "";
+          return numArray;
+        }
+
+        // L1 失敗，嘗試 DES 解密
+        this.tssProgressName.Text = "DES 解碼中... ";
+        byte[] desDecrypted = DecryptIndexDES(numArray);
         this.tssProgressName.Text = "";
+        if (desDecrypted != null)
+        {
+          // 檢查 DES 解密後的第一條記錄
+          var desFirstRecord = new L1PakTools.IndexRecord(desDecrypted, 0);
+          bool desFilenameValid = Regex.IsMatch(desFirstRecord.FileName, "^([a-zA-Z0-9_\\-\\.']+)", RegexOptions.IgnoreCase);
+          bool desSizeValid = desFirstRecord.FileSize >= 0 && desFirstRecord.FileSize < 100000000;
+
+          if (desFilenameValid && desSizeValid)
+          {
+            this._IsDESProtected = true;
+            this._IsPackFileProtected = true;
+            this.tssLocker.Visible = true;
+            return desDecrypted;
+          }
+        }
+        return (byte[]) null;
       }
+
       return numArray;
+    }
+
+    /// <summary>
+    /// DES ECB 解密 idx 資料
+    /// 密鑰: ~!@#%^$< (0x7e 0x21 0x40 0x23 0x25 0x5e 0x24 0x3c)
+    /// </summary>
+    private byte[] DecryptIndexDES(byte[] idxData)
+    {
+      try
+      {
+        byte[] key = new byte[] { 0x7e, 0x21, 0x40, 0x23, 0x25, 0x5e, 0x24, 0x3c }; // ~!@#%^$<
+        byte[] entriesData = new byte[idxData.Length - 4];
+        Array.Copy(idxData, 4, entriesData, 0, entriesData.Length);
+
+        using (var des = System.Security.Cryptography.DES.Create())
+        {
+          des.Key = key;
+          des.Mode = System.Security.Cryptography.CipherMode.ECB;
+          des.Padding = System.Security.Cryptography.PaddingMode.None;
+
+          using (var decryptor = des.CreateDecryptor())
+          {
+            int blockCount = entriesData.Length / 8;
+            for (int i = 0; i < blockCount; i++)
+            {
+              int offset = i * 8;
+              byte[] block = new byte[8];
+              Array.Copy(entriesData, offset, block, 0, 8);
+              byte[] decrypted = decryptor.TransformFinalBlock(block, 0, 8);
+              Array.Copy(decrypted, 0, entriesData, offset, 8);
+            }
+          }
+        }
+        return entriesData;
+      }
+      catch
+      {
+        return null;
+      }
     }
 
     private L1PakTools.IndexRecord[] CreatIndexRecords(byte[] IndexData)
     {
       if (IndexData == null)
         return (L1PakTools.IndexRecord[]) null;
-      int num = this._IsPackFileProtected ? 0 : 4;
+      // DES 解密後資料從 0 開始；L1 解密後也從 0 開始；未加密從 4 開始
+      int num = (this._IsPackFileProtected || this._IsDESProtected) ? 0 : 4;
       int length = (IndexData.Length - num) / 28;
       L1PakTools.IndexRecord[] indexRecordArray = new L1PakTools.IndexRecord[length];
 

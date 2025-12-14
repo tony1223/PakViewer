@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using PakViewer.Models;
 using PakViewer.Utility;
@@ -89,6 +90,18 @@ namespace PakViewer
                     if (args.Length < 3) { Console.WriteLine("Usage: cleanup <client_folder> <list.spr> [min_size_mb=1]"); return; }
                     int minSizeMB = args.Length > 3 && int.TryParse(args[3], out int mb) ? mb : 1;
                     CleanupUnlinkedSprites(args[1], args[2], minSizeMB);
+                    break;
+
+                case "listdes":
+                    // 使用 DES 解密列出檔案: listdes <idx_file> [filter]
+                    if (args.Length < 2) { ShowHelp(); return; }
+                    ListFilesDES(args[1], args.Length > 2 ? args[2] : null);
+                    break;
+
+                case "listauto":
+                    // 自動偵測加密方式列出檔案: listauto <idx_file> [filter]
+                    if (args.Length < 2) { ShowHelp(); return; }
+                    ListFilesAuto(args[1], args.Length > 2 ? args[2] : null);
                     break;
 
                 default:
@@ -205,6 +218,164 @@ namespace PakViewer
             return (records, isProtected);
         }
 
+        /// <summary>
+        /// DES ECB 加密的 idx 解析 (用於特定版本的 Text.idx 等)
+        /// 密鑰: ~!@#%^$< (0x7e 0x21 0x40 0x23 0x25 0x5e 0x24 0x3c)
+        /// </summary>
+        public static (L1PakTools.IndexRecord[] records, bool isProtected)? LoadIndexDES(string idxFile)
+        {
+            if (!File.Exists(idxFile))
+            {
+                Console.WriteLine($"Error: IDX file not found: {idxFile}");
+                return null;
+            }
+
+            byte[] idxData = File.ReadAllBytes(idxFile);
+
+            // 驗證檔案格式: 前 4 bytes 是記錄數量
+            if (idxData.Length < 32)
+            {
+                Console.WriteLine("Error: IDX file too small");
+                return null;
+            }
+
+            int recordCount = BitConverter.ToInt32(idxData, 0);
+            int expectedSize = 4 + recordCount * 28;
+
+            if (idxData.Length != expectedSize)
+            {
+                Console.WriteLine($"Error: IDX file size mismatch. Expected {expectedSize}, got {idxData.Length}");
+                return null;
+            }
+
+            // DES ECB 解密
+            byte[] key = new byte[] { 0x7e, 0x21, 0x40, 0x23, 0x25, 0x5e, 0x24, 0x3c }; // ~!@#%^$<
+            byte[] entriesData = new byte[idxData.Length - 4];
+            Array.Copy(idxData, 4, entriesData, 0, entriesData.Length);
+
+            using (var des = DES.Create())
+            {
+                des.Key = key;
+                des.Mode = CipherMode.ECB;
+                des.Padding = PaddingMode.None;
+
+                using (var decryptor = des.CreateDecryptor())
+                {
+                    // 每 8 bytes 解密一次
+                    int blockCount = entriesData.Length / 8;
+                    for (int i = 0; i < blockCount; i++)
+                    {
+                        int offset = i * 8;
+                        byte[] block = new byte[8];
+                        Array.Copy(entriesData, offset, block, 0, 8);
+                        byte[] decrypted = decryptor.TransformFinalBlock(block, 0, 8);
+                        Array.Copy(decrypted, 0, entriesData, offset, 8);
+                    }
+                }
+            }
+
+            // 解析記錄
+            var records = new L1PakTools.IndexRecord[recordCount];
+            for (int i = 0; i < recordCount; i++)
+            {
+                int offset = i * 28;
+                records[i] = new L1PakTools.IndexRecord(entriesData, offset);
+            }
+
+            return (records, true); // DES 加密視為 protected
+        }
+
+        /// <summary>
+        /// 檢測 idx 檔案是否使用 DES 加密
+        /// 判斷條件: 解析出的 FileSize 為負數時，表示解密方式錯誤
+        /// </summary>
+        public static bool IsDESEncrypted(byte[] idxData)
+        {
+            // 檢查是否符合 idx 格式
+            if (idxData.Length < 32) return false;
+
+            int recordCount = BitConverter.ToInt32(idxData, 0);
+            int expectedSize = 4 + recordCount * 28;
+
+            if (idxData.Length != expectedSize) return false;
+
+            // 嘗試不解密直接讀取，檢查 size 是否為負數
+            // 記錄結構: offset(4) + filename(20) + size(4) = 28 bytes
+            int firstSize = BitConverter.ToInt32(idxData, 4 + 24); // 第一條記錄的 size
+            if (firstSize < 0)
+            {
+                return true; // 未加密但 size 負數，需要 DES
+            }
+
+            // 嘗試 L1PakTools 解碼，檢查 size 是否為負數
+            try
+            {
+                var firstRecord = L1PakTools.Decode_Index_FirstRecord(idxData);
+                if (firstRecord.FileSize < 0)
+                {
+                    return true; // L1 解密後 size 負數，需要 DES
+                }
+            }
+            catch
+            {
+                return true; // L1PakTools 失敗，嘗試 DES
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 檢查記錄陣列中是否有負數 size
+        /// </summary>
+        private static bool HasNegativeSize(L1PakTools.IndexRecord[] records)
+        {
+            foreach (var rec in records)
+            {
+                if (rec.FileSize < 0)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 自動檢測加密方式並載入 idx (供 GUI 使用)
+        /// 當解析出的 FileSize 為負數時，自動切換到 DES 解密
+        /// </summary>
+        public static (L1PakTools.IndexRecord[] records, bool isProtected, string encryptionType)? LoadIndexAuto(string idxFile)
+        {
+            if (!File.Exists(idxFile))
+            {
+                return null;
+            }
+
+            // 先嘗試原本的方式 (L1 或無加密)
+            var result = LoadIndex(idxFile);
+            if (result != null)
+            {
+                // 檢查是否有負數 size
+                if (!HasNegativeSize(result.Value.records))
+                {
+                    return (result.Value.records, result.Value.isProtected, result.Value.isProtected ? "L1" : "None");
+                }
+                // 有負數 size，嘗試 DES
+            }
+
+            // 嘗試 DES 解密
+            var desResult = LoadIndexDES(idxFile);
+            if (desResult != null && !HasNegativeSize(desResult.Value.records))
+            {
+                return (desResult.Value.records, true, "DES");
+            }
+
+            // 都失敗，返回原本的結果（如果有的話）
+            if (result != null)
+            {
+                return (result.Value.records, result.Value.isProtected, result.Value.isProtected ? "L1" : "None");
+            }
+
+            return null;
+        }
+
         static void ShowInfo(string idxFile)
         {
             var result = LoadIndex(idxFile);
@@ -235,6 +406,71 @@ namespace PakViewer
 
             Console.WriteLine($"Total: {records.Length} files");
             Console.WriteLine($"Protected: {isProtected}");
+            Console.WriteLine();
+            Console.WriteLine("No.\tSize\tOffset\t\tFileName");
+            Console.WriteLine("---\t----\t------\t\t--------");
+
+            int count = 0;
+            for (int i = 0; i < records.Length; i++)
+            {
+                var rec = records[i];
+                if (string.IsNullOrEmpty(filter) || rec.FileName.ToLower().Contains(filter.ToLower()))
+                {
+                    Console.WriteLine($"{i + 1}\t{rec.FileSize}\t0x{rec.Offset:X8}\t{rec.FileName}");
+                    count++;
+                }
+            }
+
+            Console.WriteLine();
+            Console.WriteLine($"Shown: {count} files");
+        }
+
+        static void ListFilesDES(string idxFile, string filter)
+        {
+            var result = LoadIndexDES(idxFile);
+            if (result == null)
+            {
+                Console.WriteLine("Failed to load with DES decryption. Trying standard method...");
+                result = LoadIndex(idxFile);
+                if (result == null) return;
+            }
+
+            var (records, isProtected) = result.Value;
+
+            Console.WriteLine($"Total: {records.Length} files");
+            Console.WriteLine($"Encryption: DES ECB");
+            Console.WriteLine();
+            Console.WriteLine("No.\tSize\tOffset\t\tFileName");
+            Console.WriteLine("---\t----\t------\t\t--------");
+
+            int count = 0;
+            for (int i = 0; i < records.Length; i++)
+            {
+                var rec = records[i];
+                if (string.IsNullOrEmpty(filter) || rec.FileName.ToLower().Contains(filter.ToLower()))
+                {
+                    Console.WriteLine($"{i + 1}\t{rec.FileSize}\t0x{rec.Offset:X8}\t{rec.FileName}");
+                    count++;
+                }
+            }
+
+            Console.WriteLine();
+            Console.WriteLine($"Shown: {count} files");
+        }
+
+        static void ListFilesAuto(string idxFile, string filter)
+        {
+            var result = LoadIndexAuto(idxFile);
+            if (result == null)
+            {
+                Console.WriteLine("Failed to load index file.");
+                return;
+            }
+
+            var (records, isProtected, encryptionType) = result.Value;
+
+            Console.WriteLine($"Total: {records.Length} files");
+            Console.WriteLine($"Encryption: {encryptionType}");
             Console.WriteLine();
             Console.WriteLine("No.\tSize\tOffset\t\tFileName");
             Console.WriteLine("---\t----\t------\t\t--------");
