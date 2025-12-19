@@ -3456,9 +3456,23 @@ namespace PakViewer
 
     private void tsmExport_Click(object sender, EventArgs e)
     {
-      if (this.lvIndexInfo.SelectedIndices.Count == 0 || this._FilteredIndexes == null)
+      if (this.lvIndexInfo.SelectedIndices.Count == 0)
         return;
       int virtualIndex = this.lvIndexInfo.SelectedIndices[0];
+
+      // Sprite 模式下，匯出整個群組
+      if (this._IsSpriteMode && this._SpriteDisplayItems != null && virtualIndex < this._SpriteDisplayItems.Count)
+      {
+        object item = this._SpriteDisplayItems[virtualIndex];
+        if (item is SpriteGroup group)
+        {
+          this.ExportSpriteGroup(null, group);  // null 表示匯出到原目錄
+          return;
+        }
+      }
+
+      if (this._FilteredIndexes == null)
+        return;
       int realIndex = this._FilteredIndexes[virtualIndex];
       this.ExportSelectedByIndex(Path.GetDirectoryName(this._PackFileName), realIndex);
     }
@@ -3467,16 +3481,53 @@ namespace PakViewer
     {
       if (this.dlgOpenFolder.ShowDialog((IWin32Window) this) != DialogResult.OK)
         return;
-      if (this.lvIndexInfo.SelectedIndices.Count == 0 || this._FilteredIndexes == null)
+      if (this.lvIndexInfo.SelectedIndices.Count == 0)
         return;
       string selectedPath = this.dlgOpenFolder.SelectedPath;
       int virtualIndex = this.lvIndexInfo.SelectedIndices[0];
+
+      // Sprite 模式下，匯出整個群組
+      if (this._IsSpriteMode && this._SpriteDisplayItems != null && virtualIndex < this._SpriteDisplayItems.Count)
+      {
+        object item = this._SpriteDisplayItems[virtualIndex];
+        if (item is SpriteGroup group)
+        {
+          this.ExportSpriteGroup(selectedPath, group);
+          return;
+        }
+      }
+
+      if (this._FilteredIndexes == null)
+        return;
       int realIndex = this._FilteredIndexes[virtualIndex];
       this.ExportSelectedByIndex(selectedPath, realIndex);
     }
 
     private void mnuTools_Export_Click(object sender, EventArgs e)
     {
+      // Sprite 模式下，匯出選取的群組
+      if (this._IsSpriteMode && this._SpriteDisplayItems != null)
+      {
+        int exportedGroups = 0;
+        foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
+        {
+          if (virtualIndex < this._SpriteDisplayItems.Count)
+          {
+            object item = this._SpriteDisplayItems[virtualIndex];
+            if (item is SpriteGroup group)
+            {
+              this.ExportSpriteGroup(null, group);
+              exportedGroups++;
+            }
+          }
+        }
+        if (exportedGroups > 0)
+        {
+          this.tssMessage.Text = $"已匯出 {exportedGroups} 個群組";
+          return;
+        }
+      }
+
       // 將選取的虛擬索引轉換為實際索引
       List<int> realIndexes = new List<int>();
       foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
@@ -3487,14 +3538,37 @@ namespace PakViewer
         }
       }
 
-      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-      foreach (int realIndex in realIndexes)
+      // Sprite 模式下，記錄可能來自不同的 pak 檔案
+      if (this._PackFileName != null)
       {
-        L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
-        object data = this.LoadPakData_(fs, record);
-        this.ExportDataByIndex(Path.GetDirectoryName(this._PackFileName), realIndex, data, this.LoadPakBytes_(fs, record));
+        string exportPath = Path.GetDirectoryName(this._PackFileName);
+        FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        foreach (int realIndex in realIndexes)
+        {
+          L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
+          object data = this.LoadPakData_(fs, record);
+          this.ExportDataByIndex(exportPath, realIndex, data, this.LoadPakBytes_(fs, record));
+        }
+        fs.Close();
       }
-      fs.Close();
+      else
+      {
+        // Sprite 模式：按 SourcePak 分組處理
+        var groupedByPak = realIndexes
+          .Select(i => new { Index = i, Record = this._IndexRecords[i] })
+          .GroupBy(x => x.Record.SourcePak);
+        foreach (var group in groupedByPak)
+        {
+          string exportPath = Path.GetDirectoryName(group.Key);
+          FileStream fs = File.Open(group.Key, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+          foreach (var item in group)
+          {
+            object data = this.LoadPakData_(fs, item.Record);
+            this.ExportDataByIndex(exportPath, item.Index, data, this.LoadPakBytes_(fs, item.Record));
+          }
+          fs.Close();
+        }
+      }
     }
 
     private void mnuTools_ExportTo_Click(object sender, EventArgs e)
@@ -3503,6 +3577,29 @@ namespace PakViewer
         return;
       string selectedPath = this.dlgOpenFolder.SelectedPath;
 
+      // Sprite 模式下，匯出選取的群組
+      if (this._IsSpriteMode && this._SpriteDisplayItems != null)
+      {
+        int exportedGroups = 0;
+        foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
+        {
+          if (virtualIndex < this._SpriteDisplayItems.Count)
+          {
+            object item = this._SpriteDisplayItems[virtualIndex];
+            if (item is SpriteGroup group)
+            {
+              this.ExportSpriteGroup(selectedPath, group);
+              exportedGroups++;
+            }
+          }
+        }
+        if (exportedGroups > 0)
+        {
+          this.tssMessage.Text = $"已匯出 {exportedGroups} 個群組到 {selectedPath}";
+          return;
+        }
+      }
+
       // 將選取的虛擬索引轉換為實際索引
       List<int> realIndexes = new List<int>();
       foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
@@ -3513,20 +3610,69 @@ namespace PakViewer
         }
       }
 
-      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-      foreach (int realIndex in realIndexes)
+      // Sprite 模式下，記錄可能來自不同的 pak 檔案
+      if (this._PackFileName != null)
       {
-        L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
-        object data = this.LoadPakData_(fs, record);
-        this.ExportDataByIndex(selectedPath, realIndex, data, this.LoadPakBytes_(fs, record));
+        FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        foreach (int realIndex in realIndexes)
+        {
+          L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
+          object data = this.LoadPakData_(fs, record);
+          this.ExportDataByIndex(selectedPath, realIndex, data, this.LoadPakBytes_(fs, record));
+        }
+        fs.Close();
       }
-      fs.Close();
+      else
+      {
+        // Sprite 模式：按 SourcePak 分組處理
+        var groupedByPak = realIndexes
+          .Select(i => new { Index = i, Record = this._IndexRecords[i] })
+          .GroupBy(x => x.Record.SourcePak);
+        foreach (var group in groupedByPak)
+        {
+          FileStream fs = File.Open(group.Key, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+          foreach (var item in group)
+          {
+            object data = this.LoadPakData_(fs, item.Record);
+            this.ExportDataByIndex(selectedPath, item.Index, data, this.LoadPakBytes_(fs, item.Record));
+          }
+          fs.Close();
+        }
+      }
+    }
+
+    private void ExportSpriteGroup(string path, SpriteGroup group)
+    {
+      // 按 SourcePak 分組處理，提高效率
+      var groupedByPak = group.ItemIndexes
+        .Select(i => new { Index = i, Record = this._IndexRecords[i] })
+        .GroupBy(x => x.Record.SourcePak);
+
+      int exportedCount = 0;
+      foreach (var pakGroup in groupedByPak)
+      {
+        string exportPath = path ?? Path.GetDirectoryName(pakGroup.Key);
+        FileStream fs = File.Open(pakGroup.Key, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        foreach (var item in pakGroup)
+        {
+          object data = this.LoadPakData_(fs, item.Record);
+          this.ExportDataByIndex(exportPath, item.Index, data, this.LoadPakBytes_(fs, item.Record));
+          exportedCount++;
+        }
+        fs.Close();
+      }
+
+      this.tssMessage.Text = $"已匯出 {group.Prefix} 群組共 {exportedCount} 個檔案";
     }
 
     private void ExportSelectedByIndex(string path, int realIndex)
     {
       L1PakTools.IndexRecord record = this._IndexRecords[realIndex];
-      FileStream fs = File.Open(this._PackFileName.Replace(".idx", ".pak"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+      // Sprite 模式下使用 record.SourcePak，否則使用 _PackFileName
+      string pakFile = this._PackFileName != null
+        ? this._PackFileName.Replace(".idx", ".pak")
+        : record.SourcePak;
+      FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
       object data = this.LoadPakData_(fs, record);
       this.ExportDataByIndex(path, realIndex, data, this.LoadPakBytes_(fs, record));
       fs.Close();

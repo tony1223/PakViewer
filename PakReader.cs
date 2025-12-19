@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using PakViewer.Models;
 using PakViewer.Utility;
 
@@ -102,6 +105,14 @@ namespace PakViewer
                     // 自動偵測加密方式列出檔案: listauto <idx_file> [filter]
                     if (args.Length < 2) { ShowHelp(); return; }
                     ListFilesAuto(args[1], args.Length > 2 ? args[2] : null);
+                    break;
+
+                case "batch-export":
+                    // 批次匯出 SPR 檔案: batch-export <client_folder> <output_folder> <spr_ids> [parallel=8]
+                    // spr_ids 可以是逗號分隔的編號或檔案路徑
+                    if (args.Length < 4) { Console.WriteLine("Usage: batch-export <client_folder> <output_folder> <spr_ids_or_file> [parallel=8]"); return; }
+                    int parallelCount = args.Length > 4 && int.TryParse(args[4], out int p) ? p : 8;
+                    BatchExportSpr(args[1], args[2], args[3], parallelCount);
                     break;
 
                 default:
@@ -2085,6 +2096,197 @@ namespace PakViewer
                     Console.WriteLine($"  - {k}");
                 }
             }
+        }
+
+        /// <summary>
+        /// 批次匯出 SPR 檔案 (平行處理)
+        /// </summary>
+        /// <param name="clientFolder">客戶端資料夾 (含 Sprite*.idx)</param>
+        /// <param name="outputFolder">輸出資料夾</param>
+        /// <param name="sprIdsOrFile">SPR 編號清單 (逗號分隔) 或清單檔案路徑</param>
+        /// <param name="parallelCount">平行處理數量</param>
+        static void BatchExportSpr(string clientFolder, string outputFolder, string sprIdsOrFile, int parallelCount)
+        {
+            Console.WriteLine("=== 批次匯出 SPR 檔案 ===");
+            Console.WriteLine($"來源資料夾: {clientFolder}");
+            Console.WriteLine($"輸出資料夾: {outputFolder}");
+            Console.WriteLine($"平行數量: {parallelCount}");
+            Console.WriteLine();
+
+            // 解析 SPR 編號清單
+            HashSet<int> targetSprIds;
+            if (File.Exists(sprIdsOrFile))
+            {
+                // 從檔案讀取
+                Console.WriteLine($"從檔案讀取編號清單: {sprIdsOrFile}");
+                var lines = File.ReadAllLines(sprIdsOrFile);
+                targetSprIds = new HashSet<int>();
+                foreach (var line in lines)
+                {
+                    foreach (var part in line.Split(new[] { ',', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (int.TryParse(part.Trim(), out int id))
+                            targetSprIds.Add(id);
+                    }
+                }
+            }
+            else
+            {
+                // 直接解析逗號分隔的編號
+                targetSprIds = new HashSet<int>();
+                foreach (var part in sprIdsOrFile.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (int.TryParse(part.Trim(), out int id))
+                        targetSprIds.Add(id);
+                }
+            }
+
+            Console.WriteLine($"目標 SPR 編號數量: {targetSprIds.Count}");
+
+            if (targetSprIds.Count == 0)
+            {
+                Console.WriteLine("錯誤: 沒有有效的 SPR 編號");
+                return;
+            }
+
+            // 建立輸出資料夾
+            Directory.CreateDirectory(outputFolder);
+
+            // 掃描所有 Sprite*.idx 並收集符合的 spr 檔案資訊
+            // 結構: (fileName, idxFile, pakFile, record, isProtected)
+            var filesToExport = new ConcurrentBag<(string fileName, string idxFile, string pakFile, L1PakTools.IndexRecord record, bool isProtected)>();
+
+            var idxFiles = Directory.GetFiles(clientFolder, "Sprite*.idx");
+            Console.WriteLine($"找到 {idxFiles.Length} 個 Sprite*.idx 檔案");
+            Console.WriteLine();
+
+            Console.WriteLine("掃描 idx 檔案...");
+            foreach (var idxFile in idxFiles)
+            {
+                string pakFile = idxFile.Replace(".idx", ".pak");
+                if (!File.Exists(pakFile)) continue;
+
+                var result = LoadIndex(idxFile);
+                if (result == null) continue;
+
+                var (records, isProtected) = result.Value;
+
+                foreach (var rec in records)
+                {
+                    if (!rec.FileName.EndsWith(".spr", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // 取得 SPR 編號
+                    string nameWithoutExt = Path.GetFileNameWithoutExtension(rec.FileName);
+                    int dashIdx = nameWithoutExt.IndexOf('-');
+                    if (dashIdx <= 0) continue;
+
+                    if (!int.TryParse(nameWithoutExt.Substring(0, dashIdx), out int sprId))
+                        continue;
+
+                    if (targetSprIds.Contains(sprId))
+                    {
+                        filesToExport.Add((rec.FileName, idxFile, pakFile, rec, isProtected));
+                    }
+                }
+            }
+
+            Console.WriteLine($"找到 {filesToExport.Count} 個符合條件的 SPR 檔案");
+            Console.WriteLine();
+
+            if (filesToExport.Count == 0)
+            {
+                Console.WriteLine("沒有找到符合條件的 SPR 檔案");
+                return;
+            }
+
+            // 計算跳過的檔案 (已存在)
+            var filesToProcess = filesToExport.ToList();
+            var alreadyExist = filesToProcess.Where(f => File.Exists(Path.Combine(outputFolder, f.fileName))).ToList();
+            var toExport = filesToProcess.Where(f => !File.Exists(Path.Combine(outputFolder, f.fileName))).ToList();
+
+            Console.WriteLine($"已存在 (跳過): {alreadyExist.Count}");
+            Console.WriteLine($"需要匯出: {toExport.Count}");
+            Console.WriteLine();
+
+            if (toExport.Count == 0)
+            {
+                Console.WriteLine("所有檔案都已存在，無需匯出");
+                return;
+            }
+
+            // 依 pakFile 分組，避免同時讀取同一個 pak
+            var groupedByPak = toExport.GroupBy(f => f.pakFile).ToList();
+
+            Console.WriteLine($"開始匯出 (分 {groupedByPak.Count} 個 PAK 處理)...");
+
+            int exported = 0;
+            int failed = 0;
+            var exportLock = new object();
+            var startTime = DateTime.Now;
+
+            // 每個 PAK 內部平行處理
+            foreach (var pakGroup in groupedByPak)
+            {
+                string pakFile = pakGroup.Key;
+                var filesInPak = pakGroup.ToList();
+
+                // 讀取整個 PAK 到記憶體 (一次性讀取，避免重複 I/O)
+                byte[] pakData;
+                try
+                {
+                    pakData = File.ReadAllBytes(pakFile);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"讀取 PAK 失敗: {pakFile} - {ex.Message}");
+                    Interlocked.Add(ref failed, filesInPak.Count);
+                    continue;
+                }
+
+                // 平行處理此 PAK 內的檔案
+                Parallel.ForEach(filesInPak, new ParallelOptions { MaxDegreeOfParallelism = parallelCount }, fileInfo =>
+                {
+                    try
+                    {
+                        string outputPath = Path.Combine(outputFolder, fileInfo.fileName);
+
+                        // 從 pakData 讀取
+                        byte[] fileData = new byte[fileInfo.record.FileSize];
+                        Array.Copy(pakData, fileInfo.record.Offset, fileData, 0, fileInfo.record.FileSize);
+
+                        // 解碼
+                        if (fileInfo.isProtected)
+                        {
+                            fileData = L1PakTools.Decode(fileData, 0);
+                        }
+
+                        // 寫入檔案
+                        File.WriteAllBytes(outputPath, fileData);
+
+                        int current = Interlocked.Increment(ref exported);
+                        if (current % 1000 == 0)
+                        {
+                            var elapsed = DateTime.Now - startTime;
+                            var rate = current / elapsed.TotalSeconds;
+                            Console.WriteLine($"進度: {current}/{toExport.Count} ({rate:F0} 檔/秒)");
+                        }
+                    }
+                    catch
+                    {
+                        Interlocked.Increment(ref failed);
+                    }
+                });
+            }
+
+            var totalTime = DateTime.Now - startTime;
+            Console.WriteLine();
+            Console.WriteLine("=== 匯出完成 ===");
+            Console.WriteLine($"成功: {exported}");
+            Console.WriteLine($"失敗: {failed}");
+            Console.WriteLine($"跳過 (已存在): {alreadyExist.Count}");
+            Console.WriteLine($"耗時: {totalTime.TotalSeconds:F1} 秒");
+            Console.WriteLine($"平均: {exported / totalTime.TotalSeconds:F0} 檔/秒");
         }
     }
 }
