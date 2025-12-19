@@ -1,0 +1,81 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 觸發條件：推送 v 開頭的 tag，例如 v1.24.1225143000
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  PROJECT_NAME: PakViewer
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Get version from tag
+      id: get_version
+      shell: bash
+      run: |
+        # 從 tag 取得版本號 (移除 'v' 前綴)
+        # Tag 格式: v1.yy.MMddHHmm (例如 v1.24.1225143000)
+        TAG=${GITHUB_REF#refs/tags/}
+        VERSION=${TAG#v}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "TAG=$TAG" >> $GITHUB_OUTPUT
+        echo "Building version: $VERSION"
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: |
+        dotnet build --configuration Release --no-restore /p:Version=${{ steps.get_version.outputs.VERSION }}
+
+    - name: Publish (Self-contained)
+      run: |
+        dotnet publish --configuration Release --runtime win-x64 --self-contained true -o publish/self-contained /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+
+    - name: Publish (Framework-dependent)
+      run: |
+        dotnet publish --configuration Release --runtime win-x64 --self-contained false -o publish/framework-dependent /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true
+
+    - name: Create ZIP archives
+      shell: pwsh
+      run: |
+        # Self-contained 版本 (包含 .NET Runtime)
+        Compress-Archive -Path "publish/self-contained/*" -DestinationPath "${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64-self-contained.zip"
+
+        # Framework-dependent 版本 (需要安裝 .NET Runtime)
+        Compress-Archive -Path "publish/framework-dependent/*" -DestinationPath "${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64.zip"
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        name: ${{ env.PROJECT_NAME }} ${{ steps.get_version.outputs.TAG }}
+        body: |
+          ## ${{ env.PROJECT_NAME }} ${{ steps.get_version.outputs.TAG }}
+
+          ### Downloads
+          - **Self-contained** (`-self-contained.zip`): 包含 .NET Runtime，可直接執行
+          - **Framework-dependent** (`.zip`): 需要安裝 [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+
+          ### Changes
+          See [commit history](https://github.com/${{ github.repository }}/commits/${{ steps.get_version.outputs.TAG }}) for details.
+        files: |
+          ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64-self-contained.zip
+          ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64.zip
+        draft: false
+        prerelease: ${{ contains(steps.get_version.outputs.TAG, '-') }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -11,6 +11,5 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 [assembly: Guid("426ae39d-9b44-4f46-b0a2-6051251a5341")]
 [assembly: AssemblyTrademark("")]
-[assembly: AssemblyFileVersion("1.0.1.0")]
 [assembly: NeutralResourcesLanguage("zh-TW")]
-[assembly: AssemblyVersion("1.0.1.0")]
+// 版本號由 csproj 管理，可透過 /p:Version=x.x.x 覆蓋
