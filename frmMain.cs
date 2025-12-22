@@ -4486,7 +4486,9 @@ namespace PakViewer
           encoding = this.GetEncodingForFile(record.FileName);
         }
 
-        byte[] newData = encoding.GetBytes(this.TextViewer.Text);
+        // TextBox 會把 \r\n 轉成 \n，需要轉回 \r\n 以保持原始格式
+        string textToSave = this.TextViewer.Text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+        byte[] newData = encoding.GetBytes(textToSave);
 
         // 如果是 XML 加密的檔案，需要先加密
         if (this._IsCurrentFileXmlEncrypted)
