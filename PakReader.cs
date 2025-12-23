@@ -115,6 +115,20 @@ namespace PakViewer
                     BatchExportSpr(args[1], args[2], args[3], parallelCount);
                     break;
 
+                case "verify-sprite":
+                    // 驗證 sprite 分布: verify-sprite <client_folder>
+                    if (args.Length < 2) { Console.WriteLine("Usage: verify-sprite <client_folder>"); return; }
+                    VerifySpriteDistributionCmd(args[1]);
+                    break;
+
+                case "verify-sort":
+                    // 驗證 IDX 排序: verify-sort <idx_file> [comparer]
+                    // comparer: ascii (預設), underscore (底線排在字母後)
+                    if (args.Length < 2) { Console.WriteLine("Usage: verify-sort <idx_file> [ascii|underscore]"); return; }
+                    string comparerType = args.Length > 2 ? args[2].ToLower() : "ascii";
+                    VerifyIdxSortOrderCmd(args[1], comparerType);
+                    break;
+
                 default:
                     ShowHelp();
                     break;
@@ -2288,5 +2302,572 @@ namespace PakViewer
             Console.WriteLine($"耗時: {totalTime.TotalSeconds:F1} 秒");
             Console.WriteLine($"平均: {exported / totalTime.TotalSeconds:F0} 檔/秒");
         }
+
+        #region Sprite Distribution Verification Commands
+
+        static void VerifySpriteDistributionCmd(string clientFolder)
+        {
+            Console.WriteLine($"Verifying sprite distribution in: {clientFolder}");
+            Console.WriteLine();
+
+            var result = VerifySpriteDistribution(clientFolder);
+
+            Console.WriteLine("=== Sprite Distribution Verification ===");
+            Console.WriteLine($"Total files: {result.TotalFiles}");
+            Console.WriteLine($"Correct files: {result.CorrectFiles} ({result.CorrectPercentage:F2}%)");
+            Console.WriteLine($"Misplaced files: {result.MisplacedFiles.Count}");
+            Console.WriteLine();
+
+            if (result.MissingPaks.Count > 0)
+            {
+                Console.WriteLine("Missing PAK files:");
+                foreach (var pak in result.MissingPaks)
+                {
+                    Console.WriteLine($"  - {pak}");
+                }
+                Console.WriteLine();
+            }
+
+            if (result.LoadErrors.Count > 0)
+            {
+                Console.WriteLine("Load errors:");
+                foreach (var err in result.LoadErrors)
+                {
+                    Console.WriteLine($"  - {err}");
+                }
+                Console.WriteLine();
+            }
+
+            if (result.MisplacedFiles.Count > 0)
+            {
+                Console.WriteLine("Misplaced files (showing first 50):");
+                int showCount = Math.Min(result.MisplacedFiles.Count, 50);
+                foreach (var file in result.MisplacedFiles.Take(showCount))
+                {
+                    Console.WriteLine($"  {file.FileName}: in {file.CurrentPakName}, should be in {file.ExpectedPakName} (sum={file.FileNameSum}, sum%16={file.FileNameSum % 16})");
+                }
+                if (result.MisplacedFiles.Count > showCount)
+                {
+                    Console.WriteLine($"  ... and {result.MisplacedFiles.Count - showCount} more");
+                }
+                Console.WriteLine();
+            }
+
+            if (result.IsValid)
+            {
+                Console.WriteLine("✓ All sprite files are correctly distributed!");
+            }
+            else
+            {
+                Console.WriteLine("✗ Sprite distribution has issues.");
+            }
+        }
+
+        static void VerifyIdxSortOrderCmd(string idxFile, string comparerType = "ascii")
+        {
+            Console.WriteLine($"Verifying sort order: {idxFile}");
+            Console.WriteLine($"Comparer: {comparerType}");
+            Console.WriteLine();
+
+            var result = VerifyIdxSortOrder(idxFile, comparerType);
+
+            if (result.Count == 0)
+            {
+                Console.WriteLine($"✓ IDX file is correctly sorted ({comparerType})!");
+            }
+            else
+            {
+                Console.WriteLine($"✗ Found {result.Count} incorrectly sorted entries (showing first 20):");
+                int showCount = Math.Min(result.Count, 20);
+                foreach (var (index, fileName, expectedFileName) in result.Take(showCount))
+                {
+                    Console.WriteLine($"  [{index}] {fileName} (expected: {expectedFileName})");
+                }
+                if (result.Count > showCount)
+                {
+                    Console.WriteLine($"  ... and {result.Count - showCount} more");
+                }
+            }
+        }
+
+        #endregion
+
+        #region Sprite/Pak File Addition Utilities
+
+        /// <summary>
+        /// 計算檔名應該放到哪個 sprite*.pak (0-15)
+        /// 規則: 檔名的 ANSI bytes 加總 % 16
+        /// 0 = sprite.pak, 1-15 = sprite01.pak ~ sprite15.pak
+        /// </summary>
+        /// <param name="fileName">檔案名稱 (不含路徑)</param>
+        /// <returns>0-15 的索引值</returns>
+        public static int GetSpritePakIndex(string fileName)
+        {
+            // 使用 Default encoding (系統的 ANSI 編碼) 取得 bytes
+            byte[] bytes = Encoding.Default.GetBytes(fileName);
+            int sum = 0;
+            foreach (byte b in bytes)
+            {
+                sum += b;
+            }
+            return sum % 16;
+        }
+
+        /// <summary>
+        /// 取得 sprite pak 檔案路徑
+        /// </summary>
+        /// <param name="clientFolder">客戶端資料夾路徑</param>
+        /// <param name="index">0-15 的索引值</param>
+        /// <returns>sprite*.pak 的完整路徑</returns>
+        public static string GetSpritePakPath(string clientFolder, int index)
+        {
+            return Path.Combine(clientFolder, $"sprite{index:D2}.pak");  // sprite00.pak ~ sprite15.pak
+        }
+
+        /// <summary>
+        /// 取得 sprite idx 檔案路徑
+        /// </summary>
+        /// <param name="clientFolder">客戶端資料夾路徑</param>
+        /// <param name="index">0-15 的索引值</param>
+        /// <returns>sprite*.idx 的完整路徑</returns>
+        public static string GetSpriteIdxPath(string clientFolder, int index)
+        {
+            return Path.Combine(clientFolder, $"sprite{index:D2}.idx");  // sprite00.idx ~ sprite15.idx
+        }
+
+        /// <summary>
+        /// 使用二分搜尋找到插入位置
+        /// </summary>
+        private static int FindInsertIndex(List<L1PakTools.IndexRecord> records, string fileName, IComparer<string> comparer)
+        {
+            int left = 0;
+            int right = records.Count;
+
+            while (left < right)
+            {
+                int mid = (left + right) / 2;
+                if (comparer.Compare(records[mid].FileName, fileName) < 0)
+                {
+                    left = mid + 1;
+                }
+                else
+                {
+                    right = mid;
+                }
+            }
+
+            return left;
+        }
+
+        /// <summary>
+        /// 不區分大小寫的 ASCII 排序比較器 (用於檔名排序)
+        /// 按照忽略大小寫的 ASCII 字元順序排序
+        /// </summary>
+        public class AsciiStringComparer : IComparer<string>
+        {
+            public int Compare(string x, string y)
+            {
+                // 使用 OrdinalIgnoreCase 比較 (不區分大小寫)
+                return string.Compare(x, y, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        /// <summary>
+        /// 特殊排序比較器 - 底線 (_) 排在字母之前 (數字 → 底線 → 字母)
+        /// </summary>
+        public class UnderscoreFirstComparer : IComparer<string>
+        {
+            public int Compare(string x, string y)
+            {
+                int minLen = Math.Min(x.Length, y.Length);
+                for (int i = 0; i < minLen; i++)
+                {
+                    char cx = char.ToLowerInvariant(x[i]);
+                    char cy = char.ToLowerInvariant(y[i]);
+
+                    if (cx == cy) continue;
+
+                    // 底線排在字母之前
+                    int ox = GetOrder(cx);
+                    int oy = GetOrder(cy);
+
+                    if (ox != oy) return ox.CompareTo(oy);
+                    return cx.CompareTo(cy);
+                }
+                return x.Length.CompareTo(y.Length);
+            }
+
+            private int GetOrder(char c)
+            {
+                // 其他符號 → -1
+                // 數字 0-9 → 0
+                // 底線 _ → 1  (在字母之前)
+                // 字母 a-z → 2
+                if (c >= '0' && c <= '9') return 0;
+                if (c == '_') return 1;
+                if (c >= 'a' && c <= 'z') return 2;
+                return c < '0' ? -1 : 3;
+            }
+        }
+
+        /// <summary>
+        /// 新增 SPR 檔案到正確的 sprite*.pak
+        /// 根據檔名 ANSI 加總 % 16 決定目標 pak
+        /// </summary>
+        /// <param name="clientFolder">客戶端資料夾路徑</param>
+        /// <param name="sprFilePath">要新增的 SPR 檔案路徑</param>
+        /// <returns>(success, error message)</returns>
+        public static (bool success, string message) AddSpriteFile(string clientFolder, string sprFilePath)
+        {
+            if (!File.Exists(sprFilePath))
+            {
+                return (false, $"File not found: {sprFilePath}");
+            }
+
+            string fileName = Path.GetFileName(sprFilePath);
+            int pakIndex = GetSpritePakIndex(fileName);
+            string idxPath = GetSpriteIdxPath(clientFolder, pakIndex);
+            string pakPath = GetSpritePakPath(clientFolder, pakIndex);
+
+            Console.WriteLine($"Adding {fileName} to {Path.GetFileName(pakPath)} (index={pakIndex}, sum={Encoding.Default.GetBytes(fileName).Sum(b => b)})");
+
+            if (!File.Exists(idxPath) || !File.Exists(pakPath))
+            {
+                return (false, $"Target pak not found: {pakPath}");
+            }
+
+            // 使用 AddPakFile 加入並排序
+            return AddPakFile(idxPath, sprFilePath, sortAfterAdd: true);
+        }
+
+        /// <summary>
+        /// 批次新增多個 SPR 檔案
+        /// </summary>
+        /// <param name="clientFolder">客戶端資料夾路徑</param>
+        /// <param name="sprFilePaths">要新增的 SPR 檔案路徑清單</param>
+        /// <returns>成功和失敗的數量</returns>
+        public static (int success, int failed, List<string> errors) AddSpriteFiles(string clientFolder, string[] sprFilePaths)
+        {
+            int success = 0;
+            int failed = 0;
+            var errors = new List<string>();
+
+            // 按目標 pak 分組，減少重複 IO
+            var groupedByPak = sprFilePaths
+                .Where(f => File.Exists(f))
+                .GroupBy(f => GetSpritePakIndex(Path.GetFileName(f)));
+
+            foreach (var group in groupedByPak)
+            {
+                int pakIndex = group.Key;
+                string idxPath = GetSpriteIdxPath(clientFolder, pakIndex);
+                var files = group.ToArray();
+
+                Console.WriteLine($"Adding {files.Length} files to {Path.GetFileName(idxPath)}...");
+
+                var result = AddPakFiles(idxPath, files, sortAfterAdd: true);
+                success += result.success;
+                failed += result.failed;
+                errors.AddRange(result.errors);
+            }
+
+            return (success, failed, errors);
+        }
+
+        /// <summary>
+        /// 新增單一檔案到 PAK 並可選擇按 Windows 排序方式排序 IDX
+        /// </summary>
+        /// <param name="idxFile">IDX 檔案路徑</param>
+        /// <param name="filePath">要新增的檔案路徑</param>
+        /// <param name="sortAfterAdd">新增後是否按 Windows 檔名排序 IDX</param>
+        /// <returns>(success, error message)</returns>
+        public static (bool success, string message) AddPakFile(string idxFile, string filePath, bool sortAfterAdd = true)
+        {
+            var result = AddPakFiles(idxFile, new[] { filePath }, sortAfterAdd);
+            if (result.failed > 0 && result.errors.Count > 0)
+            {
+                return (false, result.errors[0]);
+            }
+            return (result.success > 0, result.success > 0 ? "Success" : "Unknown error");
+        }
+
+        /// <summary>
+        /// 新增多個檔案到 PAK 並可選擇按 Windows 排序方式排序 IDX
+        /// </summary>
+        /// <param name="idxFile">IDX 檔案路徑</param>
+        /// <param name="filePaths">要新增的檔案路徑清單</param>
+        /// <param name="sortAfterAdd">新增後是否按 Windows 檔名排序 IDX</param>
+        /// <returns>成功和失敗的數量</returns>
+        public static (int success, int failed, List<string> errors) AddPakFiles(string idxFile, string[] filePaths, bool sortAfterAdd = true)
+        {
+            int successCount = 0;
+            int failedCount = 0;
+            var errors = new List<string>();
+
+            var indexResult = LoadIndex(idxFile);
+            if (indexResult == null)
+            {
+                errors.Add($"Cannot load index: {idxFile}");
+                return (0, filePaths.Length, errors);
+            }
+
+            var (records, isProtected) = indexResult.Value;
+            string pakFile = idxFile.Replace(".idx", ".pak");
+
+            if (!File.Exists(pakFile))
+            {
+                errors.Add($"PAK file not found: {pakFile}");
+                return (0, filePaths.Length, errors);
+            }
+
+            // 驗證檔案並過濾重複
+            var filesToAdd = new List<(string filePath, string fileName, long fileSize)>();
+            var existingNames = new HashSet<string>(records.Select(r => r.FileName.ToLowerInvariant()));
+
+            foreach (string filePath in filePaths)
+            {
+                if (!File.Exists(filePath))
+                {
+                    errors.Add($"File not found: {filePath}");
+                    failedCount++;
+                    continue;
+                }
+
+                string fileName = Path.GetFileName(filePath);
+                if (Encoding.Default.GetByteCount(fileName) > 19)
+                {
+                    errors.Add($"Filename too long (max 19 bytes): {fileName}");
+                    failedCount++;
+                    continue;
+                }
+
+                if (existingNames.Contains(fileName.ToLowerInvariant()))
+                {
+                    errors.Add($"File already exists: {fileName}");
+                    failedCount++;
+                    continue;
+                }
+
+                var fileInfo = new FileInfo(filePath);
+                filesToAdd.Add((filePath, fileName, fileInfo.Length));
+                existingNames.Add(fileName.ToLowerInvariant());
+            }
+
+            if (filesToAdd.Count == 0)
+            {
+                return (successCount, failedCount, errors);
+            }
+
+            // 建立備份
+            string pakBackup = pakFile + ".bak";
+            string idxBackup = idxFile + ".bak";
+
+            if (File.Exists(pakBackup)) File.Delete(pakBackup);
+            if (File.Exists(idxBackup)) File.Delete(idxBackup);
+
+            File.Copy(pakFile, pakBackup);
+            File.Copy(idxFile, idxBackup);
+
+            try
+            {
+                var pakFileInfo = new FileInfo(pakFile);
+                int currentOffset = (int)pakFileInfo.Length;
+                var newRecordsList = new List<L1PakTools.IndexRecord>(records);
+
+                using (FileStream pakFs = File.Open(pakFile, FileMode.Append, FileAccess.Write))
+                {
+                    foreach (var (filePath, fileName, fileSize) in filesToAdd)
+                    {
+                        byte[] fileData = File.ReadAllBytes(filePath);
+                        byte[] dataToWrite = fileData;
+
+                        // Encode if L1 protected
+                        if (isProtected)
+                        {
+                            dataToWrite = L1PakTools.Encode(dataToWrite, 0);
+                        }
+
+                        pakFs.Write(dataToWrite, 0, dataToWrite.Length);
+
+                        newRecordsList.Add(new L1PakTools.IndexRecord(
+                            fileName,
+                            dataToWrite.Length,
+                            currentOffset
+                        ));
+
+                        currentOffset += dataToWrite.Length;
+                        successCount++;
+                    }
+                }
+
+                // 將新增的檔案插入到正確位置 (不重排，只插入)
+                L1PakTools.IndexRecord[] finalRecords;
+                if (sortAfterAdd)
+                {
+                    // 分離原有記錄和新增記錄
+                    var existingRecords = newRecordsList.Take(records.Length).ToList();
+                    var addedRecords = newRecordsList.Skip(records.Length).ToList();
+
+                    // 將新增的記錄逐一插入到正確位置
+                    var comparer = new UnderscoreFirstComparer();
+                    foreach (var newRec in addedRecords)
+                    {
+                        int insertIndex = FindInsertIndex(existingRecords, newRec.FileName, comparer);
+                        existingRecords.Insert(insertIndex, newRec);
+                    }
+                    finalRecords = existingRecords.ToArray();
+                }
+                else
+                {
+                    finalRecords = newRecordsList.ToArray();
+                }
+
+                RebuildIndex(idxFile, finalRecords, isProtected);
+
+                // 刪除備份
+                File.Delete(pakBackup);
+                File.Delete(idxBackup);
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"Error during addition: {ex.Message}");
+
+                // 從備份還原
+                if (File.Exists(pakBackup))
+                {
+                    File.Copy(pakBackup, pakFile, true);
+                    File.Delete(pakBackup);
+                }
+                if (File.Exists(idxBackup))
+                {
+                    File.Copy(idxBackup, idxFile, true);
+                    File.Delete(idxBackup);
+                }
+
+                return (0, filePaths.Length, errors);
+            }
+
+            return (successCount, failedCount, errors);
+        }
+
+        /// <summary>
+        /// 驗證客戶端的 sprite 檔案分布是否符合規則
+        /// </summary>
+        /// <param name="clientFolder">客戶端資料夾路徑</param>
+        /// <returns>驗證結果</returns>
+        public static SpriteDistributionResult VerifySpriteDistribution(string clientFolder)
+        {
+            var result = new SpriteDistributionResult();
+
+            for (int i = 0; i <= 15; i++)  // 0-15 共 16 個 pak
+            {
+                string idxPath = GetSpriteIdxPath(clientFolder, i);
+                string pakPath = GetSpritePakPath(clientFolder, i);
+
+                if (!File.Exists(idxPath))
+                {
+                    result.MissingPaks.Add(Path.GetFileName(idxPath));
+                    continue;
+                }
+
+                var indexResult = LoadIndex(idxPath);
+                if (indexResult == null)
+                {
+                    result.LoadErrors.Add($"Cannot load: {idxPath}");
+                    continue;
+                }
+
+                var (records, _) = indexResult.Value;
+                result.TotalFiles += records.Length;
+
+                foreach (var record in records)
+                {
+                    int expectedIndex = GetSpritePakIndex(record.FileName);
+                    if (expectedIndex != i)
+                    {
+                        result.MisplacedFiles.Add(new MisplacedFile
+                        {
+                            FileName = record.FileName,
+                            CurrentPakIndex = i,
+                            ExpectedPakIndex = expectedIndex,
+                            FileNameSum = Encoding.Default.GetBytes(record.FileName).Sum(b => b)
+                        });
+                    }
+                    else
+                    {
+                        result.CorrectFiles++;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 驗證 IDX 檔案中的排序是否符合指定的排序規則
+        /// </summary>
+        /// <param name="idxFile">IDX 檔案路徑</param>
+        /// <param name="comparerType">比較器類型: ascii, underscore</param>
+        /// <returns>不正確排序的項目清單</returns>
+        public static List<(int index, string fileName, string expectedFileName)> VerifyIdxSortOrder(string idxFile, string comparerType = "ascii")
+        {
+            var result = new List<(int index, string fileName, string expectedFileName)>();
+
+            var indexResult = LoadIndex(idxFile);
+            if (indexResult == null)
+            {
+                return result;
+            }
+
+            var (records, _) = indexResult.Value;
+
+            // 根據類型選擇比較器
+            IComparer<string> comparer = comparerType switch
+            {
+                "underscore" => new UnderscoreFirstComparer(),  // 底線排在字母之前
+                _ => new AsciiStringComparer()  // 不區分大小寫 ASCII
+            };
+
+            var sortedNames = records.Select(r => r.FileName).OrderBy(n => n, comparer).ToList();
+
+            for (int i = 0; i < records.Length; i++)
+            {
+                if (records[i].FileName != sortedNames[i])
+                {
+                    result.Add((i, records[i].FileName, sortedNames[i]));
+                }
+            }
+
+            return result;
+        }
+
+        #endregion
+
+        #region Sprite Distribution Result Classes
+
+        public class SpriteDistributionResult
+        {
+            public int TotalFiles { get; set; }
+            public int CorrectFiles { get; set; }
+            public List<MisplacedFile> MisplacedFiles { get; set; } = new List<MisplacedFile>();
+            public List<string> MissingPaks { get; set; } = new List<string>();
+            public List<string> LoadErrors { get; set; } = new List<string>();
+
+            public bool IsValid => MisplacedFiles.Count == 0 && LoadErrors.Count == 0;
+            public double CorrectPercentage => TotalFiles > 0 ? (double)CorrectFiles / TotalFiles * 100 : 0;
+        }
+
+        public class MisplacedFile
+        {
+            public string FileName { get; set; }
+            public int CurrentPakIndex { get; set; }
+            public int ExpectedPakIndex { get; set; }
+            public int FileNameSum { get; set; }
+
+            public string CurrentPakName => $"sprite{CurrentPakIndex:D2}.pak";
+            public string ExpectedPakName => $"sprite{ExpectedPakIndex:D2}.pak";
+        }
+
+        #endregion
     }
 }
