@@ -3458,23 +3458,43 @@ namespace PakViewer
     {
       if (this.lvIndexInfo.SelectedIndices.Count == 0)
         return;
-      int virtualIndex = this.lvIndexInfo.SelectedIndices[0];
 
-      // Sprite 模式下，匯出整個群組
-      if (this._IsSpriteMode && this._SpriteDisplayItems != null && virtualIndex < this._SpriteDisplayItems.Count)
+      // Sprite 模式下，匯出選取的群組
+      if (this._IsSpriteMode && this._SpriteDisplayItems != null)
       {
-        object item = this._SpriteDisplayItems[virtualIndex];
-        if (item is SpriteGroup group)
+        int exportedGroups = 0;
+        foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
         {
-          this.ExportSpriteGroup(null, group);  // null 表示匯出到原目錄
+          if (virtualIndex < this._SpriteDisplayItems.Count)
+          {
+            object item = this._SpriteDisplayItems[virtualIndex];
+            if (item is SpriteGroup group)
+            {
+              this.ExportSpriteGroup(null, group);
+              exportedGroups++;
+            }
+          }
+        }
+        if (exportedGroups > 0)
+        {
+          this.tssMessage.Text = $"已匯出 {exportedGroups} 個群組";
           return;
         }
       }
 
       if (this._FilteredIndexes == null)
         return;
-      int realIndex = this._FilteredIndexes[virtualIndex];
-      this.ExportSelectedByIndex(Path.GetDirectoryName(this._PackFileName), realIndex);
+
+      // 收集所有選取的實際索引
+      List<int> realIndexes = new List<int>();
+      foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
+      {
+        if (virtualIndex < this._FilteredIndexes.Count)
+          realIndexes.Add(this._FilteredIndexes[virtualIndex]);
+      }
+
+      string exportPath = Path.GetDirectoryName(this._PackFileName);
+      ExportMultipleFiles(exportPath, realIndexes);
     }
 
     private void tsmExportTo_Click(object sender, EventArgs e)
@@ -3484,23 +3504,82 @@ namespace PakViewer
       if (this.lvIndexInfo.SelectedIndices.Count == 0)
         return;
       string selectedPath = this.dlgOpenFolder.SelectedPath;
-      int virtualIndex = this.lvIndexInfo.SelectedIndices[0];
 
-      // Sprite 模式下，匯出整個群組
-      if (this._IsSpriteMode && this._SpriteDisplayItems != null && virtualIndex < this._SpriteDisplayItems.Count)
+      // Sprite 模式下，匯出選取的群組
+      if (this._IsSpriteMode && this._SpriteDisplayItems != null)
       {
-        object item = this._SpriteDisplayItems[virtualIndex];
-        if (item is SpriteGroup group)
+        int exportedGroups = 0;
+        foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
         {
-          this.ExportSpriteGroup(selectedPath, group);
+          if (virtualIndex < this._SpriteDisplayItems.Count)
+          {
+            object item = this._SpriteDisplayItems[virtualIndex];
+            if (item is SpriteGroup group)
+            {
+              this.ExportSpriteGroup(selectedPath, group);
+              exportedGroups++;
+            }
+          }
+        }
+        if (exportedGroups > 0)
+        {
+          this.tssMessage.Text = $"已匯出 {exportedGroups} 個群組到 {selectedPath}";
           return;
         }
       }
 
       if (this._FilteredIndexes == null)
         return;
-      int realIndex = this._FilteredIndexes[virtualIndex];
-      this.ExportSelectedByIndex(selectedPath, realIndex);
+
+      // 收集所有選取的實際索引
+      List<int> realIndexes = new List<int>();
+      foreach (int virtualIndex in this.lvIndexInfo.SelectedIndices)
+      {
+        if (virtualIndex < this._FilteredIndexes.Count)
+          realIndexes.Add(this._FilteredIndexes[virtualIndex]);
+      }
+
+      ExportMultipleFiles(selectedPath, realIndexes);
+    }
+
+    private void ExportMultipleFiles(string exportPath, List<int> realIndexes)
+    {
+      if (realIndexes.Count == 0)
+        return;
+
+      string pakFile = this._PackFileName.Replace(".idx", ".pak");
+      int exported = 0;
+      int total = realIndexes.Count;
+
+      // 平行讀取並匯出
+      var exportTasks = new System.Collections.Concurrent.ConcurrentBag<(int index, string fileName, byte[] data)>();
+
+      // 先讀取所有資料
+      using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+      {
+        foreach (int realIndex in realIndexes)
+        {
+          var record = this._IndexRecords[realIndex];
+          byte[] data = new byte[record.FileSize];
+          fs.Seek(record.Offset, SeekOrigin.Begin);
+          fs.Read(data, 0, record.FileSize);
+
+          if (this._IsPackFileProtected)
+            data = L1PakTools.Decode(data, 0);
+
+          exportTasks.Add((realIndex, record.FileName, data));
+        }
+      }
+
+      // 平行寫入檔案
+      System.Threading.Tasks.Parallel.ForEach(exportTasks, item =>
+      {
+        string filePath = Path.Combine(exportPath, item.fileName);
+        File.WriteAllBytes(filePath, item.data);
+        System.Threading.Interlocked.Increment(ref exported);
+      });
+
+      this.tssMessage.Text = $"已匯出 {exported} 個檔案到 {exportPath}";
     }
 
     private void mnuTools_Export_Click(object sender, EventArgs e)
