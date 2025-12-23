@@ -73,6 +73,8 @@ namespace PakViewer
     private RichTextBox TextViewer;
     private ToolStripMenuItem mnuOpen;
     private ToolStripMenuItem mnuFiller;
+    private ToolStripMenuItem mnuFiller_All;  // 全部選項
+    private List<ToolStripMenuItem> _DynamicExtFilters = new List<ToolStripMenuItem>();  // 動態副檔名選項
     private ToolStripMenuItem mnuFiller_Text_html;
     private ToolStripSeparator toolStripSeparator5;
     private ToolStripMenuItem mnuFiller_Text_C;
@@ -594,6 +596,7 @@ namespace PakViewer
       }
       else
       {
+        this.BuildDynamicExtensionFilter(this._IndexRecords);
         this.ShowRecords(this._IndexRecords);
         long showMs = sw.ElapsedMilliseconds;
         this.mnuFiller.Enabled = true;
@@ -1836,6 +1839,92 @@ namespace PakViewer
       this.ShowRecords(this._IndexRecords);
     }
 
+    /// <summary>
+    /// 根據 PAK 中的檔案動態建立副檔名篩選器選單
+    /// </summary>
+    private void BuildDynamicExtensionFilter(L1PakTools.IndexRecord[] records)
+    {
+      // 收集所有副檔名
+      var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+      foreach (var record in records)
+      {
+        string ext = Path.GetExtension(record.FileName).ToLower();
+        if (!string.IsNullOrEmpty(ext))
+          extensions.Add(ext);
+      }
+
+      // 清除舊的動態選項
+      foreach (var item in this._DynamicExtFilters)
+      {
+        this.mnuFiller.DropDownItems.Remove(item);
+      }
+      this._DynamicExtFilters.Clear();
+
+      // 移除「全部」選項（如果存在）
+      if (this.mnuFiller_All != null)
+      {
+        this.mnuFiller.DropDownItems.Remove(this.mnuFiller_All);
+      }
+
+      // 建立「全部」選項
+      this.mnuFiller_All = new ToolStripMenuItem();
+      this.mnuFiller_All.Text = "全部";
+      this.mnuFiller_All.Checked = true;
+      this.mnuFiller_All.CheckOnClick = true;
+      this.mnuFiller_All.CheckedChanged += (s, e) =>
+      {
+        if (this.mnuFiller_All.Checked)
+        {
+          // 取消所有其他選項
+          foreach (var item in this._DynamicExtFilters)
+          {
+            if (item != null) item.Checked = false;
+          }
+        }
+        this.ShowRecords(this._IndexRecords);
+      };
+
+      // 插入到選單最前面
+      this.mnuFiller.DropDownItems.Insert(0, this.mnuFiller_All);
+
+      // 建立分隔線
+      var separator = new ToolStripSeparator();
+      this.mnuFiller.DropDownItems.Insert(1, separator);
+      this._DynamicExtFilters.Add(null); // placeholder for separator
+
+      // 建立副檔名選項（按字母排序）
+      int insertIndex = 2;
+      foreach (string ext in extensions.OrderBy(e => e))
+      {
+        var menuItem = new ToolStripMenuItem();
+        menuItem.Text = $"*{ext}";
+        menuItem.Checked = false;
+        menuItem.CheckOnClick = true;
+        menuItem.Tag = ext;
+        menuItem.CheckedChanged += (s, e) =>
+        {
+          // 如果有任何副檔名被選中，取消「全部」
+          bool anyChecked = this._DynamicExtFilters.Any(m => m != null && m.Checked);
+          if (anyChecked && this.mnuFiller_All.Checked)
+          {
+            this.mnuFiller_All.Checked = false;
+          }
+          else if (!anyChecked && !this.mnuFiller_All.Checked)
+          {
+            this.mnuFiller_All.Checked = true;
+          }
+          this.ShowRecords(this._IndexRecords);
+        };
+        this.mnuFiller.DropDownItems.Insert(insertIndex++, menuItem);
+        this._DynamicExtFilters.Add(menuItem);
+      }
+
+      // 加入分隔線（在語言選項之前）
+      var langSeparator = new ToolStripSeparator();
+      this.mnuFiller.DropDownItems.Insert(insertIndex, langSeparator);
+      this._DynamicExtFilters.Add(null); // placeholder
+    }
+
     private byte[] LoadIndexData(string IndexFile)
     {
       byte[] numArray = File.ReadAllBytes(IndexFile);
@@ -1974,18 +2063,21 @@ namespace PakViewer
         langFilter = selected.Substring(0, 2); // 取得 "-c", "-h", "-j", "-k"
       }
 
-      // 建立選單篩選器的副檔名集合（僅當下拉選單為「全部」時使用）
+      // 建立選單篩選器的副檔名集合（使用動態生成的選項）
       var menuExtFilters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
       if (extFilter == null && !this._IsSpriteMode)
       {
-        if (this.mnuFiller_Text_html?.Checked == true) menuExtFilters.Add(".html");
-        if (this.mnuFiller_Sprite_spr?.Checked == true) menuExtFilters.Add(".spr");
-        if (this.mnuFiller_Tile_til?.Checked == true) menuExtFilters.Add(".til");
-        if (this.mnuFiller_Sprite_img?.Checked == true) menuExtFilters.Add(".img");
-        if (this.mnuFiller_Sprite_png?.Checked == true) menuExtFilters.Add(".png");
-        if (this.mnuFiller_Sprite_tbt?.Checked == true) menuExtFilters.Add(".tbt");
-        // 如果都選了，視為不篩選
-        if (menuExtFilters.Count >= 6) menuExtFilters.Clear();
+        // 如果「全部」沒有勾選，收集所有勾選的副檔名
+        if (this.mnuFiller_All?.Checked != true)
+        {
+          foreach (var item in this._DynamicExtFilters)
+          {
+            if (item != null && item.Checked && item.Tag is string ext)
+            {
+              menuExtFilters.Add(ext);
+            }
+          }
+        }
       }
 
       // 建立選單篩選器的語言集合（僅當下拉選單語言為「全部」時使用）
