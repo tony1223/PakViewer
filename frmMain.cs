@@ -3549,10 +3549,9 @@ namespace PakViewer
 
       string pakFile = this._PackFileName.Replace(".idx", ".pak");
       int exported = 0;
-      int total = realIndexes.Count;
 
-      // 平行讀取並匯出
-      var exportTasks = new System.Collections.Concurrent.ConcurrentBag<(int index, string fileName, byte[] data)>();
+      // 使用 Dictionary 去重（相同檔名只保留最後一個）
+      var exportDict = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
 
       // 先讀取所有資料
       using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -3567,15 +3566,16 @@ namespace PakViewer
           if (this._IsPackFileProtected)
             data = L1PakTools.Decode(data, 0);
 
-          exportTasks.Add((realIndex, record.FileName, data));
+          // 相同檔名會覆蓋，保留最後一個
+          exportDict[record.FileName] = data;
         }
       }
 
-      // 平行寫入檔案
-      System.Threading.Tasks.Parallel.ForEach(exportTasks, item =>
+      // 平行寫入檔案（已去重，不會有衝突）
+      System.Threading.Tasks.Parallel.ForEach(exportDict, kvp =>
       {
-        string filePath = Path.Combine(exportPath, item.fileName);
-        File.WriteAllBytes(filePath, item.data);
+        string filePath = Path.Combine(exportPath, kvp.Key);
+        File.WriteAllBytes(filePath, kvp.Value);
         System.Threading.Interlocked.Increment(ref exported);
       });
 
