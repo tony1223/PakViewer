@@ -21,6 +21,7 @@ using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
+using Microsoft.VisualBasic;
 
 namespace PakViewer
 {
@@ -164,6 +165,9 @@ namespace PakViewer
     private Encoding _CurrentXmlEncoding = null;
     private string _SelectedFolder;
     private List<int> _FilteredIndexes;
+    // 文字搜尋相關
+    private string _TextSearchKeyword = "";
+    private int _TextSearchLastIndex = 0;
     private HashSet<int> _CheckedIndexes;
 
     // DAT 模式相關
@@ -1957,12 +1961,12 @@ namespace PakViewer
       this._FilteredIndexes = new List<int>(Records.Length);
       this._CheckedIndexes.Clear();
 
-      // 取得副檔名過濾條件
+      // 取得副檔名過濾條件（下拉選單優先）
       string extFilter = this.cmbExtFilter != null && this.cmbExtFilter.SelectedIndex > 0
         ? this.cmbExtFilter.SelectedItem.ToString()
         : null;
 
-      // 取得語言過濾條件
+      // 取得語言過濾條件（下拉選單）
       string langFilter = null;
       if (this.cmbLangFilter != null && this.cmbLangFilter.SelectedIndex > 0)
       {
@@ -1970,16 +1974,46 @@ namespace PakViewer
         langFilter = selected.Substring(0, 2); // 取得 "-c", "-h", "-j", "-k"
       }
 
+      // 建立選單篩選器的副檔名集合（僅當下拉選單為「全部」時使用）
+      var menuExtFilters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+      if (extFilter == null && !this._IsSpriteMode)
+      {
+        if (this.mnuFiller_Text_html?.Checked == true) menuExtFilters.Add(".html");
+        if (this.mnuFiller_Sprite_spr?.Checked == true) menuExtFilters.Add(".spr");
+        if (this.mnuFiller_Tile_til?.Checked == true) menuExtFilters.Add(".til");
+        if (this.mnuFiller_Sprite_img?.Checked == true) menuExtFilters.Add(".img");
+        if (this.mnuFiller_Sprite_png?.Checked == true) menuExtFilters.Add(".png");
+        if (this.mnuFiller_Sprite_tbt?.Checked == true) menuExtFilters.Add(".tbt");
+        // 如果都選了，視為不篩選
+        if (menuExtFilters.Count >= 6) menuExtFilters.Clear();
+      }
+
+      // 建立選單篩選器的語言集合（僅當下拉選單語言為「全部」時使用）
+      var menuLangFilters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+      if (langFilter == null && !this._IsSpriteMode)
+      {
+        if (this.mnuFiller_Text_C?.Checked == true) menuLangFilters.Add("-c");
+        if (this.mnuFiller_Text_H?.Checked == true) menuLangFilters.Add("-h");
+        if (this.mnuFiller_Text_J?.Checked == true) menuLangFilters.Add("-j");
+        if (this.mnuFiller_Text_K?.Checked == true) menuLangFilters.Add("-k");
+        // 如果都選了或都沒選，視為不篩選
+        if (menuLangFilters.Count == 0 || menuLangFilters.Count >= 4) menuLangFilters.Clear();
+      }
+
       for (int ID = 0; ID < Records.Length; ++ID)
       {
         L1PakTools.IndexRecord record = Records[ID];
         string extension = Path.GetExtension(record.FileName).ToLower();
 
-        // 副檔名過濾
+        // 副檔名過濾（下拉選單優先）
         if (extFilter != null && extension != extFilter)
           continue;
 
-        // 語言過濾
+        // 選單副檔名過濾（僅當下拉選單為「全部」且有勾選時）
+        if (menuExtFilters.Count > 0 && !menuExtFilters.Contains(extension))
+          continue;
+
+        // 語言過濾（下拉選單優先）
         if (langFilter != null)
         {
           string withoutExtension = Path.GetFileNameWithoutExtension(record.FileName).ToLower();
@@ -1988,6 +2022,21 @@ namespace PakViewer
           {
             string fileLang = withoutExtension.Substring(withoutExtension.Length - 2);
             if (fileLang != langFilter)
+              continue;
+          }
+        }
+
+        // 選單語言過濾（僅當下拉選單語言為「全部」時）
+        if (menuLangFilters.Count > 0)
+        {
+          string withoutExtension = Path.GetFileNameWithoutExtension(record.FileName).ToLower();
+          int dashIndex = withoutExtension.LastIndexOf("-");
+          if (dashIndex >= 0 && withoutExtension.Length >= 2)
+          {
+            string fileLang = "-" + withoutExtension.Substring(withoutExtension.Length - 1);
+            // 檢查是否符合任一勾選的語言
+            bool langMatch = menuLangFilters.Any(l => withoutExtension.EndsWith(l, StringComparison.OrdinalIgnoreCase));
+            if (!langMatch)
               continue;
           }
         }
@@ -4515,6 +4564,126 @@ namespace PakViewer
       }
     }
 
+    private void TextViewer_KeyDown(object sender, KeyEventArgs e)
+    {
+      // Ctrl+F: 開始搜尋
+      if (e.Control && e.KeyCode == Keys.F)
+      {
+        e.SuppressKeyPress = true;
+        ShowTextSearchDialog();
+      }
+      // F3: 找下一個
+      else if (e.KeyCode == Keys.F3)
+      {
+        e.SuppressKeyPress = true;
+        if (e.Shift)
+          FindTextPrevious();
+        else
+          FindTextNext();
+      }
+      // Esc: 取消搜尋高亮
+      else if (e.KeyCode == Keys.Escape)
+      {
+        this._TextSearchKeyword = "";
+        this._TextSearchLastIndex = 0;
+      }
+    }
+
+    private void ShowTextSearchDialog()
+    {
+      string input = Microsoft.VisualBasic.Interaction.InputBox(
+        "請輸入要搜尋的文字：",
+        "搜尋 (F3=下一個, Shift+F3=上一個)",
+        this._TextSearchKeyword);
+
+      if (!string.IsNullOrEmpty(input))
+      {
+        this._TextSearchKeyword = input;
+        this._TextSearchLastIndex = this.TextViewer.SelectionStart;
+        FindTextNext();
+      }
+    }
+
+    private void FindTextNext()
+    {
+      if (string.IsNullOrEmpty(this._TextSearchKeyword))
+      {
+        ShowTextSearchDialog();
+        return;
+      }
+
+      int startIndex = this._TextSearchLastIndex;
+      int foundIndex = this.TextViewer.Text.IndexOf(
+        this._TextSearchKeyword,
+        startIndex,
+        StringComparison.CurrentCultureIgnoreCase);
+
+      if (foundIndex < 0 && startIndex > 0)
+      {
+        // 從頭開始搜尋
+        foundIndex = this.TextViewer.Text.IndexOf(
+          this._TextSearchKeyword,
+          0,
+          StringComparison.CurrentCultureIgnoreCase);
+        if (foundIndex >= 0)
+          this.tssMessage.Text = "搜尋已從頭開始";
+      }
+
+      if (foundIndex >= 0)
+      {
+        this.TextViewer.Select(foundIndex, this._TextSearchKeyword.Length);
+        this.TextViewer.ScrollToCaret();
+        this._TextSearchLastIndex = foundIndex + 1;
+        this.tssMessage.Text = $"找到: \"{this._TextSearchKeyword}\" (F3=下一個)";
+      }
+      else
+      {
+        this.tssMessage.Text = $"找不到: \"{this._TextSearchKeyword}\"";
+        this._TextSearchLastIndex = 0;
+      }
+    }
+
+    private void FindTextPrevious()
+    {
+      if (string.IsNullOrEmpty(this._TextSearchKeyword))
+      {
+        ShowTextSearchDialog();
+        return;
+      }
+
+      int endIndex = this._TextSearchLastIndex - 1;
+      if (endIndex <= 0) endIndex = this.TextViewer.Text.Length;
+
+      int foundIndex = this.TextViewer.Text.LastIndexOf(
+        this._TextSearchKeyword,
+        endIndex,
+        StringComparison.CurrentCultureIgnoreCase);
+
+      if (foundIndex < 0 && endIndex < this.TextViewer.Text.Length)
+      {
+        // 從尾端開始搜尋
+        foundIndex = this.TextViewer.Text.LastIndexOf(
+          this._TextSearchKeyword,
+          this.TextViewer.Text.Length - 1,
+          StringComparison.CurrentCultureIgnoreCase);
+        if (foundIndex >= 0)
+          this.tssMessage.Text = "搜尋已從尾端開始";
+      }
+
+      if (foundIndex >= 0)
+      {
+        this.TextViewer.Select(foundIndex, this._TextSearchKeyword.Length);
+        this.TextViewer.ScrollToCaret();
+        this._TextSearchLastIndex = foundIndex;
+        this.tssMessage.Text = $"找到: \"{this._TextSearchKeyword}\" (Shift+F3=上一個)";
+      }
+      else
+      {
+        this.tssMessage.Text = $"找不到: \"{this._TextSearchKeyword}\"";
+        this._TextSearchLastIndex = this.TextViewer.Text.Length;
+      }
+    }
+
     private Encoding GetEncodingForFile(string fileName)
     {
       string fileNameLower = fileName.ToLower();
@@ -5191,6 +5360,7 @@ namespace PakViewer
       this.TextViewer.ReadOnly = false;
       this.TextViewer.AcceptsTab = true;
       this.TextViewer.DetectUrls = false;
+      this.TextViewer.KeyDown += new KeyEventHandler(this.TextViewer_KeyDown);
       this.ImageViewer.AutoScroll = true;
       this.ImageViewer.BackColor = Color.Black;
       this.ImageViewer.BorderStyle = BorderStyle.Fixed3D;
