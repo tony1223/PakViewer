@@ -30,6 +30,11 @@ namespace PakViewer
     private string _PackFileName;
     private bool _IsPackFileProtected;
     private bool _IsDESProtected;  // DES ECB 加密
+    private bool _IsExtBFormat;    // _EXTB$ 擴展格式 (tile.idx 等)
+    private byte[] _ExtBRawData;   // ExtB 格式的原始資料
+    private List<int> _ExtBSortedOffsets;  // ExtB 格式的排序 offset 列表 (用於計算壓縮大小)
+    private long _ExtBPakFileSize;  // ExtB PAK 檔案大小
+    private Dictionary<string, int> _ExtBCompressionTypes;  // ExtB 格式的壓縮類型 (檔名 -> 壓縮類型)
     private L1PakTools.IndexRecord[] _IndexRecords;
     private string _TextLanguage;
     private frmMain.InviewDataType _InviewData;
@@ -585,6 +590,16 @@ namespace PakViewer
       sw.Restart();
       this._IndexRecords = this.CreatIndexRecords(indexData);
       long createMs = sw.ElapsedMilliseconds;
+
+      // ExtB 格式需要 PAK 檔案大小來計算最後一個 entry 的壓縮大小
+      if (this._IsExtBFormat)
+      {
+        string pakFile = this._PackFileName.Replace(".idx", ".pak");
+        if (File.Exists(pakFile))
+        {
+          this._ExtBPakFileSize = new FileInfo(pakFile).Length;
+        }
+      }
 
       sw.Restart();
       if (this._IndexRecords == null)
@@ -1928,14 +1943,27 @@ namespace PakViewer
     private byte[] LoadIndexData(string IndexFile)
     {
       byte[] numArray = File.ReadAllBytes(IndexFile);
+
+      // 重置狀態
+      this._IsPackFileProtected = false;
+      this._IsDESProtected = false;
+      this._IsExtBFormat = false;
+      this._ExtBRawData = null;
+      this.tssLocker.Visible = false;
+
+      // 優先檢測 _EXTB$ 格式
+      if (PakReader.IsExtBFormat(numArray))
+      {
+        this._IsExtBFormat = true;
+        this._ExtBRawData = numArray;
+        return numArray; // 返回原始資料，由 CreatIndexRecords 處理
+      }
+
       int num = (numArray.Length - 4) / 28;
       if (numArray.Length < 32 || (numArray.Length - 4) % 28 != 0)
         return (byte[]) null;
       if ((long) BitConverter.ToUInt32(numArray, 0) != (long) num)
         return (byte[]) null;
-      this._IsPackFileProtected = false;
-      this._IsDESProtected = false;
-      this.tssLocker.Visible = false;
 
       // 讀取第一條記錄的 size（未解密）
       int rawFirstSize = BitConverter.ToInt32(numArray, 4 + 24);
@@ -2030,6 +2058,13 @@ namespace PakViewer
     {
       if (IndexData == null)
         return (L1PakTools.IndexRecord[]) null;
+
+      // _EXTB$ 格式處理
+      if (this._IsExtBFormat)
+      {
+        return ParseExtBRecords(IndexData);
+      }
+
       // DES 解密後資料從 0 開始；L1 解密後也從 0 開始；未加密從 4 開始
       int num = (this._IsPackFileProtected || this._IsDESProtected) ? 0 : 4;
       int length = (IndexData.Length - num) / 28;
@@ -2042,6 +2077,63 @@ namespace PakViewer
         indexRecordArray[index1] = new L1PakTools.IndexRecord(IndexData, index2);
       }
       return indexRecordArray;
+    }
+
+    /// <summary>
+    /// 解析 _EXTB$ 格式的索引記錄
+    /// Header: 16 bytes, Entry: 128 bytes each
+    /// Entry 結構:
+    ///   Offset 0-3:     Unknown (可能是排序用的 key)
+    ///   Offset 4-7:     Compression (0=none, 1=zlib, 2=brotli)
+    ///   Offset 8-119:   Filename (112 bytes, null-padded)
+    ///   Offset 120-123: PAK Offset (真正的檔案位置)
+    ///   Offset 124-127: Uncompressed Size
+    /// </summary>
+    private L1PakTools.IndexRecord[] ParseExtBRecords(byte[] data)
+    {
+      const int headerSize = 0x10;  // 16 bytes
+      const int entrySize = 0x80;   // 128 bytes
+
+      int entryCount = (data.Length - headerSize) / entrySize;
+      var records = new List<L1PakTools.IndexRecord>();
+      var allOffsets = new HashSet<int>();
+      this._ExtBCompressionTypes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+      for (int i = 0; i < entryCount; i++)
+      {
+        int entryOffset = headerSize + i * entrySize;
+
+        int pakOffset = BitConverter.ToInt32(data, entryOffset + 120);  // 真正的 PAK offset
+        int compression = BitConverter.ToInt32(data, entryOffset + 4);
+        int fileSize = BitConverter.ToInt32(data, entryOffset + 124);   // Uncompressed size
+
+        allOffsets.Add(pakOffset);
+
+        // 讀取檔名 (從 offset+8 開始，最多 112 bytes)
+        int nameStart = entryOffset + 8;
+        int nameEnd = nameStart;
+        while (nameEnd < entryOffset + 120 && data[nameEnd] != 0 &&
+               data[nameEnd] >= 32 && data[nameEnd] <= 126)
+        {
+          nameEnd++;
+        }
+
+        if (nameEnd > nameStart)
+        {
+          string fileName = Encoding.ASCII.GetString(data, nameStart, nameEnd - nameStart);
+          if (!string.IsNullOrEmpty(fileName) && fileName.Contains("."))
+          {
+            records.Add(new L1PakTools.IndexRecord(fileName, fileSize, pakOffset));
+            this._ExtBCompressionTypes[fileName] = compression;
+          }
+        }
+      }
+
+      // 建立排序的 offset 列表 (用於計算壓縮大小)
+      this._ExtBSortedOffsets = allOffsets.ToList();
+      this._ExtBSortedOffsets.Sort();
+
+      return records.ToArray();
     }
 
     private void ShowRecords(L1PakTools.IndexRecord[] Records)
@@ -2833,59 +2925,154 @@ namespace PakViewer
 
     private byte[] LoadPakBytes_(FileStream fs, ListViewItem lvItem) {
         L1PakTools.IndexRecord IdxRec = this._IndexRecords[int.Parse(lvItem.Text) - 1];
-        string[] array = new string[14]
-        {
-    ".img",
-    ".png",
-    ".tbt",
-    ".til",
-    ".html",
-    ".tbl",
-    ".spr",
-    ".bmp",
-    ".h",
-    ".ht",
-    ".htm",
-    ".txt",
-    ".def",
-    ".xml"
-        };
-        frmMain.InviewDataType[] inviewDataTypeArray = new frmMain.InviewDataType[14]
-        {
-    frmMain.InviewDataType.IMG,
-    frmMain.InviewDataType.BMP,
-    frmMain.InviewDataType.TBT,
-    frmMain.InviewDataType.Empty,
-    frmMain.InviewDataType.Text,
-    frmMain.InviewDataType.Text,
-    frmMain.InviewDataType.SPR,
-    frmMain.InviewDataType.BMP,
-    frmMain.InviewDataType.Text,
-    frmMain.InviewDataType.Text,
-    frmMain.InviewDataType.Text,
-    frmMain.InviewDataType.Text,
-    frmMain.InviewDataType.Text,
-    frmMain.InviewDataType.Text
-        };
-        int index = Array.IndexOf<string>(array, Path.GetExtension(IdxRec.FileName).ToLower());
-        this._InviewData = index != -1 ? inviewDataTypeArray[index] : frmMain.InviewDataType.Empty;
+        return LoadPakBytes_(fs, IdxRec);
+    }
 
-        if (IdxRec.FileName.IndexOf("list.spr") != -1)
+    /// <summary>
+    /// 從 PAK header 自動偵測壓縮類型
+    /// </summary>
+    private int DetectExtBCompression(byte[] header)
+    {
+      if (header.Length >= 2)
+      {
+        // zlib: 78 9C, 78 DA, 78 01, 78 5E
+        if (header[0] == 0x78 && (header[1] == 0x9C || header[1] == 0xDA ||
+            header[1] == 0x01 || header[1] == 0x5E))
+          return 1;  // zlib
+        // brotli: 通常以 0x5B 或 0x1B 開頭
+        if (header[0] == 0x5B || header[0] == 0x1B)
+          return 2;  // brotli
+      }
+      return 0;  // none/raw
+    }
+
+    /// <summary>
+    /// 計算 ExtB 格式中指定 offset 的壓縮大小
+    /// </summary>
+    private int GetExtBCompressedSize(int offset)
+    {
+      if (this._ExtBSortedOffsets == null) return 0;
+
+      int idx = this._ExtBSortedOffsets.BinarySearch(offset);
+      if (idx < 0) return 0;
+
+      if (idx + 1 < this._ExtBSortedOffsets.Count)
+        return this._ExtBSortedOffsets[idx + 1] - offset;
+      else
+        return (int)(this._ExtBPakFileSize - offset);
+    }
+
+    /// <summary>
+    /// 解壓縮 ExtB 格式資料
+    /// </summary>
+    private byte[] DecompressExtBData(byte[] compressedData, int compressionType, int uncompressedSize)
+    {
+      try
+      {
+        if (compressionType == 1) // zlib
         {
-            this._InviewData = frmMain.InviewDataType.Text;
+          using (var ms = new MemoryStream(compressedData))
+          using (var zlib = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionMode.Decompress))
+          using (var output = new MemoryStream())
+          {
+            zlib.CopyTo(output);
+            return output.ToArray();
+          }
         }
-        byte[] numArray = new byte[IdxRec.FileSize];
-        fs.Seek((long)IdxRec.Offset, SeekOrigin.Begin);
-        fs.Read(numArray, 0, IdxRec.FileSize);
-        if (this._IsPackFileProtected)
+        else if (compressionType == 2) // brotli
         {
-            this.tssProgressName.Text = "解碼中...";
-            numArray = L1PakTools.Decode(numArray, 0);
-            this.tssProgressName.Text = "";
-            if (this._InviewData == frmMain.InviewDataType.SPR)
-                this._InviewData = frmMain.InviewDataType.Text;
+          using (var ms = new MemoryStream(compressedData))
+          using (var brotli = new System.IO.Compression.BrotliStream(ms, System.IO.Compression.CompressionMode.Decompress))
+          using (var output = new MemoryStream())
+          {
+            brotli.CopyTo(output);
+            return output.ToArray();
+          }
         }
-         return numArray;
+      }
+      catch (Exception ex)
+      {
+        System.Diagnostics.Debug.WriteLine($"Decompression failed: {ex.Message}");
+      }
+      return compressedData; // 解壓失敗則返回原始資料
+    }
+
+    /// <summary>
+    /// 壓縮 ExtB 格式資料
+    /// </summary>
+    private byte[] CompressExtBData(byte[] data, int compressionType)
+    {
+      try
+      {
+        if (compressionType == 1) // zlib
+        {
+          using (var output = new MemoryStream())
+          {
+            using (var zlib = new System.IO.Compression.ZLibStream(output, System.IO.Compression.CompressionLevel.Optimal))
+            {
+              zlib.Write(data, 0, data.Length);
+            }
+            return output.ToArray();
+          }
+        }
+        else if (compressionType == 2) // brotli
+        {
+          using (var output = new MemoryStream())
+          {
+            using (var brotli = new System.IO.Compression.BrotliStream(output, System.IO.Compression.CompressionLevel.Optimal))
+            {
+              brotli.Write(data, 0, data.Length);
+            }
+            return output.ToArray();
+          }
+        }
+      }
+      catch (Exception ex)
+      {
+        System.Diagnostics.Debug.WriteLine($"Compression failed: {ex.Message}");
+      }
+      return data; // 壓縮失敗則返回原始資料
+    }
+
+    /// <summary>
+    /// 從原始 ExtB IDX 資料取得指定檔名的壓縮類型
+    /// </summary>
+    private int GetExtBCompressionType(string fileName)
+    {
+      if (this._ExtBRawData == null) return 1; // 預設 zlib
+
+      const int headerSize = 0x10;
+      const int entrySize = 0x80;
+      int entryCount = (this._ExtBRawData.Length - headerSize) / entrySize;
+
+      for (int i = 0; i < entryCount; i++)
+      {
+        int entryOffset = headerSize + i * entrySize;
+        int nameStart = entryOffset + 8;
+        int nameEnd = nameStart;
+        while (nameEnd < entryOffset + 120 && this._ExtBRawData[nameEnd] != 0) nameEnd++;
+        string name = Encoding.ASCII.GetString(this._ExtBRawData, nameStart, nameEnd - nameStart);
+
+        if (name.Equals(fileName, StringComparison.OrdinalIgnoreCase))
+        {
+          return BitConverter.ToInt32(this._ExtBRawData, entryOffset + 4);
+        }
+      }
+      return 1; // 預設 zlib
+    }
+
+    /// <summary>
+    /// 讀取 ExtB 格式的壓縮資料 (不解壓)
+    /// </summary>
+    private byte[] ReadExtBCompressedData(FileStream fs, L1PakTools.IndexRecord rec)
+    {
+      int compressedSize = GetExtBCompressedSize(rec.Offset);
+      if (compressedSize <= 0) return null;
+
+      byte[] data = new byte[compressedSize];
+      fs.Seek(rec.Offset, SeekOrigin.Begin);
+      fs.Read(data, 0, compressedSize);
+      return data;
     }
 
     private byte[] LoadPakBytes_(FileStream fs, L1PakTools.IndexRecord IdxRec) {
@@ -2930,6 +3117,38 @@ namespace PakViewer
         {
             this._InviewData = frmMain.InviewDataType.Text;
         }
+
+        // ExtB 格式需要讀取壓縮資料並解壓
+        if (this._IsExtBFormat)
+        {
+            int compressedSize = GetExtBCompressedSize(IdxRec.Offset);
+            if (compressedSize > 0)
+            {
+                byte[] compressedData = new byte[compressedSize];
+                fs.Seek((long)IdxRec.Offset, SeekOrigin.Begin);
+                fs.Read(compressedData, 0, compressedSize);
+
+                // 從 header 自動偵測壓縮類型
+                int compressionType = DetectExtBCompression(compressedData);
+
+                if (compressionType > 0)
+                {
+                    return DecompressExtBData(compressedData, compressionType, IdxRec.FileSize);
+                }
+                else
+                {
+                    // 無壓縮，直接返回資料 (可能需要截斷到正確大小)
+                    if (compressedData.Length > IdxRec.FileSize && IdxRec.FileSize > 0)
+                    {
+                        byte[] result = new byte[IdxRec.FileSize];
+                        Array.Copy(compressedData, result, IdxRec.FileSize);
+                        return result;
+                    }
+                    return compressedData;
+                }
+            }
+        }
+
         byte[] numArray = new byte[IdxRec.FileSize];
         fs.Seek((long)IdxRec.Offset, SeekOrigin.Begin);
         fs.Read(numArray, 0, IdxRec.FileSize);
@@ -4049,17 +4268,56 @@ namespace PakViewer
       File.Move(str1, str2);
       FileStream fileStream1 = File.OpenRead(str2);
       FileStream fileStream2 = File.OpenWrite(str1);
+
+      // ExtB 格式需要追蹤新的 offset 列表
+      var newSortedOffsets = new List<int>();
+
       for (int index3 = 0; index3 < length; ++index3)
       {
-        byte[] buffer = new byte[this._IndexRecords[index3].FileSize];
-        fileStream1.Seek((long) this._IndexRecords[index3].Offset, SeekOrigin.Begin);
-        fileStream1.Read(buffer, 0, this._IndexRecords[index3].FileSize);
+        byte[] buffer;
+
+        if (this._IsExtBFormat)
+        {
+          // ExtB 格式：讀取壓縮資料
+          int compressedSize = GetExtBCompressedSize(this._IndexRecords[index3].Offset);
+          if (compressedSize > 0)
+          {
+            buffer = new byte[compressedSize];
+            fileStream1.Seek((long) this._IndexRecords[index3].Offset, SeekOrigin.Begin);
+            fileStream1.Read(buffer, 0, compressedSize);
+          }
+          else
+          {
+            // fallback: 使用 FileSize
+            buffer = new byte[this._IndexRecords[index3].FileSize];
+            fileStream1.Seek((long) this._IndexRecords[index3].Offset, SeekOrigin.Begin);
+            fileStream1.Read(buffer, 0, this._IndexRecords[index3].FileSize);
+          }
+        }
+        else
+        {
+          // 一般格式：讀取未壓縮資料
+          buffer = new byte[this._IndexRecords[index3].FileSize];
+          fileStream1.Seek((long) this._IndexRecords[index3].Offset, SeekOrigin.Begin);
+          fileStream1.Read(buffer, 0, this._IndexRecords[index3].FileSize);
+        }
+
         this._IndexRecords[index3].Offset = (int) fileStream2.Position;
-        fileStream2.Write(buffer, 0, this._IndexRecords[index3].FileSize);
+        newSortedOffsets.Add(this._IndexRecords[index3].Offset);
+        fileStream2.Write(buffer, 0, buffer.Length);
         this.tssProgress.Increment(1);
       }
       fileStream1.Close();
       fileStream2.Close();
+
+      // 更新 ExtB offset 列表
+      if (this._IsExtBFormat)
+      {
+        this._ExtBSortedOffsets = newSortedOffsets;
+        this._ExtBSortedOffsets.Sort();
+        this._ExtBPakFileSize = new FileInfo(str1).Length;
+      }
+
       this.RebuildIndex();
     }
 
@@ -4069,24 +4327,90 @@ namespace PakViewer
       if (File.Exists(str))
         File.Delete(str);
       File.Move(this._PackFileName, str);
-      byte[] numArray = new byte[4 + this._IndexRecords.Length * 28];
-      Array.Copy((Array) BitConverter.GetBytes(this._IndexRecords.Length), 0, (Array) numArray, 0, 4);
+
       this.tssProgressName.Text = "正在建立新 IDX 檔案...";
       this.tssProgress.Maximum = this._IndexRecords.Length;
-      for (int index = 0; index < this._IndexRecords.Length; ++index)
+
+      if (this._IsExtBFormat)
       {
-        int destinationIndex = 4 + index * 28;
-        Array.Copy((Array) BitConverter.GetBytes(this._IndexRecords[index].Offset), 0, (Array) numArray, destinationIndex, 4);
-        Encoding.Default.GetBytes(this._IndexRecords[index].FileName, 0, this._IndexRecords[index].FileName.Length, numArray, destinationIndex + 4);
-        Array.Copy((Array) BitConverter.GetBytes(this._IndexRecords[index].FileSize), 0, (Array) numArray, destinationIndex + 24, 4);
-        this.tssProgress.Increment(1);
+        // ExtB 格式：16 bytes header + 128 bytes per entry
+        const int headerSize = 0x10;
+        const int entrySize = 0x80;
+        byte[] numArray = new byte[headerSize + this._IndexRecords.Length * entrySize];
+
+        // Header: "_EXTB$" + padding
+        numArray[0] = (byte)'_';
+        numArray[1] = (byte)'E';
+        numArray[2] = (byte)'X';
+        numArray[3] = (byte)'T';
+        numArray[4] = (byte)'B';
+        numArray[5] = (byte)'$';
+        // bytes 6-15: padding (zeros)
+
+        for (int index = 0; index < this._IndexRecords.Length; ++index)
+        {
+          int entryOffset = headerSize + index * entrySize;
+          var rec = this._IndexRecords[index];
+
+          // Bytes 0-3: Previous compressed size (set to 0, will be recalculated on load)
+          int prevCompressedSize = 0;
+          if (index > 0)
+          {
+            // 計算前一個 entry 的壓縮大小
+            prevCompressedSize = rec.Offset - this._IndexRecords[index - 1].Offset;
+            if (prevCompressedSize < 0) prevCompressedSize = 0;
+          }
+          Array.Copy(BitConverter.GetBytes(prevCompressedSize), 0, numArray, entryOffset, 4);
+
+          // Bytes 4-7: Compression type
+          int compType = 1; // 預設 zlib
+          if (this._ExtBCompressionTypes != null && this._ExtBCompressionTypes.TryGetValue(rec.FileName, out int ct))
+            compType = ct;
+          Array.Copy(BitConverter.GetBytes(compType), 0, numArray, entryOffset + 4, 4);
+
+          // Bytes 8-119: Filename (112 bytes, null-padded)
+          byte[] nameBytes = Encoding.ASCII.GetBytes(rec.FileName);
+          int nameLen = Math.Min(nameBytes.Length, 112);
+          Array.Copy(nameBytes, 0, numArray, entryOffset + 8, nameLen);
+
+          // Bytes 120-123: PAK Offset
+          Array.Copy(BitConverter.GetBytes(rec.Offset), 0, numArray, entryOffset + 120, 4);
+
+          // Bytes 124-127: Uncompressed Size
+          Array.Copy(BitConverter.GetBytes(rec.FileSize), 0, numArray, entryOffset + 124, 4);
+
+          this.tssProgress.Increment(1);
+        }
+
+        File.WriteAllBytes(this._PackFileName, numArray);
+
+        // 更新 _ExtBRawData
+        this._ExtBRawData = numArray;
       }
-      if (this._IsPackFileProtected)
+      else
       {
-        this.tssProgressName.Text = "編碼中...";
-        Array.Copy((Array) L1PakTools.Encode(numArray, 4), 0, (Array) numArray, 4, numArray.Length - 4);
+        // 一般格式
+        byte[] numArray = new byte[4 + this._IndexRecords.Length * 28];
+        Array.Copy((Array) BitConverter.GetBytes(this._IndexRecords.Length), 0, (Array) numArray, 0, 4);
+
+        for (int index = 0; index < this._IndexRecords.Length; ++index)
+        {
+          int destinationIndex = 4 + index * 28;
+          Array.Copy((Array) BitConverter.GetBytes(this._IndexRecords[index].Offset), 0, (Array) numArray, destinationIndex, 4);
+          Encoding.Default.GetBytes(this._IndexRecords[index].FileName, 0, this._IndexRecords[index].FileName.Length, numArray, destinationIndex + 4);
+          Array.Copy((Array) BitConverter.GetBytes(this._IndexRecords[index].FileSize), 0, (Array) numArray, destinationIndex + 24, 4);
+          this.tssProgress.Increment(1);
+        }
+
+        if (this._IsPackFileProtected)
+        {
+          this.tssProgressName.Text = "編碼中...";
+          Array.Copy((Array) L1PakTools.Encode(numArray, 4), 0, (Array) numArray, 4, numArray.Length - 4);
+        }
+
+        File.WriteAllBytes(this._PackFileName, numArray);
       }
-      File.WriteAllBytes(this._PackFileName, numArray);
+
       this.tssProgressName.Text = "";
     }
 
@@ -4095,8 +4419,11 @@ namespace PakViewer
       if (this._InviewData != frmMain.InviewDataType.Text || this.lvIndexInfo.SelectedItems.Count != 1)
         return;
       byte[] numArray = Encoding.Default.GetBytes(this.TextViewer.Text);
+      int uncompressedSize = numArray.Length;
+
       if (this._IsPackFileProtected)
         numArray = L1PakTools.Encode(numArray, 0);
+
       IEnumerator enumerator = this.lvIndexInfo.SelectedItems.GetEnumerator();
       try
       {
@@ -4104,12 +4431,33 @@ namespace PakViewer
           return;
         ListViewItem current = (ListViewItem) enumerator.Current;
         int ID = int.Parse(current.Text) - 1;
+        string fileName = this._IndexRecords[ID].FileName;
+
+        // ExtB 格式：壓縮資料
+        byte[] dataToWrite = numArray;
+        if (this._IsExtBFormat)
+        {
+          int compType = 1; // 預設 zlib
+          if (this._ExtBCompressionTypes != null && this._ExtBCompressionTypes.TryGetValue(fileName, out int ct))
+            compType = ct;
+          dataToWrite = CompressExtBData(numArray, compType);
+        }
+
         FileStream fileStream1 = File.OpenWrite(this._PackFileName.Replace(".idx", ".pak"));
         this._IndexRecords[ID].Offset = (int) fileStream1.Seek(0L, SeekOrigin.End);
-        this._IndexRecords[ID].FileSize = numArray.Length;
-        fileStream1.Write(numArray, 0, numArray.Length);
+        this._IndexRecords[ID].FileSize = uncompressedSize;
+        fileStream1.Write(dataToWrite, 0, dataToWrite.Length);
         fileStream1.Close();
-        if (this._IsPackFileProtected)
+
+        // 更新 ExtB offset 列表
+        if (this._IsExtBFormat)
+        {
+          this._ExtBSortedOffsets.Add(this._IndexRecords[ID].Offset);
+          this._ExtBSortedOffsets.Sort();
+          this._ExtBPakFileSize = new FileInfo(this._PackFileName.Replace(".idx", ".pak")).Length;
+        }
+
+        if (this._IsPackFileProtected || this._IsExtBFormat)
         {
           this.RebuildIndex();
         }
@@ -4209,32 +4557,53 @@ namespace PakViewer
       int replacedCount = 0;
       foreach (string fileName in this.dlgAddFiles.FileNames)
       {
-
         byte[] numArray = File.ReadAllBytes(fileName);
+        int uncompressedSize = numArray.Length;
+        string filename = Path.GetFileName(fileName);
+
         if (this._IsPackFileProtected)
         {
-          this.tssProgressName.Text = string.Format("{0} Encoding...", (object) Path.GetFileName(fileName));
+          this.tssProgressName.Text = string.Format("{0} Encoding...", filename);
           numArray = L1PakTools.Encode(numArray, 0);
           this.tssProgressName.Text = "";
         }
-        int offset = (int) fileStream1.Seek(0L, SeekOrigin.End);
-        fileStream1.Write(numArray, 0, numArray.Length);
 
-        string filename = fileName.Substring(fileName.LastIndexOf('\\') + 1);
+        // ExtB 格式：壓縮資料
+        byte[] dataToWrite = numArray;
+        if (this._IsExtBFormat)
+        {
+          // 新增檔案時決定壓縮類型
+          int compType = 1; // 預設 zlib
+          // 如果是取代檔案，使用原本的壓縮類型
+          if (this._ExtBCompressionTypes != null && this._ExtBCompressionTypes.TryGetValue(filename, out int ct))
+            compType = ct;
+          else
+          {
+            // 新檔案：根據檔名決定壓縮類型
+            // .til 檔案通常使用 zlib 或 brotli，這裡預設 zlib
+            if (this._ExtBCompressionTypes == null)
+              this._ExtBCompressionTypes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            this._ExtBCompressionTypes[filename] = compType;
+          }
+          dataToWrite = CompressExtBData(numArray, compType);
+        }
+
+        int offset = (int) fileStream1.Seek(0L, SeekOrigin.End);
+        fileStream1.Write(dataToWrite, 0, dataToWrite.Length);
 
         bool replace = false;
         int index = -1;
         for (int i = 0; i < this._IndexRecords.Length; ++i)
         {
             L1PakTools.IndexRecord record = this._IndexRecords[i];
-            if (record.FileName.Equals(filename))
+            if (record.FileName.Equals(filename, StringComparison.OrdinalIgnoreCase))
             {
                 replace = true;
                 index = i;
             }
         }
 
-        L1PakTools.IndexRecord record2 = new L1PakTools.IndexRecord(filename, numArray.Length, offset);
+        L1PakTools.IndexRecord record2 = new L1PakTools.IndexRecord(filename, uncompressedSize, offset);
 
         if (replace)
         {
@@ -4249,7 +4618,20 @@ namespace PakViewer
         }
          this.ShowRecords(this._IndexRecords);
       }
-      if (this._IsPackFileProtected)
+
+      fileStream1.Close();
+
+      // 更新 ExtB offset 列表
+      if (this._IsExtBFormat)
+      {
+        this._ExtBSortedOffsets = new List<int>();
+        foreach (var rec in this._IndexRecords)
+          this._ExtBSortedOffsets.Add(rec.Offset);
+        this._ExtBSortedOffsets.Sort();
+        this._ExtBPakFileSize = new FileInfo(this._PackFileName.Replace(".idx", ".pak")).Length;
+      }
+
+      if (this._IsPackFileProtected || this._IsExtBFormat)
       {
         fileStream2.Close();
       }
@@ -4259,8 +4641,7 @@ namespace PakViewer
         fileStream2.Write(BitConverter.GetBytes(this._IndexRecords.Length), 0, 4);
         fileStream2.Close();
       }
-        this.RebuildIndex();
-        fileStream1.Close();
+      this.RebuildIndex();
 
       // 顯示完成訊息
       string summary = string.Format(

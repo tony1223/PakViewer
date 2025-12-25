@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -311,6 +312,209 @@ namespace PakViewer
         }
 
         /// <summary>
+        /// 檢測是否為 _EXTB$ 格式 (Extended Index Block)
+        /// 用於 tile.idx 等擴展格式檔案
+        /// </summary>
+        public static bool IsExtBFormat(byte[] data)
+        {
+            if (data.Length < 16) return false;
+            // Magic: "_EXTB$" (6 bytes)
+            return data[0] == '_' && data[1] == 'E' && data[2] == 'X' &&
+                   data[3] == 'T' && data[4] == 'B' && data[5] == '$';
+        }
+
+        /// <summary>
+        /// 載入 _EXTB$ 格式的索引檔案 (Extended Index Block)
+        /// 格式：
+        /// - Header: 16 bytes (magic "_EXTB$" + metadata)
+        /// - Entry: 128 bytes each
+        ///   - Offset: 4 bytes (int32) - PAK 檔案內偏移量
+        ///   - Compression: 4 bytes (int32) - 0=none, 1=zlib, 2=brotli
+        ///   - FileName: 120 bytes (null-terminated string)
+        /// </summary>
+        public static (L1PakTools.IndexRecord[] records, bool isProtected)? LoadIndexExtB(string idxFile)
+        {
+            if (!File.Exists(idxFile))
+            {
+                Console.WriteLine($"Error: IDX file not found: {idxFile}");
+                return null;
+            }
+
+            byte[] data = File.ReadAllBytes(idxFile);
+
+            if (!IsExtBFormat(data))
+            {
+                Console.WriteLine("Error: Not an _EXTB$ format file");
+                return null;
+            }
+
+            const int headerSize = 0x10;  // 16 bytes
+            const int entrySize = 0x80;   // 128 bytes
+
+            int entryCount = (data.Length - headerSize) / entrySize;
+            var records = new List<L1PakTools.IndexRecord>();
+
+            // Entry 結構 (128 bytes):
+            // Offset 0-3:     Unknown (可能是排序用的 key)
+            // Offset 4-7:     Compression (0=none, 1=zlib, 2=brotli)
+            // Offset 8-119:   Filename (112 bytes, null-padded)
+            // Offset 120-123: PAK Offset (真正的檔案位置)
+            // Offset 124-127: Uncompressed Size
+            for (int i = 0; i < entryCount; i++)
+            {
+                int entryOffset = headerSize + i * entrySize;
+
+                int pakOffset = BitConverter.ToInt32(data, entryOffset + 120);  // 真正的 PAK offset
+                int compression = BitConverter.ToInt32(data, entryOffset + 4);
+                int fileSize = BitConverter.ToInt32(data, entryOffset + 124);   // Uncompressed size
+
+                int nameStart = entryOffset + 8;
+                int nameEnd = nameStart;
+                while (nameEnd < entryOffset + 120 && data[nameEnd] != 0 &&
+                       data[nameEnd] >= 32 && data[nameEnd] <= 126)
+                {
+                    nameEnd++;
+                }
+
+                if (nameEnd > nameStart)
+                {
+                    string fileName = Encoding.ASCII.GetString(data, nameStart, nameEnd - nameStart);
+                    if (!string.IsNullOrEmpty(fileName) && fileName.Contains("."))
+                    {
+                        records.Add(new L1PakTools.IndexRecord(fileName, fileSize, pakOffset));
+                    }
+                }
+            }
+
+            return (records.ToArray(), false); // _EXTB$ 格式目前無加密
+        }
+
+        /// <summary>
+        /// 從 PAK header 自動偵測壓縮類型
+        /// </summary>
+        private static int DetectExtBCompression(byte[] header)
+        {
+            if (header.Length >= 2)
+            {
+                // zlib: 78 9C, 78 DA, 78 01, 78 5E
+                if (header[0] == 0x78 && (header[1] == 0x9C || header[1] == 0xDA ||
+                    header[1] == 0x01 || header[1] == 0x5E))
+                    return 1;  // zlib
+                // brotli: 通常以 0x5B 或 0x1B 開頭
+                if (header[0] == 0x5B || header[0] == 0x1B)
+                    return 2;  // brotli
+            }
+            return 0;  // none/raw
+        }
+
+        /// <summary>
+        /// 解壓縮 ExtB 格式資料
+        /// </summary>
+        private static byte[] DecompressExtBData(byte[] compressedData, int compressionType)
+        {
+            try
+            {
+                if (compressionType == 1) // zlib
+                {
+                    using (var ms = new MemoryStream(compressedData))
+                    using (var zlib = new ZLibStream(ms, CompressionMode.Decompress))
+                    using (var output = new MemoryStream())
+                    {
+                        zlib.CopyTo(output);
+                        return output.ToArray();
+                    }
+                }
+                else if (compressionType == 2) // brotli
+                {
+                    using (var ms = new MemoryStream(compressedData))
+                    using (var brotli = new BrotliStream(ms, CompressionMode.Decompress))
+                    using (var output = new MemoryStream())
+                    {
+                        brotli.CopyTo(output);
+                        return output.ToArray();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Decompression failed: {ex.Message}");
+            }
+            return compressedData; // 解壓失敗則返回原始資料
+        }
+
+        /// <summary>
+        /// 從 ExtB 格式的 IDX 資料建立排序的 offset 列表
+        /// </summary>
+        private static List<int> BuildExtBSortedOffsets(byte[] idxData)
+        {
+            const int headerSize = 0x10;
+            const int entrySize = 0x80;
+            int entryCount = (idxData.Length - headerSize) / entrySize;
+
+            var offsets = new HashSet<int>();
+            for (int i = 0; i < entryCount; i++)
+            {
+                int entryOffset = headerSize + i * entrySize;
+                int pakOffset = BitConverter.ToInt32(idxData, entryOffset + 120);
+                offsets.Add(pakOffset);
+            }
+
+            var sorted = offsets.ToList();
+            sorted.Sort();
+            return sorted;
+        }
+
+        /// <summary>
+        /// 計算 ExtB 格式中指定 offset 的壓縮大小
+        /// </summary>
+        private static int GetExtBCompressedSize(List<int> sortedOffsets, int offset, long pakFileSize)
+        {
+            int idx = sortedOffsets.BinarySearch(offset);
+            if (idx < 0) return 0;
+
+            if (idx + 1 < sortedOffsets.Count)
+                return sortedOffsets[idx + 1] - offset;
+            else
+                return (int)(pakFileSize - offset);
+        }
+
+        /// <summary>
+        /// 讀取 ExtB 格式的 PAK 資料 (自動解壓縮)
+        /// </summary>
+        public static byte[] ReadExtBPakData(string pakFile, byte[] idxData, L1PakTools.IndexRecord record)
+        {
+            var sortedOffsets = BuildExtBSortedOffsets(idxData);
+            long pakFileSize = new FileInfo(pakFile).Length;
+            int compressedSize = GetExtBCompressedSize(sortedOffsets, record.Offset, pakFileSize);
+
+            if (compressedSize <= 0) return null;
+
+            byte[] compressedData = new byte[compressedSize];
+            using (var fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                fs.Seek(record.Offset, SeekOrigin.Begin);
+                fs.Read(compressedData, 0, compressedSize);
+            }
+
+            int compressionType = DetectExtBCompression(compressedData);
+            if (compressionType > 0)
+            {
+                return DecompressExtBData(compressedData, compressionType);
+            }
+            else
+            {
+                // 無壓縮，截斷到正確大小
+                if (compressedData.Length > record.FileSize && record.FileSize > 0)
+                {
+                    byte[] result = new byte[record.FileSize];
+                    Array.Copy(compressedData, result, record.FileSize);
+                    return result;
+                }
+                return compressedData;
+            }
+        }
+
+        /// <summary>
         /// 檢測 idx 檔案是否使用 DES 加密
         /// 判斷條件: 解析出的 FileSize 為負數時，表示解密方式錯誤
         /// </summary>
@@ -364,7 +568,7 @@ namespace PakViewer
 
         /// <summary>
         /// 自動檢測加密方式並載入 idx (供 GUI 使用)
-        /// 當解析出的 FileSize 為負數時，自動切換到 DES 解密
+        /// 支援格式：_EXTB$ (擴展格式)、L1 (標準加密)、DES (DES加密)、None (無加密)
         /// </summary>
         public static (L1PakTools.IndexRecord[] records, bool isProtected, string encryptionType)? LoadIndexAuto(string idxFile)
         {
@@ -373,7 +577,19 @@ namespace PakViewer
                 return null;
             }
 
-            // 先嘗試原本的方式 (L1 或無加密)
+            byte[] data = File.ReadAllBytes(idxFile);
+
+            // 優先檢測 _EXTB$ 格式
+            if (IsExtBFormat(data))
+            {
+                var extbResult = LoadIndexExtB(idxFile);
+                if (extbResult != null)
+                {
+                    return (extbResult.Value.records, false, "ExtB");
+                }
+            }
+
+            // 嘗試原本的方式 (L1 或無加密)
             var result = LoadIndex(idxFile);
             if (result != null)
             {
@@ -403,16 +619,20 @@ namespace PakViewer
 
         static void ShowInfo(string idxFile)
         {
-            var result = LoadIndex(idxFile);
-            if (result == null) return;
+            var autoResult = LoadIndexAuto(idxFile);
+            if (autoResult == null)
+            {
+                Console.WriteLine("Error: Cannot decode index file");
+                return;
+            }
 
-            var (records, isProtected) = result.Value;
+            var (records, isProtected, encryptionType) = autoResult.Value;
             string pakFile = idxFile.Replace(".idx", ".pak");
 
             Console.WriteLine($"IDX File: {idxFile}");
             Console.WriteLine($"PAK File: {pakFile}");
             Console.WriteLine($"PAK Exists: {File.Exists(pakFile)}");
-            Console.WriteLine($"Protected: {isProtected}");
+            Console.WriteLine($"Format: {encryptionType}");
             Console.WriteLine($"Total Records: {records.Length}");
 
             if (File.Exists(pakFile))
@@ -424,13 +644,18 @@ namespace PakViewer
 
         static void ListFiles(string idxFile, string filter)
         {
-            var result = LoadIndex(idxFile);
-            if (result == null) return;
+            // 使用自動檢測載入
+            var autoResult = LoadIndexAuto(idxFile);
+            if (autoResult == null)
+            {
+                Console.WriteLine("Error: Cannot decode index file");
+                return;
+            }
 
-            var (records, isProtected) = result.Value;
+            var (records, isProtected, encryptionType) = autoResult.Value;
 
             Console.WriteLine($"Total: {records.Length} files");
-            Console.WriteLine($"Protected: {isProtected}");
+            Console.WriteLine($"Format: {encryptionType}");
             Console.WriteLine();
             Console.WriteLine("No.\tSize\tOffset\t\tFileName");
             Console.WriteLine("---\t----\t------\t\t--------");
@@ -517,10 +742,10 @@ namespace PakViewer
 
         static void ReadFile(string idxFile, string targetFile, string encodingName)
         {
-            var result = LoadIndex(idxFile);
+            var result = LoadIndexAuto(idxFile);
             if (result == null) return;
 
-            var (records, isProtected) = result.Value;
+            var (records, isProtected, encryptionType) = result.Value;
             string pakFile = idxFile.Replace(".idx", ".pak");
 
             if (!File.Exists(pakFile))
@@ -553,21 +778,37 @@ namespace PakViewer
             Console.WriteLine($"Index: {foundIndex + 1}");
             Console.WriteLine($"Offset: 0x{rec.Offset:X8} ({rec.Offset})");
             Console.WriteLine($"Size: {rec.FileSize} bytes");
-            Console.WriteLine($"Protected: {isProtected}");
+            Console.WriteLine($"Format: {encryptionType}");
 
-            // Read PAK data
             byte[] pakData;
-            using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            {
-                pakData = new byte[rec.FileSize];
-                fs.Seek(rec.Offset, SeekOrigin.Begin);
-                fs.Read(pakData, 0, rec.FileSize);
-            }
 
-            // Decode if protected
-            if (isProtected)
+            // ExtB 格式需要解壓縮
+            if (encryptionType == "ExtB")
             {
-                pakData = L1PakTools.Decode(pakData, 0);
+                byte[] idxData = File.ReadAllBytes(idxFile);
+                pakData = ReadExtBPakData(pakFile, idxData, rec);
+                if (pakData == null)
+                {
+                    Console.WriteLine($"Error: Failed to read/decompress ExtB data");
+                    return;
+                }
+                Console.WriteLine($"Decompressed Size: {pakData.Length} bytes");
+            }
+            else
+            {
+                // Read PAK data
+                using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    pakData = new byte[rec.FileSize];
+                    fs.Seek(rec.Offset, SeekOrigin.Begin);
+                    fs.Read(pakData, 0, rec.FileSize);
+                }
+
+                // Decode if protected
+                if (isProtected)
+                {
+                    pakData = L1PakTools.Decode(pakData, 0);
+                }
             }
 
             // Decrypt XML files if encrypted (starts with 'X')
@@ -612,10 +853,10 @@ namespace PakViewer
 
         static void ExportFile(string idxFile, string targetFile, string outputFile, string encodingName)
         {
-            var result = LoadIndex(idxFile);
+            var result = LoadIndexAuto(idxFile);
             if (result == null) return;
 
-            var (records, isProtected) = result.Value;
+            var (records, isProtected, encryptionType) = result.Value;
             string pakFile = idxFile.Replace(".idx", ".pak");
 
             if (!File.Exists(pakFile))
@@ -642,20 +883,34 @@ namespace PakViewer
             }
 
             var rec = foundRecord.Value;
-
-            // Read PAK data
             byte[] pakData;
-            using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            {
-                pakData = new byte[rec.FileSize];
-                fs.Seek(rec.Offset, SeekOrigin.Begin);
-                fs.Read(pakData, 0, rec.FileSize);
-            }
 
-            // Decode if protected
-            if (isProtected)
+            // ExtB 格式需要解壓縮
+            if (encryptionType == "ExtB")
             {
-                pakData = L1PakTools.Decode(pakData, 0);
+                byte[] idxData = File.ReadAllBytes(idxFile);
+                pakData = ReadExtBPakData(pakFile, idxData, rec);
+                if (pakData == null)
+                {
+                    Console.WriteLine($"Error: Failed to read/decompress ExtB data");
+                    return;
+                }
+            }
+            else
+            {
+                // Read PAK data
+                using (FileStream fs = File.Open(pakFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    pakData = new byte[rec.FileSize];
+                    fs.Seek(rec.Offset, SeekOrigin.Begin);
+                    fs.Read(pakData, 0, rec.FileSize);
+                }
+
+                // Decode if protected
+                if (isProtected)
+                {
+                    pakData = L1PakTools.Decode(pakData, 0);
+                }
             }
 
             // Decrypt XML files if encrypted (starts with 'X')
@@ -671,7 +926,7 @@ namespace PakViewer
 
             Console.WriteLine($"Exported: {targetFile} -> {outputFile}");
             Console.WriteLine($"Size: {pakData.Length} bytes");
-            Console.WriteLine($"L1 Protected: {(isProtected ? "Yes" : "No")}");
+            Console.WriteLine($"Format: {encryptionType}");
             Console.WriteLine($"XML Encrypted: {(isXmlEncrypted ? "Yes (exported decrypted)" : "No")}");
         }
 
