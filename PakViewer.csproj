@@ -20,12 +20,19 @@
 
   <ItemGroup>
     <Compile Remove="Backup\**" />
+    <Compile Remove="src\**" />
     <EmbeddedResource Remove="Backup\**" />
+    <EmbeddedResource Remove="src\**" />
     <None Remove="Backup\**" />
+    <None Remove="src\**" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="src\Lin.Helper.Core\Lin.Helper.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

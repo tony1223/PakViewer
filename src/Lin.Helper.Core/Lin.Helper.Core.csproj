@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0-windows;net9.0-windows</TargetFrameworks>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Lin.Helper.Core</RootNamespace>
+    <AssemblyName>Lin.Helper.Core</AssemblyName>
+
+    <!-- NuGet 套件屬性 -->
+    <PackageId>Lin.Helper.Core</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>TonyQ</Authors>
+    <Company></Company>
+    <Description>Lineage 1 file format library - PAK, SPR, DAT, IMG, TIL and XML encryption/decryption tools</Description>
+    <PackageTags>lineage;pak;spr;dat;game;file-format</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl></RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- 產生 XML 文件 -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- 內嵌資源 (Map1-Map5 for PAK encryption) -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\*.bin">
+      <LogicalName>Lin.Helper.Core.Resources.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>
