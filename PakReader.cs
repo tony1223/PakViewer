@@ -130,6 +130,42 @@ namespace PakViewer
                     VerifyIdxSortOrderCmd(args[1], comparerType);
                     break;
 
+                case "sprdiff":
+                    // 比對兩個客戶端資料夾的 Sprite 差異
+                    // sprdiff <folder1> <folder2> [output_file]
+                    if (args.Length < 3) { Console.WriteLine("Usage: sprdiff <folder1> <folder2> [output_file]"); return; }
+                    CompareSpriteFiles(args[1], args[2], args.Length > 3 ? args[3] : null);
+                    break;
+
+                case "sprdiff-export":
+                    // 從 diff 結果檔案批次匯出 SPR
+                    // sprdiff-export <diff_file> <export_dir>
+                    if (args.Length < 3) { Console.WriteLine("Usage: sprdiff-export <diff_file> <export_dir>"); return; }
+                    ExportFromDiff(args[1], args[2]);
+                    break;
+
+                case "tildiff":
+                    // 比對兩個客戶端資料夾的 Tile 差異
+                    // tildiff <folder1> <folder2> [output_file]
+                    if (args.Length < 3) { Console.WriteLine("Usage: tildiff <folder1> <folder2> [output_file]"); return; }
+                    CompareTileFiles(args[1], args[2], args.Length > 3 ? args[3] : null);
+                    break;
+
+                case "tildiff-export":
+                    // 從 diff 結果檔案批次匯出 TIL
+                    // tildiff-export <diff_file> <export_dir>
+                    if (args.Length < 3) { Console.WriteLine("Usage: tildiff-export <diff_file> <export_dir>"); return; }
+                    ExportFromDiff(args[1], args[2]);
+                    break;
+
+                case "pakdiff":
+                    // 通用 PAK 差異比對
+                    // pakdiff <folder1> <folder2> <idx_pattern> <extension> [output_file]
+                    // 例如: pakdiff folder1 folder2 "Sprite*.idx" ".img" diff_img.txt
+                    if (args.Length < 5) { Console.WriteLine("Usage: pakdiff <folder1> <folder2> <idx_pattern> <extension> [output_file]"); return; }
+                    ComparePakFiles(args[1], args[2], args[3], args[4], args.Length > 5 ? args[5] : null);
+                    break;
+
                 default:
                     ShowHelp();
                     break;
@@ -2616,6 +2652,418 @@ namespace PakViewer
             {
                 Console.WriteLine("✗ Sprite distribution has issues.");
             }
+        }
+
+        static void CompareSpriteFiles(string folder1, string folder2, string outputFile)
+        {
+            Console.WriteLine($"Comparing Sprite files...");
+            Console.WriteLine($"  Folder 1: {folder1}");
+            Console.WriteLine($"  Folder 2: {folder2}");
+            Console.WriteLine();
+
+            if (!Directory.Exists(folder1))
+            {
+                Console.WriteLine($"Error: Folder 1 does not exist: {folder1}");
+                return;
+            }
+            if (!Directory.Exists(folder2))
+            {
+                Console.WriteLine($"Error: Folder 2 does not exist: {folder2}");
+                return;
+            }
+
+            // 收集兩個資料夾的 .spr 檔案
+            var sprFiles1 = CollectSprFiles(folder1);
+            var sprFiles2 = CollectSprFiles(folder2);
+
+            Console.WriteLine($"Folder 1: {sprFiles1.Count} .spr files");
+            Console.WriteLine($"Folder 2: {sprFiles2.Count} .spr files");
+            Console.WriteLine();
+
+            // 找出 folder1 有但 folder2 沒有的
+            var onlyInFolder1 = sprFiles1.Keys
+                .Where(k => !sprFiles2.ContainsKey(k))
+                .OrderBy(k => k)
+                .ToList();
+
+            Console.WriteLine($"Files only in Folder 1: {onlyInFolder1.Count}");
+            Console.WriteLine();
+
+            // 輸出結果
+            if (outputFile != null)
+            {
+                using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
+                {
+                    writer.WriteLine($"# Sprite Diff Report");
+                    writer.WriteLine($"# Folder 1: {folder1}");
+                    writer.WriteLine($"# Folder 2: {folder2}");
+                    writer.WriteLine($"# Files only in Folder 1: {onlyInFolder1.Count}");
+                    writer.WriteLine();
+                    foreach (var file in onlyInFolder1)
+                    {
+                        var info = sprFiles1[file];
+                        writer.WriteLine($"{file}\t{info.size}\t{info.pakFile}");
+                    }
+                }
+                Console.WriteLine($"Results written to: {outputFile}");
+            }
+            else
+            {
+                // 顯示前 100 筆
+                int showCount = Math.Min(onlyInFolder1.Count, 100);
+                Console.WriteLine($"Showing first {showCount} files:");
+                Console.WriteLine("FileName\tSize\tPakFile");
+                Console.WriteLine("--------\t----\t-------");
+                foreach (var file in onlyInFolder1.Take(showCount))
+                {
+                    var info = sprFiles1[file];
+                    Console.WriteLine($"{file}\t{info.size}\t{Path.GetFileName(info.pakFile)}");
+                }
+                if (onlyInFolder1.Count > showCount)
+                {
+                    Console.WriteLine($"... and {onlyInFolder1.Count - showCount} more files");
+                    Console.WriteLine();
+                    Console.WriteLine("Use output file parameter to save full list:");
+                    Console.WriteLine($"  sprdiff \"{folder1}\" \"{folder2}\" output.txt");
+                }
+            }
+        }
+
+        static Dictionary<string, (int size, string pakFile)> CollectSprFiles(string folder)
+        {
+            var result = new Dictionary<string, (int size, string pakFile)>(StringComparer.OrdinalIgnoreCase);
+
+            // 找所有 Sprite*.idx 檔案
+            var idxFiles = Directory.GetFiles(folder, "Sprite*.idx", SearchOption.TopDirectoryOnly);
+
+            foreach (var idxFile in idxFiles)
+            {
+                try
+                {
+                    var loadResult = LoadIndexAuto(idxFile);
+                    if (loadResult == null) continue;
+
+                    var (records, _, _) = loadResult.Value;
+                    string pakFile = idxFile.Replace(".idx", ".pak");
+
+                    foreach (var rec in records)
+                    {
+                        // 只收集 .spr 檔案
+                        if (rec.FileName.EndsWith(".spr", StringComparison.OrdinalIgnoreCase))
+                        {
+                            // 使用檔名作為 key (不含副檔名，便於比對)
+                            string key = rec.FileName;
+                            if (!result.ContainsKey(key))
+                            {
+                                result[key] = (rec.FileSize, pakFile);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Failed to load {idxFile}: {ex.Message}");
+                }
+            }
+
+            return result;
+        }
+
+        static void CompareTileFiles(string folder1, string folder2, string outputFile)
+        {
+            Console.WriteLine($"Comparing Tile files...");
+            Console.WriteLine($"  Folder 1: {folder1}");
+            Console.WriteLine($"  Folder 2: {folder2}");
+            Console.WriteLine();
+
+            if (!Directory.Exists(folder1))
+            {
+                Console.WriteLine($"Error: Folder 1 does not exist: {folder1}");
+                return;
+            }
+            if (!Directory.Exists(folder2))
+            {
+                Console.WriteLine($"Error: Folder 2 does not exist: {folder2}");
+                return;
+            }
+
+            // 收集兩個資料夾的 .til 檔案
+            var tilFiles1 = CollectPakFiles(folder1, "Tile*.idx", ".til");
+            var tilFiles2 = CollectPakFiles(folder2, "Tile*.idx", ".til");
+
+            Console.WriteLine($"Folder 1: {tilFiles1.Count} .til files");
+            Console.WriteLine($"Folder 2: {tilFiles2.Count} .til files");
+            Console.WriteLine();
+
+            // 找出 folder1 有但 folder2 沒有的
+            var onlyInFolder1 = tilFiles1.Keys
+                .Where(k => !tilFiles2.ContainsKey(k))
+                .OrderBy(k => k)
+                .ToList();
+
+            Console.WriteLine($"Files only in Folder 1: {onlyInFolder1.Count}");
+            Console.WriteLine();
+
+            // 輸出結果
+            if (outputFile != null)
+            {
+                using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
+                {
+                    writer.WriteLine($"# Tile Diff Report");
+                    writer.WriteLine($"# Folder 1: {folder1}");
+                    writer.WriteLine($"# Folder 2: {folder2}");
+                    writer.WriteLine($"# Files only in Folder 1: {onlyInFolder1.Count}");
+                    writer.WriteLine();
+                    foreach (var file in onlyInFolder1)
+                    {
+                        var info = tilFiles1[file];
+                        writer.WriteLine($"{file}\t{info.size}\t{info.pakFile}");
+                    }
+                }
+                Console.WriteLine($"Results written to: {outputFile}");
+            }
+            else
+            {
+                // 顯示前 100 筆
+                int showCount = Math.Min(onlyInFolder1.Count, 100);
+                Console.WriteLine($"Showing first {showCount} files:");
+                Console.WriteLine("FileName\tSize\tPakFile");
+                Console.WriteLine("--------\t----\t-------");
+                foreach (var file in onlyInFolder1.Take(showCount))
+                {
+                    var info = tilFiles1[file];
+                    Console.WriteLine($"{file}\t{info.size}\t{Path.GetFileName(info.pakFile)}");
+                }
+                if (onlyInFolder1.Count > showCount)
+                {
+                    Console.WriteLine($"... and {onlyInFolder1.Count - showCount} more files");
+                    Console.WriteLine();
+                    Console.WriteLine("Use output file parameter to save full list:");
+                    Console.WriteLine($"  tildiff \"{folder1}\" \"{folder2}\" output.txt");
+                }
+            }
+        }
+
+        static void ComparePakFiles(string folder1, string folder2, string idxPattern, string extension, string outputFile)
+        {
+            Console.WriteLine($"Comparing {extension} files...");
+            Console.WriteLine($"  Folder 1: {folder1}");
+            Console.WriteLine($"  Folder 2: {folder2}");
+            Console.WriteLine($"  IDX Pattern: {idxPattern}");
+            Console.WriteLine();
+
+            if (!Directory.Exists(folder1))
+            {
+                Console.WriteLine($"Error: Folder 1 does not exist: {folder1}");
+                return;
+            }
+            if (!Directory.Exists(folder2))
+            {
+                Console.WriteLine($"Error: Folder 2 does not exist: {folder2}");
+                return;
+            }
+
+            var files1 = CollectPakFiles(folder1, idxPattern, extension);
+            var files2 = CollectPakFiles(folder2, idxPattern, extension);
+
+            Console.WriteLine($"Folder 1: {files1.Count} {extension} files");
+            Console.WriteLine($"Folder 2: {files2.Count} {extension} files");
+            Console.WriteLine();
+
+            var onlyInFolder1 = files1.Keys
+                .Where(k => !files2.ContainsKey(k))
+                .OrderBy(k => k)
+                .ToList();
+
+            Console.WriteLine($"Files only in Folder 1: {onlyInFolder1.Count}");
+            Console.WriteLine();
+
+            if (outputFile != null)
+            {
+                using (var writer = new StreamWriter(outputFile, false, Encoding.UTF8))
+                {
+                    writer.WriteLine($"# {extension} Diff Report");
+                    writer.WriteLine($"# Folder 1: {folder1}");
+                    writer.WriteLine($"# Folder 2: {folder2}");
+                    writer.WriteLine($"# Files only in Folder 1: {onlyInFolder1.Count}");
+                    writer.WriteLine();
+                    foreach (var file in onlyInFolder1)
+                    {
+                        var info = files1[file];
+                        writer.WriteLine($"{file}\t{info.size}\t{info.pakFile}");
+                    }
+                }
+                Console.WriteLine($"Results written to: {outputFile}");
+            }
+            else
+            {
+                int showCount = Math.Min(onlyInFolder1.Count, 100);
+                Console.WriteLine($"Showing first {showCount} files:");
+                Console.WriteLine("FileName\tSize\tPakFile");
+                Console.WriteLine("--------\t----\t-------");
+                foreach (var file in onlyInFolder1.Take(showCount))
+                {
+                    var info = files1[file];
+                    Console.WriteLine($"{file}\t{info.size}\t{Path.GetFileName(info.pakFile)}");
+                }
+                if (onlyInFolder1.Count > showCount)
+                {
+                    Console.WriteLine($"... and {onlyInFolder1.Count - showCount} more files");
+                }
+            }
+        }
+
+        static Dictionary<string, (int size, string pakFile)> CollectPakFiles(string folder, string idxPattern, string extension)
+        {
+            var result = new Dictionary<string, (int size, string pakFile)>(StringComparer.OrdinalIgnoreCase);
+
+            // 找所有符合 pattern 的 idx 檔案
+            var idxFiles = Directory.GetFiles(folder, idxPattern, SearchOption.TopDirectoryOnly);
+
+            foreach (var idxFile in idxFiles)
+            {
+                try
+                {
+                    var loadResult = LoadIndexAuto(idxFile);
+                    if (loadResult == null) continue;
+
+                    var (records, _, _) = loadResult.Value;
+                    string pakFile = idxFile.Replace(".idx", ".pak");
+
+                    foreach (var rec in records)
+                    {
+                        // 只收集指定副檔名的檔案
+                        if (rec.FileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+                        {
+                            string key = rec.FileName;
+                            if (!result.ContainsKey(key))
+                            {
+                                result[key] = (rec.FileSize, pakFile);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Failed to load {idxFile}: {ex.Message}");
+                }
+            }
+
+            return result;
+        }
+
+        static void ExportFromDiff(string diffFile, string exportDir)
+        {
+            if (!File.Exists(diffFile))
+            {
+                Console.WriteLine($"Error: Diff file not found: {diffFile}");
+                return;
+            }
+
+            // 建立輸出目錄
+            Directory.CreateDirectory(exportDir);
+
+            // 讀取 diff 檔案，收集需要匯出的檔案
+            var filesToExport = new List<(string fileName, string pakFile)>();
+            foreach (var line in File.ReadLines(diffFile, Encoding.UTF8))
+            {
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#"))
+                    continue;
+
+                var parts = line.Split('\t');
+                if (parts.Length >= 3)
+                {
+                    string fileName = parts[0];
+                    string pakFile = parts[2];
+                    filesToExport.Add((fileName, pakFile));
+                }
+            }
+
+            Console.WriteLine($"Found {filesToExport.Count} files to export");
+            Console.WriteLine($"Export directory: {exportDir}");
+            Console.WriteLine();
+
+            // 按 PAK 檔分組，減少重複載入
+            var groupedByPak = filesToExport.GroupBy(f => f.pakFile);
+            int exported = 0;
+            int failed = 0;
+
+            foreach (var pakGroup in groupedByPak)
+            {
+                string pakFile = pakGroup.Key;
+                string idxFile = pakFile.Replace(".pak", ".idx");
+
+                if (!File.Exists(pakFile))
+                {
+                    Console.WriteLine($"Warning: PAK file not found: {pakFile}");
+                    failed += pakGroup.Count();
+                    continue;
+                }
+
+                // 載入索引
+                var loadResult = LoadIndexAuto(idxFile);
+                if (loadResult == null)
+                {
+                    Console.WriteLine($"Warning: Failed to load index: {idxFile}");
+                    failed += pakGroup.Count();
+                    continue;
+                }
+
+                var (records, isProtected, _) = loadResult.Value;
+                // 使用 GroupBy 處理重複檔名，取第一個
+                var recordDict = records
+                    .GroupBy(r => r.FileName, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+                using (var pakStream = new FileStream(pakFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    foreach (var (fileName, _) in pakGroup)
+                    {
+                        try
+                        {
+                            if (!recordDict.TryGetValue(fileName, out var record))
+                            {
+                                Console.WriteLine($"Warning: File not found in index: {fileName}");
+                                failed++;
+                                continue;
+                            }
+
+                            // 讀取檔案資料
+                            pakStream.Seek(record.Offset, SeekOrigin.Begin);
+                            byte[] data = new byte[record.FileSize];
+                            pakStream.Read(data, 0, record.FileSize);
+
+                            // 解密 (如果需要)
+                            if (isProtected)
+                            {
+                                data = L1PakTools.Decode(data, 0);
+                            }
+
+                            // 寫入檔案
+                            string outputPath = Path.Combine(exportDir, fileName);
+                            File.WriteAllBytes(outputPath, data);
+                            exported++;
+
+                            if (exported % 100 == 0)
+                            {
+                                Console.Write($"\rExported: {exported} / {filesToExport.Count}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error exporting {fileName}: {ex.Message}");
+                            failed++;
+                        }
+                    }
+                }
+            }
+
+            Console.WriteLine();
+            Console.WriteLine();
+            Console.WriteLine($"Export completed!");
+            Console.WriteLine($"  Exported: {exported}");
+            Console.WriteLine($"  Failed: {failed}");
+            Console.WriteLine($"  Output: {exportDir}");
         }
 
         static void VerifyIdxSortOrderCmd(string idxFile, string comparerType = "ascii")
