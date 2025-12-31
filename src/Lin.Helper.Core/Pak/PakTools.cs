@@ -26,11 +26,11 @@ namespace Lin.Helper.Core.Pak
 
             // 嘗試從內嵌資源載入
             var assembly = Assembly.GetExecutingAssembly();
-            _map1 = LoadEmbeddedResource(assembly, "Lineage.FileFormats.Resources.Map1.bin");
-            _map2 = LoadEmbeddedResource(assembly, "Lineage.FileFormats.Resources.Map2.bin");
-            _map3 = LoadEmbeddedResource(assembly, "Lineage.FileFormats.Resources.Map3.bin");
-            _map4 = LoadEmbeddedResource(assembly, "Lineage.FileFormats.Resources.Map4.bin");
-            _map5 = LoadEmbeddedResource(assembly, "Lineage.FileFormats.Resources.Map5.bin");
+            _map1 = LoadEmbeddedResource(assembly, "Lin.Helper.Core.Resources.Map1.bin");
+            _map2 = LoadEmbeddedResource(assembly, "Lin.Helper.Core.Resources.Map2.bin");
+            _map3 = LoadEmbeddedResource(assembly, "Lin.Helper.Core.Resources.Map3.bin");
+            _map4 = LoadEmbeddedResource(assembly, "Lin.Helper.Core.Resources.Map4.bin");
+            _map5 = LoadEmbeddedResource(assembly, "Lin.Helper.Core.Resources.Map5.bin");
 
             _initialized = _map1 != null && _map2 != null && _map3 != null && _map4 != null && _map5 != null;
         }

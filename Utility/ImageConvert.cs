@@ -1,131 +1,98 @@
-﻿// Decompiled with JetBrains decompiler
-// Type: PakViewer.Utility.ImageConvert
-// Assembly: PakViewer, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
-// MVID: 1B8FBB7F-36BB-4233-90DD-580453361518
-// Assembly location: C:\Users\TonyQ\Downloads\PakViewer.exe
+// ImageConvert - UI 適配層
+// 實際圖片轉換邏輯由 Lin.Helper.Core.Image.ImageConverter 提供
 
-using System;
 using System.Drawing;
-using System.Drawing.Imaging;
-using System.IO;
-using System.Runtime.InteropServices;
+using CoreImageConverter = Lin.Helper.Core.Image.ImageConverter;
+using CoreL1Image = Lin.Helper.Core.Image.L1Image;
+using CoreTileSet = Lin.Helper.Core.Image.TileSet;
 
 namespace PakViewer.Utility
 {
-  public class ImageConvert
+  /// <summary>
+  /// 圖片格式轉換 (UI 適配層)
+  /// </summary>
+  public static class ImageConvert
   {
+    /// <summary>
+    /// 建立 16bpp RGB555 點陣圖
+    /// </summary>
     public static Bitmap CreateBMP(int width, int height, byte[] srcdata, int index, int MaskColor)
     {
-      Bitmap bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
-      Rectangle rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
-      BitmapData bitmapdata = bitmap.LockBits(rect, ImageLockMode.ReadWrite, bitmap.PixelFormat);
-      int num = bitmapdata.Stride / 1;
-      byte[] source = new byte[num * height];
-      if (srcdata.Length - index == source.Length)
-      {
-        Array.Copy((Array) srcdata, index, (Array) source, 0, source.Length);
-      }
-      else
-      {
-        for (int index1 = 0; index1 < height; ++index1)
-          Array.Copy((Array) srcdata, index + index1 * width * 2, (Array) source, index1 * num, width * 2);
-      }
-      IntPtr scan0 = bitmapdata.Scan0;
-      Marshal.Copy(source, 0, scan0, srcdata.Length - index);
-      bitmap.UnlockBits(bitmapdata);
-      if (MaskColor >= 0)
-        bitmap.MakeTransparent(ImageConvert.Rgb555ToARGB(MaskColor));
-      return bitmap;
+      return CoreImageConverter.CreateBitmap(width, height, srcdata, index, MaskColor);
     }
 
+    /// <summary>
+    /// RGB555 轉換為 Color
+    /// </summary>
     public static Color Rgb555ToARGB(int Rgb555)
     {
-      return Color.FromArgb((Rgb555 & 31744) >> 10, (Rgb555 & 992) >> 5, Rgb555 & 31);
+      return CoreImageConverter.Rgb555ToColor(Rgb555);
     }
 
+    /// <summary>
+    /// 載入 IMG 格式圖片
+    /// </summary>
     public static Bitmap Load_IMG(byte[] imgdata)
     {
-      int int16_1 = (int) BitConverter.ToInt16(imgdata, 0);
-      int int16_2 = (int) BitConverter.ToInt16(imgdata, 2);
-      int MaskColor = (int) BitConverter.ToInt16(imgdata, 4) == 1 ? (int) BitConverter.ToUInt16(imgdata, 6) : -1;
-      return ImageConvert.CreateBMP(int16_1, int16_2, imgdata, 8, MaskColor);
+      return CoreImageConverter.LoadImg(imgdata);
     }
 
-    public static ImageConvert.L1Image LoadImage(byte[] data)
+    /// <summary>
+    /// 載入 L1 圖片格式 (RLE 壓縮)
+    /// </summary>
+    public static L1Image LoadImage(byte[] data)
     {
-      BinaryReader binaryReader = new BinaryReader((Stream) new MemoryStream(data));
-      ImageConvert.L1Image l1Image;
-      l1Image.x_offset = (int) binaryReader.ReadByte();
-      l1Image.y_offset = (int) binaryReader.ReadByte();
-      int width = (int) binaryReader.ReadByte();
-      int height = (int) binaryReader.ReadByte();
-      if (width == 0 || height == 0)
+      var coreImage = CoreImageConverter.LoadL1Image(data);
+      return new L1Image
       {
-        l1Image.image = (Bitmap) null;
-      }
-      else
-      {
-        l1Image.image = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
-        Rectangle rect = new Rectangle(0, 0, width, height);
-        BitmapData bitmapdata = l1Image.image.LockBits(rect, ImageLockMode.WriteOnly, l1Image.image.PixelFormat);
-        int stride = bitmapdata.Stride;
-        byte[] source = new byte[height * stride];
-        for (int index1 = 0; index1 < height; ++index1)
-        {
-          int num1 = (int) binaryReader.ReadByte();
-          int num2 = 0;
-          for (int index2 = 0; index2 < num1; ++index2)
-          {
-            int num3 = num2 + (int) binaryReader.ReadByte();
-            int num4 = (int) binaryReader.ReadByte() * 2;
-            Array.Copy((Array) binaryReader.ReadBytes(num4), 0, (Array) source, index1 * stride + num3, num4);
-            num2 = num3 + num4;
-          }
-        }
-        binaryReader.Close();
-        Marshal.Copy(source, 0, bitmapdata.Scan0, source.Length);
-        l1Image.image.UnlockBits(bitmapdata);
-      }
-      return l1Image;
+        x_offset = coreImage.XOffset,
+        y_offset = coreImage.YOffset,
+        image = coreImage.Image
+      };
     }
 
-    public static ImageConvert.L1Image LoadImage(byte[] data, int width, int height)
+    /// <summary>
+    /// 載入 L1 圖片並放置到指定大小的畫布
+    /// </summary>
+    public static L1Image LoadImage(byte[] data, int width, int height)
     {
-      Bitmap bitmap = new Bitmap(width, height);
-      Graphics graphics = Graphics.FromImage((Image) bitmap);
-      ImageConvert.L1Image l1Image = ImageConvert.LoadImage(data);
-      if (l1Image.image != null)
-        graphics.DrawImageUnscaled((Image) l1Image.image, l1Image.x_offset, l1Image.y_offset);
-      l1Image.image = bitmap;
-      return l1Image;
+      var coreImage = CoreImageConverter.LoadL1Image(data, width, height);
+      return new L1Image
+      {
+        x_offset = coreImage.XOffset,
+        y_offset = coreImage.YOffset,
+        image = coreImage.Image
+      };
     }
 
+    /// <summary>
+    /// 載入 TBT 格式圖片
+    /// </summary>
     public static Bitmap Load_TBT(byte[] tbtdata)
     {
-      return ImageConvert.LoadImage(tbtdata).image;
+      return CoreImageConverter.LoadTbt(tbtdata);
     }
 
-    public static Bitmap Load_TIL(byte[] tbtdata)
+    /// <summary>
+    /// 載入 TIL 格式圖片 (地圖圖塊) - 返回第一個圖塊
+    /// </summary>
+    public static Bitmap Load_TIL(byte[] tildata)
     {
-      BinaryReader binaryReader = new BinaryReader((Stream) new MemoryStream(tbtdata));
-      int num1 = (int) binaryReader.ReadInt16();
-      int num2 = (int) binaryReader.ReadInt16();
-      int[] numArray = new int[num1 + 1];
-      int num3 = 4 + numArray.Length * 4;
-      for (int index = 0; index <= num1; ++index)
-        numArray[index] = num3 + binaryReader.ReadInt32();
-      for (int index = 0; index < num1; ++index)
-      {
-        binaryReader.BaseStream.Seek((long) numArray[index], SeekOrigin.Begin);
-        int num4 = (int) binaryReader.ReadByte();
-        ImageConvert.L1Image l1Image = ImageConvert.LoadImage(binaryReader.ReadBytes(numArray[index + 1] - (int) binaryReader.BaseStream.Position), 24, 24);
-        if (l1Image.image != null)
-          l1Image.image.Save(string.Format("E:\\Temp\\{0:x4}.bmp", (object) index), ImageFormat.Bmp);
-      }
-      binaryReader.Close();
-      return (Bitmap) null;
+      var tileSet = CoreImageConverter.LoadTil(tildata);
+      return tileSet.TileCount > 0 ? tileSet.Tiles[0] : null;
     }
 
+    /// <summary>
+    /// 載入 TIL 格式圖片 - 返回所有圖塊
+    /// </summary>
+    public static CoreTileSet Load_TIL_All(byte[] tildata)
+    {
+      return CoreImageConverter.LoadTil(tildata);
+    }
+
+    /// <summary>
+    /// L1 圖片結構 (相容舊介面)
+    /// </summary>
     public struct L1Image
     {
       public int x_offset;
