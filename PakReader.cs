@@ -3099,17 +3099,28 @@ namespace PakViewer
 
         /// <summary>
         /// 計算檔名應該放到哪個 sprite*.pak (0-15)
-        /// 規則: 檔名的 ANSI bytes 加總 % 16
-        /// 0 = sprite.pak, 1-15 = sprite01.pak ~ sprite15.pak
+        /// 規則: 檔名的原始 bytes 加總 % 16
+        /// 0 = sprite00.pak, 1-15 = sprite01.pak ~ sprite15.pak
         /// </summary>
         /// <param name="fileName">檔案名稱 (不含路徑)</param>
         /// <returns>0-15 的索引值</returns>
         public static int GetSpritePakIndex(string fileName)
         {
-            // 使用 Default encoding (系統的 ANSI 編碼) 取得 bytes
+            // 使用 Default encoding 取得 bytes (僅用於新檔案)
             byte[] bytes = Encoding.Default.GetBytes(fileName);
+            return GetSpritePakIndex(bytes);
+        }
+
+        /// <summary>
+        /// 計算檔名應該放到哪個 sprite*.pak (0-15)
+        /// 規則: 檔名的原始 bytes 加總 % 16
+        /// </summary>
+        /// <param name="fileNameBytes">檔名原始 bytes</param>
+        /// <returns>0-15 的索引值</returns>
+        public static int GetSpritePakIndex(byte[] fileNameBytes)
+        {
             int sum = 0;
-            foreach (byte b in bytes)
+            foreach (byte b in fileNameBytes)
             {
                 sum += b;
             }
@@ -3485,7 +3496,9 @@ namespace PakViewer
 
                 foreach (var record in records)
                 {
-                    int expectedIndex = GetSpritePakIndex(record.FileName);
+                    // 使用原始 bytes 計算，避免編碼轉換問題
+                    int fileNameSum = record.GetFileNameBytesSum();
+                    int expectedIndex = fileNameSum % 16;
                     if (expectedIndex != i)
                     {
                         result.MisplacedFiles.Add(new MisplacedFile
@@ -3493,7 +3506,7 @@ namespace PakViewer
                             FileName = record.FileName,
                             CurrentPakIndex = i,
                             ExpectedPakIndex = expectedIndex,
-                            FileNameSum = Encoding.Default.GetBytes(record.FileName).Sum(b => b)
+                            FileNameSum = fileNameSum
                         });
                     }
                     else

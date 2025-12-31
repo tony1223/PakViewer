@@ -295,6 +295,10 @@ namespace Lin.Helper.Core.Pak
         public string FileName;
         public int FileSize;
         public string SourcePak;
+        /// <summary>
+        /// 壓縮後大小 (僅 ExtB 格式使用)
+        /// </summary>
+        public int CompressedSize;
 
         public IndexRecord(byte[] data, int index)
         {
@@ -302,6 +306,7 @@ namespace Lin.Helper.Core.Pak
             FileName = Encoding.Default.GetString(data, index + 4, 20).TrimEnd('\0');
             FileSize = BitConverter.ToInt32(data, index + 24);
             SourcePak = null;
+            CompressedSize = 0;
         }
 
         public IndexRecord(string filename, int size, int offset)
@@ -310,6 +315,7 @@ namespace Lin.Helper.Core.Pak
             FileName = filename;
             FileSize = size;
             SourcePak = null;
+            CompressedSize = 0;
         }
 
         public IndexRecord(string filename, int size, int offset, string sourcePak)
@@ -318,6 +324,7 @@ namespace Lin.Helper.Core.Pak
             FileName = filename;
             FileSize = size;
             SourcePak = sourcePak;
+            CompressedSize = 0;
         }
 
         public override string ToString()

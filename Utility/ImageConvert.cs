@@ -2,9 +2,14 @@
 // 實際圖片轉換邏輯由 Lin.Helper.Core.Image.ImageConverter 提供
 
 using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using CoreImageConverter = Lin.Helper.Core.Image.ImageConverter;
 using CoreL1Image = Lin.Helper.Core.Image.L1Image;
 using CoreTileSet = Lin.Helper.Core.Image.TileSet;
+using Image = System.Drawing.Image;
 
 namespace PakViewer.Utility
 {
@@ -14,19 +19,35 @@ namespace PakViewer.Utility
   public static class ImageConvert
   {
     /// <summary>
+    /// 將 ImageSharp Image 轉換為 System.Drawing.Bitmap
+    /// </summary>
+    private static Bitmap ToBitmap(Image<Rgba32> image)
+    {
+      if (image == null) return null;
+      using (var ms = new MemoryStream())
+      {
+        image.SaveAsPng(ms);
+        ms.Position = 0;
+        return new Bitmap(ms);
+      }
+    }
+
+    /// <summary>
     /// 建立 16bpp RGB555 點陣圖
     /// </summary>
     public static Bitmap CreateBMP(int width, int height, byte[] srcdata, int index, int MaskColor)
     {
-      return CoreImageConverter.CreateBitmap(width, height, srcdata, index, MaskColor);
+      var img = CoreImageConverter.CreateBitmap(width, height, srcdata, index, MaskColor);
+      return ToBitmap(img);
     }
 
     /// <summary>
     /// RGB555 轉換為 Color
     /// </summary>
-    public static Color Rgb555ToARGB(int Rgb555)
+    public static System.Drawing.Color Rgb555ToARGB(int Rgb555)
     {
-      return CoreImageConverter.Rgb555ToColor(Rgb555);
+      var rgba = CoreImageConverter.Rgb555ToRgba32(Rgb555);
+      return System.Drawing.Color.FromArgb(rgba.A, rgba.R, rgba.G, rgba.B);
     }
 
     /// <summary>
@@ -34,7 +55,8 @@ namespace PakViewer.Utility
     /// </summary>
     public static Bitmap Load_IMG(byte[] imgdata)
     {
-      return CoreImageConverter.LoadImg(imgdata);
+      var img = CoreImageConverter.LoadImg(imgdata);
+      return ToBitmap(img);
     }
 
     /// <summary>
@@ -47,7 +69,7 @@ namespace PakViewer.Utility
       {
         x_offset = coreImage.XOffset,
         y_offset = coreImage.YOffset,
-        image = coreImage.Image
+        image = ToBitmap(coreImage.Image)
       };
     }
 
@@ -61,7 +83,7 @@ namespace PakViewer.Utility
       {
         x_offset = coreImage.XOffset,
         y_offset = coreImage.YOffset,
-        image = coreImage.Image
+        image = ToBitmap(coreImage.Image)
       };
     }
 
@@ -70,7 +92,8 @@ namespace PakViewer.Utility
     /// </summary>
     public static Bitmap Load_TBT(byte[] tbtdata)
     {
-      return CoreImageConverter.LoadTbt(tbtdata);
+      var img = CoreImageConverter.LoadTbt(tbtdata);
+      return ToBitmap(img);
     }
 
     /// <summary>
@@ -79,7 +102,7 @@ namespace PakViewer.Utility
     public static Bitmap Load_TIL(byte[] tildata)
     {
       var tileSet = CoreImageConverter.LoadTil(tildata);
-      return tileSet.TileCount > 0 ? tileSet.Tiles[0] : null;
+      return tileSet.TileCount > 0 ? ToBitmap(tileSet.Tiles[0]) : null;
     }
 
     /// <summary>

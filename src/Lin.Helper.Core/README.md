@@ -12,6 +12,7 @@ dotnet add package Lin.Helper.Core
 
 | 功能 | 類別 | 說明 |
 |------|------|------|
+| PAK 讀寫 | `PakFile` | PAK/IDX 封裝檔讀取、提取、新增、刪除 |
 | PAK 加解密 | `PakTools` | PAK/IDX 封裝檔加解密 |
 | SPR 解析 | `SprReader` | Sprite 動畫圖檔解析 |
 | SPR List 解析 | `SprListParser` | list.spr / wlist.spr 解析 |
@@ -24,7 +25,89 @@ dotnet add package Lin.Helper.Core
 
 ## 使用範例
 
-### PAK 檔案加解密
+### PAK 檔案讀寫
+
+```csharp
+using Lin.Helper.Core.Pak;
+
+// 開啟 PAK 檔案
+using var pak = new PakFile("Text.idx");
+
+Console.WriteLine($"檔案數量: {pak.Count}");
+Console.WriteLine($"加密類型: {pak.EncryptionType}"); // L1, DES, ExtB, None
+
+// 列出所有檔案
+foreach (var file in pak.Files)
+{
+    Console.WriteLine($"{file.FileName} ({file.FileSize} bytes)");
+}
+
+// 提取單一檔案
+byte[] data = pak.Extract("config.xml");
+
+// 提取所有檔案
+pak.ExtractAll("output/folder");
+
+// 提取所有檔案 (含進度回報)
+pak.ExtractAll("output/folder", (current, total, fileName) =>
+{
+    Console.WriteLine($"[{current}/{total}] {fileName}");
+});
+
+// 新增檔案
+pak.Add("new_file.xml", newData);
+
+// 從檔案路徑新增
+pak.Add("C:/path/to/file.xml");
+
+// 刪除檔案
+pak.Delete("old_file.xml");
+
+// 替換檔案
+pak.Replace("config.xml", modifiedData);
+
+// 儲存變更 (新增/刪除/替換後必須呼叫)
+pak.Save();
+
+// 建立新的 PAK 檔案
+using var newPak = PakFile.Create("NewPak.idx", encrypted: true);
+newPak.Add("file1.xml", data1);
+newPak.Add("file2.xml", data2);
+newPak.Save();
+```
+
+### PAK 檔案排序驗證
+
+```csharp
+using Lin.Helper.Core.Pak;
+
+using var pak = new PakFile("Text.idx");
+
+// 檢查檔案是否已正確排序
+bool sorted = pak.IsSorted(); // 預設 ASCII 不區分大小寫
+
+// 指定排序類型
+bool sortedUnderscore = pak.IsSorted(PakFile.SortType.UnderscoreFirst);
+
+// 取得排序錯誤詳細資訊
+var errors = pak.VerifySortOrder();
+foreach (var (index, fileName, expectedFileName) in errors)
+{
+    Console.WriteLine($"[{index}] {fileName} 應為 {expectedFileName}");
+}
+
+// 新增檔案時維持排序順序
+pak.Add("new_file.xml", data, maintainSort: true);
+
+// 指定排序類型 (底線優先: 數字 → 底線 → 字母)
+pak.Add("new_file.xml", data, maintainSort: true, sortType: PakFile.SortType.UnderscoreFirst);
+
+// 找到插入位置 (不實際新增)
+int insertIdx = pak.FindInsertIndex("abc.xml");
+pak.Save();
+```
+
+### PAK 檔案加解密 (低階 API)
 
 ```csharp
 using Lin.Helper.Core.Pak;

@@ -86,11 +86,24 @@ namespace PakViewer.Utility
       public string FileName;
       public int FileSize;
       public string SourcePak;
+      /// <summary>
+      /// 檔名原始 bytes (用於計算 sprite pak 分配)
+      /// </summary>
+      public byte[] FileNameBytes;
 
       public IndexRecord(byte[] data, int index)
       {
         Offset = BitConverter.ToInt32(data, index);
-        FileName = Encoding.Default.GetString(data, index + 4, 20).TrimEnd('\0');
+        // 保留原始 bytes (去除尾部 0x00)
+        int nameLen = 0;
+        for (int i = 0; i < 20; i++)
+        {
+          if (data[index + 4 + i] == 0) break;
+          nameLen++;
+        }
+        FileNameBytes = new byte[nameLen];
+        Array.Copy(data, index + 4, FileNameBytes, 0, nameLen);
+        FileName = Encoding.Default.GetString(FileNameBytes);
         FileSize = BitConverter.ToInt32(data, index + 24);
         SourcePak = null;
       }
@@ -101,6 +114,7 @@ namespace PakViewer.Utility
         FileName = filename;
         FileSize = size;
         SourcePak = null;
+        FileNameBytes = Encoding.Default.GetBytes(filename);
       }
 
       public IndexRecord(string filename, int size, int offset, string sourcePak)
@@ -109,6 +123,19 @@ namespace PakViewer.Utility
         FileName = filename;
         FileSize = size;
         SourcePak = sourcePak;
+        FileNameBytes = Encoding.Default.GetBytes(filename);
+      }
+
+      /// <summary>
+      /// 計算檔名 bytes 總和 (用於 sprite pak 分配)
+      /// </summary>
+      public int GetFileNameBytesSum()
+      {
+        if (FileNameBytes == null) return 0;
+        int sum = 0;
+        foreach (byte b in FileNameBytes)
+          sum += b;
+        return sum;
       }
     }
   }

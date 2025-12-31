@@ -2,8 +2,12 @@
 // 實際 SPR 解析邏輯由 Lin.Helper.Core.Sprite.SprReader 提供
 
 using System.Drawing;
+using System.IO;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using CoreSprReader = Lin.Helper.Core.Sprite.SprReader;
 using CoreSprFrame = Lin.Helper.Core.Sprite.SprFrame;
+using Image = System.Drawing.Image;
 
 namespace PakViewer.Utility
 {
@@ -12,6 +16,20 @@ namespace PakViewer.Utility
   /// </summary>
   public static class L1Spr
   {
+    /// <summary>
+    /// 將 ImageSharp Image 轉換為 System.Drawing.Image
+    /// </summary>
+    private static Image ToBitmap(Image<Rgba32> image)
+    {
+      if (image == null) return null;
+      using (var ms = new MemoryStream())
+      {
+        image.SaveAsPng(ms);
+        ms.Position = 0;
+        return System.Drawing.Image.FromStream(new MemoryStream(ms.ToArray()));
+      }
+    }
+
     /// <summary>
     /// 載入 SPR 檔案
     /// </summary>
@@ -33,7 +51,7 @@ namespace PakViewer.Utility
           unknow_2 = coreFrames[i].Unknown2,
           type = coreFrames[i].Type,
           maskcolor = coreFrames[i].MaskColor,
-          image = coreFrames[i].Image
+          image = ToBitmap(coreFrames[i].Image)
         };
       }
       return frames;
