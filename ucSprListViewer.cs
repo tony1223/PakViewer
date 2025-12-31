@@ -317,19 +317,36 @@ namespace PakViewer
 
         private void LvEntries_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
         {
-            if (e.ItemIndex < 0 || e.ItemIndex >= _filteredEntries.Count)
+            // 建立空白項目的輔助方法
+            ListViewItem createEmptyItem()
             {
-                e.Item = new ListViewItem();
+                var listItem = new ListViewItem("");
+                listItem.SubItems.Add("");
+                listItem.SubItems.Add("");
+                listItem.SubItems.Add("");
+                return listItem;
+            }
+
+            if (_filteredEntries == null || e.ItemIndex < 0 || e.ItemIndex >= _filteredEntries.Count)
+            {
+                e.Item = createEmptyItem();
                 return;
             }
 
-            var entry = _filteredEntries[e.ItemIndex];
-            var item = new ListViewItem(entry.Id.ToString());
-            item.SubItems.Add(entry.Name);
-            item.SubItems.Add(entry.ImageCount.ToString());
-            item.SubItems.Add(entry.TypeName);
-            item.Tag = entry;
-            e.Item = item;
+            try
+            {
+                var entry = _filteredEntries[e.ItemIndex];
+                var item = new ListViewItem(entry.Id.ToString());
+                item.SubItems.Add(entry.Name);
+                item.SubItems.Add(entry.ImageCount.ToString());
+                item.SubItems.Add(entry.TypeName);
+                item.Tag = entry;
+                e.Item = item;
+            }
+            catch
+            {
+                e.Item = createEmptyItem();
+            }
         }
 
         private void TxtSearch_TextChanged(object sender, EventArgs e)

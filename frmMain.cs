@@ -1619,24 +1619,43 @@ namespace PakViewer
 
     private void lvOtherFiles_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
     {
-      if (this._OtherFilesIndexes == null || e.ItemIndex < 0 || e.ItemIndex >= this._OtherFilesIndexes.Count)
+      // 建立空白項目的輔助方法
+      ListViewItem createEmptyItem()
       {
         var listItem = new ListViewItem("");
         listItem.SubItems.Add("");
         listItem.SubItems.Add("");
         listItem.SubItems.Add("");
-        e.Item = listItem;
+        return listItem;
+      }
+
+      if (this._OtherFilesIndexes == null || e.ItemIndex < 0 || e.ItemIndex >= this._OtherFilesIndexes.Count)
+      {
+        e.Item = createEmptyItem();
         return;
       }
 
-      int realIndex = this._OtherFilesIndexes[e.ItemIndex];
-      var record = this._IndexRecords[realIndex];
-      string sizeText = string.Format("{0:F1}", record.FileSize / 1024.0);
-      var item = new ListViewItem(string.Format("{0, 5}", realIndex + 1));
-      item.SubItems.Add(record.FileName);
-      item.SubItems.Add(sizeText);
-      item.SubItems.Add(record.Offset.ToString("X8"));
-      e.Item = item;
+      try
+      {
+        int realIndex = this._OtherFilesIndexes[e.ItemIndex];
+        if (this._IndexRecords == null || realIndex < 0 || realIndex >= this._IndexRecords.Length)
+        {
+          e.Item = createEmptyItem();
+          return;
+        }
+
+        var record = this._IndexRecords[realIndex];
+        string sizeText = string.Format("{0:F1}", record.FileSize / 1024.0);
+        var item = new ListViewItem(string.Format("{0, 5}", realIndex + 1));
+        item.SubItems.Add(record.FileName);
+        item.SubItems.Add(sizeText);
+        item.SubItems.Add(record.Offset.ToString("X8"));
+        e.Item = item;
+      }
+      catch
+      {
+        e.Item = createEmptyItem();
+      }
     }
 
     private void lvOtherFiles_SelectedIndexChanged(object sender, EventArgs e)
@@ -6560,20 +6579,34 @@ namespace PakViewer
     /// </summary>
     private void lvDatFiles_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
     {
+      // 建立空白項目的輔助方法
+      ListViewItem createEmptyItem()
+      {
+        var listItem = new ListViewItem("");
+        listItem.SubItems.Add("");
+        listItem.SubItems.Add("");
+        return listItem;
+      }
+
       if (this._FilteredDatEntries == null || e.ItemIndex < 0 || e.ItemIndex >= this._FilteredDatEntries.Count)
       {
-        e.Item = new ListViewItem("");
-        e.Item.SubItems.Add("");
-        e.Item.SubItems.Add("");
+        e.Item = createEmptyItem();
         return;
       }
 
-      var entry = this._FilteredDatEntries[e.ItemIndex];
-      var item = new ListViewItem(entry.Path);
-      item.SubItems.Add(FormatFileSize(entry.Size));
-      item.SubItems.Add(entry.SourceDatName ?? "");
-      item.Tag = entry;
-      e.Item = item;
+      try
+      {
+        var entry = this._FilteredDatEntries[e.ItemIndex];
+        var item = new ListViewItem(entry.Path);
+        item.SubItems.Add(FormatFileSize(entry.Size));
+        item.SubItems.Add(entry.SourceDatName ?? "");
+        item.Tag = entry;
+        e.Item = item;
+      }
+      catch
+      {
+        e.Item = createEmptyItem();
+      }
     }
 
     /// <summary>
