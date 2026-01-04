@@ -11,6 +11,8 @@ using System.Threading.Tasks;
 using PakViewer.Models;
 using PakViewer.Utility;
 using Lin.Helper.Core.Tile;
+using SprListParser = Lin.Helper.Core.Sprite.SprListParser;
+using SprListWriter = Lin.Helper.Core.Sprite.SprListWriter;
 
 namespace PakViewer
 {
@@ -75,6 +77,12 @@ namespace PakViewer
                 case "sprlist":
                     if (args.Length < 2) { ShowHelp(); return; }
                     ParseSprList(args[1], args.Length > 2 ? args[2] : null);
+                    break;
+
+                case "sprtxt":
+                    // 測試 sprtxt save/load: sprtxt <sprlist_file> <entry_id> [output.sprtxt]
+                    if (args.Length < 3) { Console.WriteLine("Usage: sprtxt <sprlist_file> <entry_id> [output.sprtxt]"); return; }
+                    TestSprtxt(args[1], args[2], args.Length > 3 ? args[3] : null);
                     break;
 
                 case "sprtest":
@@ -2248,6 +2256,97 @@ namespace PakViewer
                     Console.WriteLine();
                     Console.WriteLine("Usage: sprlist <file> <entry_id> to see details");
                 }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
+            }
+        }
+
+        static void TestSprtxt(string sprListFile, string entryIdStr, string outputPath)
+        {
+            if (!File.Exists(sprListFile))
+            {
+                Console.WriteLine($"Error: File not found: {sprListFile}");
+                return;
+            }
+
+            if (!int.TryParse(entryIdStr, out int entryId))
+            {
+                Console.WriteLine($"Error: Invalid entry ID: {entryIdStr}");
+                return;
+            }
+
+            Console.WriteLine($"=== SprListWriter 測試 ===\n");
+
+            try
+            {
+                // 1. Parse
+                Console.WriteLine($"1. 解析 {Path.GetFileName(sprListFile)}...");
+                var sprFile = SprListParser.LoadFromFile(sprListFile);
+                Console.WriteLine($"   Entries: {sprFile.Entries.Count}");
+
+                // 2. 取得指定 Entry
+                var entry = sprFile.Entries.FirstOrDefault(e => e.Id == entryId);
+                if (entry == null)
+                {
+                    Console.WriteLine($"   Error: Entry #{entryId} not found");
+                    return;
+                }
+                Console.WriteLine($"   Found: #{entry.Id} {entry.Name} (Actions={entry.Actions.Count}, Attrs={entry.Attributes.Count})");
+
+                // 3. 輸出 sprtxt
+                string sprtxtPath = outputPath ?? $"entry_{entryId}.sprtxt";
+                Console.WriteLine($"\n2. SaveEntry -> {sprtxtPath}");
+                SprListWriter.SaveEntry(entry, sprtxtPath, compact: false);
+
+                string content = File.ReadAllText(sprtxtPath);
+                Console.WriteLine($"   Size: {content.Length} bytes");
+                Console.WriteLine($"   Preview:\n---");
+                Console.WriteLine(content.Length > 500 ? content.Substring(0, 500) + "..." : content);
+                Console.WriteLine("---");
+
+                // 4. LoadEntry 並比較
+                Console.WriteLine($"\n3. LoadEntry <- {sprtxtPath}");
+                var loaded = SprListWriter.LoadEntry(sprtxtPath);
+
+                Console.WriteLine($"   比較結果:");
+                Console.WriteLine($"     Id: {entry.Id} vs {loaded.Id} = {(entry.Id == loaded.Id ? "OK" : "FAIL")}");
+                Console.WriteLine($"     Name: \"{entry.Name}\" vs \"{loaded.Name}\" = {(entry.Name == loaded.Name ? "OK" : "FAIL")}");
+                Console.WriteLine($"     ImageCount: {entry.ImageCount} vs {loaded.ImageCount} = {(entry.ImageCount == loaded.ImageCount ? "OK" : "FAIL")}");
+                Console.WriteLine($"     LinkedId: {entry.LinkedId} vs {loaded.LinkedId} = {(entry.LinkedId == loaded.LinkedId ? "OK" : "FAIL")}");
+                Console.WriteLine($"     Actions: {entry.Actions.Count} vs {loaded.Actions.Count} = {(entry.Actions.Count == loaded.Actions.Count ? "OK" : "FAIL")}");
+                Console.WriteLine($"     Attributes: {entry.Attributes.Count} vs {loaded.Attributes.Count} = {(entry.Attributes.Count == loaded.Attributes.Count ? "OK" : "FAIL")}");
+
+                // 驗證 Action 細節
+                if (entry.Actions.Count > 0 && loaded.Actions.Count > 0)
+                {
+                    Console.WriteLine($"\n   驗證 Action[0]:");
+                    var origA = entry.Actions[0];
+                    var loadA = loaded.Actions[0];
+                    Console.WriteLine($"     ActionId: {origA.ActionId} vs {loadA.ActionId} = {(origA.ActionId == loadA.ActionId ? "OK" : "FAIL")}");
+                    Console.WriteLine($"     ActionName: \"{origA.ActionName}\" vs \"{loadA.ActionName}\" = {(origA.ActionName == loadA.ActionName ? "OK" : "FAIL")}");
+                    Console.WriteLine($"     FrameCount: {origA.FrameCount} vs {loadA.FrameCount} = {(origA.FrameCount == loadA.FrameCount ? "OK" : "FAIL")}");
+                    Console.WriteLine($"     Frames: {origA.Frames.Count} vs {loadA.Frames.Count} = {(origA.Frames.Count == loadA.Frames.Count ? "OK" : "FAIL")}");
+
+                    if (origA.Frames.Count > 0 && loadA.Frames.Count > 0)
+                    {
+                        var origF = origA.Frames[0];
+                        var loadF = loadA.Frames[0];
+                        Console.WriteLine($"     Frame[0]: {origF.ImageId}.{origF.FrameIndex}:{origF.Duration} vs {loadF.ImageId}.{loadF.FrameIndex}:{loadF.Duration} = {(origF.ImageId == loadF.ImageId && origF.FrameIndex == loadF.FrameIndex && origF.Duration == loadF.Duration ? "OK" : "FAIL")}");
+                    }
+                }
+
+                // 5. Compact 格式測試
+                string compactPath = Path.ChangeExtension(sprtxtPath, ".compact.sprtxt");
+                Console.WriteLine($"\n4. SaveEntry (compact) -> {compactPath}");
+                SprListWriter.SaveEntry(entry, compactPath, compact: true);
+                string compactContent = File.ReadAllText(compactPath);
+                Console.WriteLine($"   Size: {compactContent.Length} bytes (vs standard {content.Length})");
+                Console.WriteLine($"   Preview: {(compactContent.Length > 200 ? compactContent.Substring(0, 200) + "..." : compactContent)}");
+
+                Console.WriteLine($"\n=== 測試完成 ===");
             }
             catch (Exception ex)
             {

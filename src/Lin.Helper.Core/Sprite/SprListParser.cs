@@ -711,40 +711,5 @@ namespace Lin.Helper.Core.Sprite
 
             return attr;
         }
-
-        /// <summary>
-        /// 將 SprListFile 輸出為字串
-        /// </summary>
-        public static string ToFileContent(SprListFile file)
-        {
-            var sb = new StringBuilder();
-
-            sb.AppendLine($"{file.TotalEntries} {file.Unknown1} {file.Unknown2}");
-
-            foreach (var entry in file.Entries)
-            {
-                sb.Append($"#{entry.Id}\t{entry.ImageCount}");
-                if (entry.LinkedId.HasValue)
-                    sb.Append($"={entry.LinkedId.Value}");
-                sb.Append($"\t{entry.Name}");
-
-                foreach (var action in entry.Actions)
-                {
-                    sb.AppendLine();
-                    sb.Append($"\t{action.ActionId}.{action.ActionName}({action.Directional} {action.FrameCount},");
-                    sb.Append(string.Join(" ", action.Frames.ConvertAll(f => f.RawText ?? f.ToString())));
-                    sb.Append(")");
-                }
-
-                foreach (var attr in entry.Attributes)
-                {
-                    sb.Append($" {attr.AttributeId}.{attr.AttributeName}({attr.RawParameters})");
-                }
-
-                sb.AppendLine();
-            }
-
-            return sb.ToString();
-        }
     }
 }
