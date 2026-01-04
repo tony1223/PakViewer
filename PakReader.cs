@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using PakViewer.Models;
 using PakViewer.Utility;
+using Lin.Helper.Core.Tile;
 
 namespace PakViewer
 {
@@ -149,6 +150,13 @@ namespace PakViewer
                     // tildiff <folder1> <folder2> [output_file]
                     if (args.Length < 3) { Console.WriteLine("Usage: tildiff <folder1> <folder2> [output_file]"); return; }
                     CompareTileFiles(args[1], args[2], args.Length > 3 ? args[3] : null);
+                    break;
+
+                case "tilinfo":
+                    // 分析 TIL 檔案的 block type
+                    // tilinfo <til_file>
+                    if (args.Length < 2) { Console.WriteLine("Usage: tilinfo <til_file>"); return; }
+                    AnalyzeTilFile(args[1]);
                     break;
 
                 case "tildiff-export":
@@ -2767,6 +2775,85 @@ namespace PakViewer
             }
 
             return result;
+        }
+
+        static void AnalyzeTilFile(string tilPath)
+        {
+            if (!File.Exists(tilPath))
+            {
+                Console.WriteLine($"Error: File not found: {tilPath}");
+                return;
+            }
+
+            var data = File.ReadAllBytes(tilPath);
+
+            Console.WriteLine($"File: {tilPath}");
+            Console.WriteLine($"File size: {data.Length:N0} bytes");
+
+            // 偵測壓縮類型
+            var compression = L1Til.DetectCompression(data);
+            Console.WriteLine($"Compression: {compression}");
+
+            // 偵測版本
+            var version = L1Til.GetVersion(data);
+            Console.WriteLine($"Version: {version}");
+            Console.WriteLine($"Tile size: {L1Til.GetTileSize(version)}x{L1Til.GetTileSize(version)}");
+
+            // 解析 blocks
+            var blocks = L1Til.Parse(data);
+            Console.WriteLine($"Total blocks: {blocks.Count}");
+
+            // 統計 block types
+            var typeStats = blocks
+                .Where(b => b != null && b.Length > 0)
+                .GroupBy(b => b[0])
+                .OrderBy(g => g.Key)
+                .ToList();
+
+            Console.WriteLine();
+            Console.WriteLine("=== Block Type Statistics ===");
+            Console.WriteLine($"{"Type",-6} {"Hex",-6} {"Count",-8} {"Format",-18} {"Avg Size",-12} {"Flags"}");
+            Console.WriteLine(new string('-', 75));
+
+            foreach (var group in typeStats)
+            {
+                byte type = group.Key;
+                int count = group.Count();
+                double avgSize = group.Average(b => b.Length);
+
+                bool isSimple = (type & 0x02) == 0;
+                string format = isSimple ? "Simple Diamond" : "Compressed";
+
+                // 額外 flags
+                var flags = new List<string>();
+                if ((type & 0x01) != 0) flags.Add("Flip");
+                if ((type & 0x08) != 0) flags.Add("Shadow");
+                if ((type & 0x10) != 0) flags.Add("Trans");
+
+                string flagStr = flags.Count > 0 ? string.Join(", ", flags) : "-";
+
+                Console.WriteLine($"{type,-6} 0x{type:X2}   {count,-8} {format,-18} {avgSize:F1} bytes   {flagStr}");
+            }
+
+            // 詳細分析
+            var (classic, remaster, hybrid, unknown) = L1Til.AnalyzeTilBlocks(data);
+            Console.WriteLine();
+            Console.WriteLine("=== Block Format Analysis ===");
+            Console.WriteLine($"Classic (24x24): {classic}");
+            Console.WriteLine($"Remaster (48x48): {remaster}");
+            Console.WriteLine($"Hybrid: {hybrid}");
+            Console.WriteLine($"Unknown: {unknown}");
+
+            // 取得 TileBlocks 來統計共用狀況
+            var tileBlocks = L1Til.ParseToTileBlocks(data);
+            if (tileBlocks != null)
+            {
+                Console.WriteLine();
+                Console.WriteLine("=== Block Sharing ===");
+                Console.WriteLine($"Total block references: {tileBlocks.Count}");
+                Console.WriteLine($"Unique blocks: {tileBlocks.UniqueCount}");
+                Console.WriteLine($"Sharing ratio: {(1.0 - (double)tileBlocks.UniqueCount / tileBlocks.Count) * 100:F1}%");
+            }
         }
 
         static void CompareTileFiles(string folder1, string folder2, string outputFile)
