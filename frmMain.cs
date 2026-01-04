@@ -151,6 +151,7 @@ namespace PakViewer
     private string _LastSprListFile;
     private Label lblFolder;
     private Panel palToolbar;
+    private Button btnAddSprite;  // 新增 SPR 按鈕
     private Panel palContentSearch;
     private Label lblContentSearch;
     private TextBox txtContentSearch;
@@ -873,6 +874,48 @@ namespace PakViewer
       }
     }
 
+    private void btnAddSprite_Click(object sender, EventArgs e)
+    {
+      if (string.IsNullOrEmpty(this._SelectedFolder))
+      {
+        MessageBox.Show("請先開啟客戶端資料夾", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return;
+      }
+
+      using (var dlg = new OpenFileDialog())
+      {
+        dlg.Title = "選擇要新增的 SPR 檔案";
+        dlg.Filter = "SPR Files (*.spr)|*.spr|All Files (*.*)|*.*";
+        dlg.Multiselect = true;
+        dlg.InitialDirectory = this._SelectedFolder;
+
+        if (dlg.ShowDialog() == DialogResult.OK && dlg.FileNames.Length > 0)
+        {
+          this.Cursor = Cursors.WaitCursor;
+          try
+          {
+            var (success, failed, errors) = PakReader.AddSpriteFiles(
+                this._SelectedFolder, dlg.FileNames);
+
+            string msg = $"完成！成功: {success}, 失敗: {failed}";
+            if (errors.Count > 0)
+              msg += "\n\n錯誤:\n" + string.Join("\n", errors.Take(10));
+
+            MessageBox.Show(msg, "新增 SPR 結果", MessageBoxButtons.OK,
+                success > 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+
+            // 重新載入 Sprite 模式
+            if (success > 0)
+              this.LoadSpriteMode();
+          }
+          finally
+          {
+            this.Cursor = Cursors.Default;
+          }
+        }
+      }
+    }
+
     private void LoadListSprForSpriteMode(string filePath)
     {
       try
@@ -1098,6 +1141,9 @@ namespace PakViewer
         // 顯示 list.spr 分類控件
         this.btnLoadListSpr.Visible = true;
         this.cmbSpriteTypeFilter.Visible = true;
+        // 顯示新增 SPR 按鈕，隱藏右邊搜尋區域
+        this.btnAddSprite.Visible = true;
+        this.palContentSearch.Visible = false;
       }
       else
       {
@@ -1107,6 +1153,9 @@ namespace PakViewer
         // 隱藏 list.spr 分類控件
         this.btnLoadListSpr.Visible = false;
         this.cmbSpriteTypeFilter.Visible = false;
+        // 隱藏新增 SPR 按鈕，顯示右邊搜尋區域
+        this.btnAddSprite.Visible = false;
+        this.palContentSearch.Visible = true;
         this._SpriteModeListSpr = null;
         this._SpriteIdToEntry = null;
 
@@ -6039,6 +6088,15 @@ namespace PakViewer
       this.cmbSprListTypeFilter.Visible = false;
       this.cmbSprListTypeFilter.SelectedIndexChanged += new EventHandler(this.cmbSprListTypeFilter_SelectedIndexChanged);
       this.palToolbar.Controls.Add((Control) this.cmbSprListTypeFilter);
+      // 新增 SPR 按鈕
+      this.btnAddSprite = new Button();
+      this.btnAddSprite.Location = new Point(690, 24);
+      this.btnAddSprite.Size = new Size(80, 22);
+      this.btnAddSprite.Text = "新增 SPR";
+      this.btnAddSprite.Font = new Font("Microsoft JhengHei UI", 8);
+      this.btnAddSprite.Visible = false;
+      this.btnAddSprite.Click += new EventHandler(this.btnAddSprite_Click);
+      this.palToolbar.Controls.Add((Control) this.btnAddSprite);
       this.palToolbar.Dock = DockStyle.Top;
       this.palToolbar.Location = new Point(0, 24);
       this.palToolbar.Name = "palToolbar";
