@@ -344,10 +344,47 @@ namespace Lin.Helper.Core.Tile
                 }
             }
 
-            // 如果沒有任何像素，返回空 block
+            // 如果沒有任何非透明像素，使用原始 RLE 資料的 bounding box
             if (maxX < 0)
             {
-                return new byte[] { 0, 0 };
+                // 從 RLE 資料推導 bounding box
+                if (block.RleData.Count > 0)
+                {
+                    int totalRows = 0;
+                    int maxWidth = 0;
+                    foreach (ushort rleValue in block.RleData)
+                    {
+                        int skip = rleValue & 0x1F;
+                        int draw = (rleValue >> 5) & 0x1F;
+                        int rowFlag = (rleValue >> 10) & 0x1F;
+                        maxWidth = Math.Max(maxWidth, skip + draw);
+                        if (rowFlag > 0)
+                            totalRows += rowFlag;
+                    }
+
+                    if (maxWidth > 0 && totalRows > 0)
+                    {
+                        // 輸出一個有效的壓縮格式空 block
+                        byte emptyBlockType = (byte)(block.UseTableB ? 7 : 6);
+                        var emptyResult = new List<byte>();
+                        emptyResult.Add(emptyBlockType);
+                        emptyResult.Add(0);                    // x_offset
+                        emptyResult.Add(0);                    // y_offset
+                        emptyResult.Add((byte)maxWidth);       // xxLen
+                        emptyResult.Add((byte)totalRows);      // yLen
+
+                        // 每行輸出 0 個 segment (空行)
+                        for (int i = 0; i < totalRows; i++)
+                        {
+                            emptyResult.Add(0); // segment count = 0
+                        }
+                        emptyResult.Add(0); // 結尾
+                        return emptyResult.ToArray();
+                    }
+                }
+
+                // 真的沒有任何資料，輸出最小有效結構
+                return new byte[] { (byte)(block.UseTableB ? 7 : 6), 0, 0, 1, 1, 0, 0 };
             }
 
             // type 6 = 置中, type 7 = 左對齊

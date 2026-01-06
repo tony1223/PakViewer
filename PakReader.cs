@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -219,6 +221,31 @@ namespace PakViewer
                     // til-compare <til_file1> <til_file2>
                     if (args.Length < 3) { Console.WriteLine("Usage: til-compare <til_file1> <til_file2>"); return; }
                     TilCompare(args[1], args[2]);
+                    break;
+
+                case "til-diff":
+                    // 批量比較 til1 和 til2 目錄中的顏色差異
+                    // til-diff <til1_dir> <til2_dir> [threshold] [max_tile_id]
+                    if (args.Length < 3) { Console.WriteLine("Usage: til-diff <til1_dir> <til2_dir> [threshold] [max_tile_id]"); return; }
+                    double threshold = args.Length > 3 ? double.Parse(args[3]) : 5.0;
+                    int maxTileId = args.Length > 4 ? int.Parse(args[4]) : int.MaxValue;
+                    TilColorDiff(args[1], args[2], threshold, maxTileId);
+                    break;
+
+                case "til-sheet":
+                    // 輸出 tile 對比 sheet 圖
+                    // til-sheet <til1_file> <til2_file> <output_png>
+                    if (args.Length < 4) { Console.WriteLine("Usage: til-sheet <til1_file> <til2_file> <output_png>"); return; }
+                    GenerateTileCompareSheet(args[1], args[2], args[3]);
+                    break;
+
+                case "til-sheet-batch":
+                    // 批量輸出 tile 對比 sheet 圖 (只處理差異大的)
+                    // til-sheet-batch <til1_dir> <til2_dir> <output_dir> [threshold] [max_tile_id]
+                    if (args.Length < 4) { Console.WriteLine("Usage: til-sheet-batch <til1_dir> <til2_dir> <output_dir> [threshold] [max_tile_id]"); return; }
+                    double sheetThreshold = args.Length > 4 ? double.Parse(args[4]) : 30.0;
+                    int sheetMaxTileId = args.Length > 5 ? int.Parse(args[5]) : int.MaxValue;
+                    GenerateTileCompareSheetBatch(args[1], args[2], args[3], sheetThreshold, sheetMaxTileId);
                     break;
 
                 default:
@@ -3992,6 +4019,189 @@ namespace PakViewer
             }
         }
 
+        static void TilColorDiff(string til1Dir, string til2Dir, double threshold, int maxTileId = int.MaxValue)
+        {
+            Console.WriteLine($"=== Tile Color Difference Analysis ===");
+            Console.WriteLine($"  til1 dir:  {til1Dir}");
+            Console.WriteLine($"  til2 dir:  {til2Dir}");
+            Console.WriteLine($"  Threshold: {threshold}");
+            Console.WriteLine($"  Max Tile:  {(maxTileId == int.MaxValue ? "all" : maxTileId.ToString())}");
+            Console.WriteLine();
+
+            if (!Directory.Exists(til1Dir))
+            {
+                Console.WriteLine($"Error: Directory not found: {til1Dir}");
+                return;
+            }
+            if (!Directory.Exists(til2Dir))
+            {
+                Console.WriteLine($"Error: Directory not found: {til2Dir}");
+                return;
+            }
+
+            var til1Files = Directory.GetFiles(til1Dir, "*.til")
+                .Select(f => Path.GetFileName(f))
+                .ToHashSet();
+
+            var results = new List<(int tileId, int blockIdx, double avgDiff, string detail)>();
+            int processedTiles = 0;
+            int skippedTiles = 0;
+
+            foreach (var til1Name in til1Files.OrderBy(f => {
+                var match = System.Text.RegularExpressions.Regex.Match(f, @"(\d+)\.til");
+                return match.Success ? int.Parse(match.Groups[1].Value) : 0;
+            }))
+            {
+                string til1Path = Path.Combine(til1Dir, til1Name);
+                string til2Path = Path.Combine(til2Dir, til1Name);
+
+                if (!File.Exists(til2Path))
+                {
+                    skippedTiles++;
+                    continue;
+                }
+
+                var match = System.Text.RegularExpressions.Regex.Match(til1Name, @"(\d+)\.til");
+                int tileId = match.Success ? int.Parse(match.Groups[1].Value) : 0;
+
+                if (tileId >= maxTileId)
+                {
+                    skippedTiles++;
+                    continue;
+                }
+
+                try
+                {
+                    var blocks1 = L1Til.Parse(File.ReadAllBytes(til1Path));
+                    var blocks2 = L1Til.Parse(File.ReadAllBytes(til2Path));
+
+                    int minBlocks = Math.Min(blocks1.Count, blocks2.Count);
+
+                    for (int i = 0; i < minBlocks; i++)
+                    {
+                        var colors1 = ExtractBlockColors(blocks1[i]);
+                        var colors2 = ExtractBlockColors(blocks2[i]);
+
+                        if (colors1.Count == 0 && colors2.Count == 0)
+                            continue;
+
+                        // Calculate average color difference
+                        double totalDiff = 0;
+                        int compared = 0;
+
+                        int minColors = Math.Min(colors1.Count, colors2.Count);
+                        for (int c = 0; c < minColors; c++)
+                        {
+                            var (r1, g1, b1) = Rgb555ToComponents(colors1[c]);
+                            var (r2, g2, b2) = Rgb555ToComponents(colors2[c]);
+                            totalDiff += Math.Abs(r1 - r2) + Math.Abs(g1 - g2) + Math.Abs(b1 - b2);
+                            compared++;
+                        }
+
+                        double avgDiff = compared > 0 ? totalDiff / compared : 0;
+
+                        if (avgDiff >= threshold)
+                        {
+                            string detail = "";
+                            if (colors1.Count > 0 && colors2.Count > 0)
+                            {
+                                var (r1, g1, b1) = Rgb555ToComponents(colors1[0]);
+                                var (r2, g2, b2) = Rgb555ToComponents(colors2[0]);
+                                detail = $"til1:({r1},{g1},{b1}) til2:({r2},{g2},{b2})";
+                            }
+                            results.Add((tileId, i, avgDiff, detail));
+                        }
+                    }
+
+                    processedTiles++;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error processing tile {tileId}: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine($"Processed: {processedTiles} tiles, Skipped: {skippedTiles} (no match in til2)");
+            Console.WriteLine();
+
+            // Sort by difference descending
+            var sortedResults = results.OrderByDescending(r => r.avgDiff).Take(100).ToList();
+
+            Console.WriteLine($"=== Blocks with avg diff >= {threshold} (top 100) ===");
+            Console.WriteLine($"{"Tile",-8} {"Block",-8} {"AvgDiff",-10} {"First Color Sample"}");
+            Console.WriteLine(new string('-', 70));
+
+            foreach (var (tileId, blockIdx, avgDiff, detail) in sortedResults)
+            {
+                Console.WriteLine($"{tileId,-8} {blockIdx,-8} {avgDiff,-10:F2} {detail}");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine($"Total blocks with diff >= {threshold}: {results.Count}");
+        }
+
+        static List<ushort> ExtractBlockColors(byte[] blockData)
+        {
+            var colors = new List<ushort>();
+            if (blockData == null || blockData.Length < 2)
+                return colors;
+
+            int blockType = blockData[0];
+            bool isSimpleDiamond = blockType == 0 || blockType == 1 || blockType == 8 || blockType == 9 ||
+                                   blockType == 16 || blockType == 17;
+
+            if (isSimpleDiamond)
+            {
+                // Simple diamond: [type] [pixel data...] [terminator]
+                for (int i = 1; i < blockData.Length - 1; i += 2)
+                {
+                    if (i + 1 < blockData.Length)
+                    {
+                        ushort color = (ushort)(blockData[i] | (blockData[i + 1] << 8));
+                        if (color != 0)
+                            colors.Add(color);
+                    }
+                }
+            }
+            else if (blockData.Length >= 5)
+            {
+                // Compressed format: extract colors from segments
+                int yLen = blockData[4];
+                int idx = 5;
+
+                for (int row = 0; row < yLen && idx < blockData.Length; row++)
+                {
+                    if (idx >= blockData.Length) break;
+                    int segCount = blockData[idx++];
+
+                    for (int s = 0; s < segCount && idx < blockData.Length; s++)
+                    {
+                        if (idx + 1 >= blockData.Length) break;
+                        int skip = blockData[idx++];
+                        int count = blockData[idx++];
+
+                        for (int p = 0; p < count && idx + 1 < blockData.Length; p++)
+                        {
+                            ushort color = (ushort)(blockData[idx] | (blockData[idx + 1] << 8));
+                            if (color != 0)
+                                colors.Add(color);
+                            idx += 2;
+                        }
+                    }
+                }
+            }
+
+            return colors;
+        }
+
+        static (int r, int g, int b) Rgb555ToComponents(ushort rgb555)
+        {
+            int b = rgb555 & 0x1F;
+            int g = (rgb555 >> 5) & 0x1F;
+            int r = (rgb555 >> 10) & 0x1F;
+            return (r, g, b);
+        }
+
         static void DebugMTil(string filePath, int blockIndex)
         {
             Console.WriteLine($"=== MTil Debug: {Path.GetFileName(filePath)} ===");
@@ -4157,6 +4367,338 @@ namespace PakViewer
                 else
                 {
                     Console.WriteLine($"    [{i}] idx={idx,3} -> OUT OF RANGE");
+                }
+            }
+        }
+
+        #endregion
+
+        #region Tile Sheet Generation
+
+        static void GenerateTileCompareSheet(string til1Path, string til2Path, string outputPath)
+        {
+            Console.WriteLine($"=== Generate Tile Compare Sheet ===");
+            Console.WriteLine($"  til1: {til1Path}");
+            Console.WriteLine($"  til2: {til2Path}");
+            Console.WriteLine($"  output: {outputPath}");
+
+            if (!File.Exists(til1Path))
+            {
+                Console.WriteLine($"Error: File not found: {til1Path}");
+                return;
+            }
+            if (!File.Exists(til2Path))
+            {
+                Console.WriteLine($"Error: File not found: {til2Path}");
+                return;
+            }
+
+            try
+            {
+                var blocks1 = L1Til.Parse(File.ReadAllBytes(til1Path));
+                var blocks2 = L1Til.Parse(File.ReadAllBytes(til2Path));
+
+                // 16x16 grid = 256 blocks, each block 24x24
+                // Sheet: til1 on left, til2 on right
+                // Each tile sheet: 16 blocks wide * 24 pixels = 384 pixels
+                // 16 blocks tall * 24 pixels = 384 pixels
+                // Total width: 384 * 2 + 10 (gap) = 778 pixels
+                int blockSize = 24;
+                int gridSize = 16;
+                int tileSheetSize = gridSize * blockSize; // 384
+                int gap = 10;
+                int totalWidth = tileSheetSize * 2 + gap;
+                int totalHeight = tileSheetSize + 40; // Extra space for labels
+
+                using var bmp = new Bitmap(totalWidth, totalHeight);
+                using var g = Graphics.FromImage(bmp);
+
+                // Background
+                g.Clear(Color.FromArgb(40, 40, 40));
+
+                // Draw labels
+                using var font = new Font("Arial", 10);
+                using var brush = new SolidBrush(Color.White);
+                g.DrawString($"til1: {Path.GetFileName(til1Path)}", font, brush, 5, 5);
+                g.DrawString($"til2: {Path.GetFileName(til2Path)}", font, brush, tileSheetSize + gap + 5, 5);
+
+                int yOffset = 25;
+
+                // Render til1 blocks
+                for (int i = 0; i < Math.Min(256, blocks1.Count); i++)
+                {
+                    int x = (i % gridSize) * blockSize;
+                    int y = (i / gridSize) * blockSize + yOffset;
+                    RenderBlockToBitmap(bmp, blocks1[i], x, y);
+                }
+
+                // Render til2 blocks
+                for (int i = 0; i < Math.Min(256, blocks2.Count); i++)
+                {
+                    int x = tileSheetSize + gap + (i % gridSize) * blockSize;
+                    int y = (i / gridSize) * blockSize + yOffset;
+                    RenderBlockToBitmap(bmp, blocks2[i], x, y);
+                }
+
+                // Save
+                bmp.Save(outputPath, ImageFormat.Png);
+                Console.WriteLine($"Saved: {outputPath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+            }
+        }
+
+        static void GenerateTileCompareSheetBatch(string til1Dir, string til2Dir, string outputDir, double threshold, int maxTileId)
+        {
+            Console.WriteLine($"=== Batch Generate Tile Compare Sheets ===");
+            Console.WriteLine($"  til1 dir:  {til1Dir}");
+            Console.WriteLine($"  til2 dir:  {til2Dir}");
+            Console.WriteLine($"  output:    {outputDir}");
+            Console.WriteLine($"  threshold: {threshold}");
+            Console.WriteLine($"  max tile:  {(maxTileId == int.MaxValue ? "all" : maxTileId.ToString())}");
+            Console.WriteLine();
+
+            if (!Directory.Exists(til1Dir))
+            {
+                Console.WriteLine($"Error: Directory not found: {til1Dir}");
+                return;
+            }
+            if (!Directory.Exists(til2Dir))
+            {
+                Console.WriteLine($"Error: Directory not found: {til2Dir}");
+                return;
+            }
+
+            Directory.CreateDirectory(outputDir);
+
+            var til1Files = Directory.GetFiles(til1Dir, "*.til")
+                .Select(f => Path.GetFileName(f))
+                .ToList();
+
+            int generated = 0;
+            int skipped = 0;
+
+            foreach (var til1Name in til1Files.OrderBy(f => {
+                var match = System.Text.RegularExpressions.Regex.Match(f, @"(\d+)\.til");
+                return match.Success ? int.Parse(match.Groups[1].Value) : 0;
+            }))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(til1Name, @"(\d+)\.til");
+                int tileId = match.Success ? int.Parse(match.Groups[1].Value) : 0;
+
+                if (tileId >= maxTileId)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                string til1Path = Path.Combine(til1Dir, til1Name);
+                string til2Path = Path.Combine(til2Dir, til1Name);
+
+                if (!File.Exists(til2Path))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                try
+                {
+                    // Check if this tile has significant differences
+                    var blocks1 = L1Til.Parse(File.ReadAllBytes(til1Path));
+                    var blocks2 = L1Til.Parse(File.ReadAllBytes(til2Path));
+
+                    double maxDiff = 0;
+                    int minBlocks = Math.Min(blocks1.Count, blocks2.Count);
+
+                    for (int i = 0; i < minBlocks; i++)
+                    {
+                        var colors1 = ExtractBlockColors(blocks1[i]);
+                        var colors2 = ExtractBlockColors(blocks2[i]);
+
+                        if (colors1.Count == 0 || colors2.Count == 0)
+                            continue;
+
+                        double totalDiff = 0;
+                        int compared = 0;
+                        int minColors = Math.Min(colors1.Count, colors2.Count);
+
+                        for (int c = 0; c < minColors; c++)
+                        {
+                            var (r1, g1, b1) = Rgb555ToComponents(colors1[c]);
+                            var (r2, g2, b2) = Rgb555ToComponents(colors2[c]);
+                            totalDiff += Math.Abs(r1 - r2) + Math.Abs(g1 - g2) + Math.Abs(b1 - b2);
+                            compared++;
+                        }
+
+                        double avgDiff = compared > 0 ? totalDiff / compared : 0;
+                        maxDiff = Math.Max(maxDiff, avgDiff);
+                    }
+
+                    if (maxDiff >= threshold)
+                    {
+                        string outputPath = Path.Combine(outputDir, $"{tileId}_compare.png");
+                        GenerateTileCompareSheetInternal(blocks1, blocks2, til1Name, til1Name, outputPath);
+                        generated++;
+                        Console.WriteLine($"Generated: {tileId}_compare.png (maxDiff={maxDiff:F1})");
+                    }
+                    else
+                    {
+                        skipped++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error processing tile {tileId}: {ex.Message}");
+                    skipped++;
+                }
+            }
+
+            Console.WriteLine();
+            Console.WriteLine($"Generated: {generated} sheets");
+            Console.WriteLine($"Skipped: {skipped} tiles");
+        }
+
+        static void GenerateTileCompareSheetInternal(List<byte[]> blocks1, List<byte[]> blocks2, string label1, string label2, string outputPath)
+        {
+            int blockSize = 24;
+            int gridSize = 16;
+            int tileSheetSize = gridSize * blockSize;
+            int gap = 10;
+            int totalWidth = tileSheetSize * 2 + gap;
+            int totalHeight = tileSheetSize + 40;
+
+            using var bmp = new Bitmap(totalWidth, totalHeight);
+            using var g = Graphics.FromImage(bmp);
+
+            g.Clear(Color.FromArgb(40, 40, 40));
+
+            using var font = new Font("Arial", 10);
+            using var brush = new SolidBrush(Color.White);
+            g.DrawString($"til1: {label1}", font, brush, 5, 5);
+            g.DrawString($"til2: {label2}", font, brush, tileSheetSize + gap + 5, 5);
+
+            int yOffset = 25;
+
+            for (int i = 0; i < Math.Min(256, blocks1.Count); i++)
+            {
+                int x = (i % gridSize) * blockSize;
+                int y = (i / gridSize) * blockSize + yOffset;
+                RenderBlockToBitmap(bmp, blocks1[i], x, y);
+            }
+
+            for (int i = 0; i < Math.Min(256, blocks2.Count); i++)
+            {
+                int x = tileSheetSize + gap + (i % gridSize) * blockSize;
+                int y = (i / gridSize) * blockSize + yOffset;
+                RenderBlockToBitmap(bmp, blocks2[i], x, y);
+            }
+
+            bmp.Save(outputPath, ImageFormat.Png);
+        }
+
+        static void RenderBlockToBitmap(Bitmap bmp, byte[] blockData, int destX, int destY)
+        {
+            if (blockData == null || blockData.Length < 2)
+                return;
+
+            int blockType = blockData[0];
+            bool isSimpleDiamond = blockType == 0 || blockType == 1 || blockType == 8 || blockType == 9 ||
+                                   blockType == 16 || blockType == 17;
+
+            // Decode to 24x24 canvas
+            var canvas = new ushort[24 * 24];
+
+            if (isSimpleDiamond)
+            {
+                // Diamond pixel layout
+                int[] rowWidths = { 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2 };
+                int pixelIdx = 0;
+                int dataIdx = 1;
+
+                for (int row = 0; row < 23 && dataIdx < blockData.Length - 1; row++)
+                {
+                    int width = rowWidths[row];
+                    int startX = (blockType & 1) == 0 ? (24 - width) / 2 : 0; // type 0=centered, type 1=left
+
+                    for (int col = 0; col < width && dataIdx + 1 < blockData.Length; col++)
+                    {
+                        ushort color = (ushort)(blockData[dataIdx] | (blockData[dataIdx + 1] << 8));
+                        dataIdx += 2;
+
+                        int x = startX + col;
+                        int y = row;
+                        if (x >= 0 && x < 24 && y >= 0 && y < 24)
+                            canvas[y * 24 + x] = color;
+                    }
+                }
+            }
+            else if (blockData.Length >= 5)
+            {
+                // Compressed format
+                int xOffset = blockData[1];
+                int yOffsetBlock = blockData[2];
+                int xxLen = blockData[3];
+                int yLen = blockData[4];
+                int idx = 5;
+
+                for (int row = 0; row < yLen && idx < blockData.Length; row++)
+                {
+                    if (idx >= blockData.Length) break;
+                    int segCount = blockData[idx++];
+
+                    int currentX = xOffset;
+                    for (int s = 0; s < segCount && idx < blockData.Length; s++)
+                    {
+                        if (idx + 1 >= blockData.Length) break;
+                        int skip = blockData[idx++];
+                        int count = blockData[idx++];
+
+                        currentX += skip / 2; // skip is in bytes
+
+                        for (int p = 0; p < count && idx + 1 < blockData.Length; p++)
+                        {
+                            ushort color = (ushort)(blockData[idx] | (blockData[idx + 1] << 8));
+                            idx += 2;
+
+                            int x = currentX + p;
+                            int y = yOffsetBlock + row;
+                            if (x >= 0 && x < 24 && y >= 0 && y < 24)
+                                canvas[y * 24 + x] = color;
+                        }
+                        currentX += count;
+                    }
+                }
+            }
+
+            // Copy canvas to bitmap
+            for (int y = 0; y < 24; y++)
+            {
+                for (int x = 0; x < 24; x++)
+                {
+                    ushort rgb555 = canvas[y * 24 + x];
+                    Color color;
+
+                    if (rgb555 == 0)
+                    {
+                        color = Color.FromArgb(30, 30, 30); // Dark background for transparent
+                    }
+                    else
+                    {
+                        int b5 = rgb555 & 0x1F;
+                        int g5 = (rgb555 >> 5) & 0x1F;
+                        int r5 = (rgb555 >> 10) & 0x1F;
+                        int r8 = (r5 << 3) | (r5 >> 2);
+                        int g8 = (g5 << 3) | (g5 >> 2);
+                        int b8 = (b5 << 3) | (b5 >> 2);
+                        color = Color.FromArgb(r8, g8, b8);
+                    }
+
+                    int px = destX + x;
+                    int py = destY + y;
+                    if (px >= 0 && px < bmp.Width && py >= 0 && py < bmp.Height)
+                        bmp.SetPixel(px, py, color);
                 }
             }
         }

@@ -114,6 +114,160 @@ namespace PakViewer.Utility
     }
 
     /// <summary>
+    /// 載入 TIL 格式圖片 - 返回 sheet view with block numbers and grid
+    /// </summary>
+    public static Bitmap Load_TIL_Sheet(byte[] tildata)
+    {
+      var blocks = Lin.Helper.Core.Tile.L1Til.Parse(tildata);
+
+      const int BlockSize = 24;
+      const int CellPadding = 2;      // 格線寬度
+      const int LabelHeight = 14;     // 編號高度
+      const int CellSize = BlockSize + CellPadding + LabelHeight;  // 40
+      const int ColCount = 12;        // 每排 12 個
+      int rowCount = (int)System.Math.Ceiling(blocks.Count / (double)ColCount);
+      int sheetWidth = CellSize * ColCount;
+      int sheetHeight = CellSize * rowCount;
+
+      var bmp = new Bitmap(sheetWidth, sheetHeight);
+
+      using (var g = Graphics.FromImage(bmp))
+      {
+        g.Clear(System.Drawing.Color.FromArgb(30, 30, 30));
+
+        var gridPen = new Pen(System.Drawing.Color.FromArgb(60, 60, 60), 1);
+        var font = new Font("Arial", 8f, FontStyle.Regular);
+        var textBrush = new SolidBrush(System.Drawing.Color.FromArgb(180, 180, 180));
+
+        for (int i = 0; i < blocks.Count; i++)
+        {
+          int col = i % ColCount;
+          int row = i / ColCount;
+          int cellX = col * CellSize;
+          int cellY = row * CellSize;
+
+          // 畫格線邊框
+          g.DrawRectangle(gridPen, cellX, cellY, CellSize - 1, CellSize - 1);
+
+          // 畫 block 編號
+          string label = i.ToString();
+          g.DrawString(label, font, textBrush, cellX + 2, cellY + 1);
+
+          // 畫 block 圖像
+          int blockX = cellX + CellPadding / 2;
+          int blockY = cellY + LabelHeight;
+          RenderBlockToBitmap(bmp, blocks[i], blockX, blockY);
+        }
+
+        gridPen.Dispose();
+        font.Dispose();
+        textBrush.Dispose();
+      }
+
+      return bmp;
+    }
+
+    private static void RenderBlockToBitmap(Bitmap bmp, byte[] blockData, int destX, int destY)
+    {
+      if (blockData == null || blockData.Length < 2)
+        return;
+
+      int blockType = blockData[0];
+      bool isSimpleDiamond = blockType == 0 || blockType == 1 || blockType == 8 || blockType == 9 ||
+                             blockType == 16 || blockType == 17;
+
+      var canvas = new ushort[24 * 24];
+
+      if (isSimpleDiamond)
+      {
+        int[] rowWidths = { 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2 };
+        int dataIdx = 1;
+
+        for (int row = 0; row < 23 && dataIdx < blockData.Length - 1; row++)
+        {
+          int width = rowWidths[row];
+          int startX = (blockType & 1) == 0 ? (24 - width) / 2 : 0;
+
+          for (int col = 0; col < width && dataIdx + 1 < blockData.Length; col++)
+          {
+            ushort color = (ushort)(blockData[dataIdx] | (blockData[dataIdx + 1] << 8));
+            dataIdx += 2;
+
+            int px = startX + col;
+            int py = row;
+            if (px >= 0 && px < 24 && py >= 0 && py < 24)
+              canvas[py * 24 + px] = color;
+          }
+        }
+      }
+      else if (blockData.Length >= 5)
+      {
+        int xOffset = blockData[1];
+        int yOffsetBlock = blockData[2];
+        int xxLen = blockData[3];
+        int yLen = blockData[4];
+        int idx = 5;
+
+        for (int row = 0; row < yLen && idx < blockData.Length; row++)
+        {
+          if (idx >= blockData.Length) break;
+          int segCount = blockData[idx++];
+
+          int currentX = xOffset;
+          for (int s = 0; s < segCount && idx < blockData.Length; s++)
+          {
+            if (idx + 1 >= blockData.Length) break;
+            int skip = blockData[idx++];
+            int count = blockData[idx++];
+
+            currentX += skip / 2;
+
+            for (int p = 0; p < count && idx + 1 < blockData.Length; p++)
+            {
+              ushort color = (ushort)(blockData[idx] | (blockData[idx + 1] << 8));
+              idx += 2;
+
+              int px = currentX + p;
+              int py = yOffsetBlock + row;
+              if (px >= 0 && px < 24 && py >= 0 && py < 24)
+                canvas[py * 24 + px] = color;
+            }
+            currentX += count;
+          }
+        }
+      }
+
+      for (int y = 0; y < 24; y++)
+      {
+        for (int x = 0; x < 24; x++)
+        {
+          ushort rgb555 = canvas[y * 24 + x];
+          System.Drawing.Color color;
+
+          if (rgb555 == 0)
+          {
+            color = System.Drawing.Color.FromArgb(30, 30, 30);
+          }
+          else
+          {
+            int b5 = rgb555 & 0x1F;
+            int g5 = (rgb555 >> 5) & 0x1F;
+            int r5 = (rgb555 >> 10) & 0x1F;
+            int r8 = (r5 << 3) | (r5 >> 2);
+            int g8 = (g5 << 3) | (g5 >> 2);
+            int b8 = (b5 << 3) | (b5 >> 2);
+            color = System.Drawing.Color.FromArgb(r8, g8, b8);
+          }
+
+          int px = destX + x;
+          int py = destY + y;
+          if (px >= 0 && px < bmp.Width && py >= 0 && py < bmp.Height)
+            bmp.SetPixel(px, py, color);
+        }
+      }
+    }
+
+    /// <summary>
     /// L1 圖片結構 (相容舊介面)
     /// </summary>
     public struct L1Image

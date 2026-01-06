@@ -64,6 +64,7 @@ namespace PakViewer
     private IContainer components;
     private MenuStrip menuStrip1;
     private ToolStripMenuItem mnuFile;
+    private ToolStripMenuItem mnuOpenTil;
     private ToolStripSeparator toolStripSeparator1;
     private ToolStripMenuItem mnuQuit;
     private OpenFileDialog dlgOpenFile;
@@ -1451,7 +1452,7 @@ namespace PakViewer
             break;
 
           case ".til":
-            result = ImageConvert.Load_TIL(data);
+            result = ImageConvert.Load_TIL_Sheet(data);
             break;
         }
 
@@ -1542,7 +1543,7 @@ namespace PakViewer
             result = ImageConvert.Load_TBT(data);
             break;
           case ".til":
-            result = ImageConvert.Load_TIL(data);
+            result = ImageConvert.Load_TIL_Sheet(data);
             break;
         }
 
@@ -2969,7 +2970,7 @@ namespace PakViewer
         this.ImageViewer.Visible = false;
         this.SprViewer.Visible = false;
       }
-      else if (this._InviewData == frmMain.InviewDataType.IMG || this._InviewData == frmMain.InviewDataType.BMP || this._InviewData == frmMain.InviewDataType.TBT)
+      else if (this._InviewData == frmMain.InviewDataType.IMG || this._InviewData == frmMain.InviewDataType.BMP || this._InviewData == frmMain.InviewDataType.TBT || this._InviewData == frmMain.InviewDataType.TIL)
       {
         this.ImageViewer.Visible = true;
         this.TextViewer.Visible = false;
@@ -3166,7 +3167,7 @@ namespace PakViewer
     frmMain.InviewDataType.IMG,
     frmMain.InviewDataType.BMP,
     frmMain.InviewDataType.TBT,
-    frmMain.InviewDataType.Empty,
+    frmMain.InviewDataType.TIL,
     frmMain.InviewDataType.Text,
     frmMain.InviewDataType.Text,
     frmMain.InviewDataType.SPR,
@@ -3255,7 +3256,7 @@ namespace PakViewer
         frmMain.InviewDataType.IMG,
         frmMain.InviewDataType.BMP,
         frmMain.InviewDataType.TBT,
-        frmMain.InviewDataType.Empty,
+        frmMain.InviewDataType.TIL,
         frmMain.InviewDataType.Text,
         frmMain.InviewDataType.Text,
         frmMain.InviewDataType.SPR,
@@ -3347,17 +3348,17 @@ namespace PakViewer
             obj = (object) L1Spr.Load(numArray);
             break;
           case frmMain.InviewDataType.TIL:
-            obj = (object) ImageConvert.Load_TIL(numArray);
+            obj = (object) ImageConvert.Load_TIL_Sheet(numArray);
             break;
           case frmMain.InviewDataType.TBT:
             obj = (object) ImageConvert.Load_TBT(numArray);
             break;
         }
       }
-      catch
+      catch (Exception ex)
       {
         this._InviewData = frmMain.InviewDataType.Empty;
-        this.tssMessage.Text = "*Error *: Can't open this file!";
+        this.tssMessage.Text = "*Error*: " + ex.GetType().Name + ": " + ex.Message;
       }
       return obj;
     }
@@ -5606,11 +5607,18 @@ namespace PakViewer
       this.mnuOpenDat.Text = "開啟天M DAT檔(&D)...";
       this.mnuOpenDat.Click += new EventHandler(this.mnuOpenDat_Click);
 
-      this.mnuFile.DropDownItems.AddRange(new ToolStripItem[8]
+      this.mnuOpenTil = new ToolStripMenuItem();
+      this.mnuOpenTil.Name = "mnuOpenTil";
+      this.mnuOpenTil.Size = new Size(180, 22);
+      this.mnuOpenTil.Text = "開啟 TIL 檔案(&T)...";
+      this.mnuOpenTil.Click += new EventHandler(this.mnuOpenTil_Click);
+
+      this.mnuFile.DropDownItems.AddRange(new ToolStripItem[9]
       {
         (ToolStripItem) this.mnuOpen,
         (ToolStripItem) this.mnuOpenSprList,
         (ToolStripItem) this.mnuOpenDat,
+        (ToolStripItem) this.mnuOpenTil,
         (ToolStripItem) this.toolStripSeparator1,
         (ToolStripItem) this.mnuCreatResource,
         (ToolStripItem) this.mnuRebuild,
@@ -6362,6 +6370,43 @@ namespace PakViewer
         finally
         {
           this.Cursor = Cursors.Default;
+        }
+      }
+    }
+
+    /// <summary>
+    /// 開啟 TIL 檔案選單點擊事件
+    /// </summary>
+    private void mnuOpenTil_Click(object sender, EventArgs e)
+    {
+      using (var dlg = new OpenFileDialog())
+      {
+        dlg.Title = "選擇 TIL 檔案";
+        dlg.Filter = "TIL 檔案 (*.til)|*.til|所有檔案 (*.*)|*.*";
+        dlg.Multiselect = false;
+
+        if (!string.IsNullOrEmpty(this._SelectedFolder))
+          dlg.InitialDirectory = this._SelectedFolder;
+
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+          return;
+
+        try
+        {
+          byte[] tilData = File.ReadAllBytes(dlg.FileName);
+          var bmp = ImageConvert.Load_TIL_Sheet(tilData);
+
+          // 切換到圖片檢視器
+          this.TextViewer.Visible = false;
+          this.SprViewer.Visible = false;
+          this.ImageViewer.Visible = true;
+          this.ImageViewer.Image = bmp;
+
+          this.tssMessage.Text = $"TIL: {Path.GetFileName(dlg.FileName)} ({tilData.Length / 1024.0:F1} KB)";
+        }
+        catch (Exception ex)
+        {
+          MessageBox.Show($"無法開啟 TIL 檔案: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
       }
     }
