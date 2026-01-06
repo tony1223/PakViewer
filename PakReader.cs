@@ -193,6 +193,34 @@ namespace PakViewer
                     BatchConvertMTil(args[1], args[2], pattern, compStr);
                     break;
 
+                case "mtil-debug":
+                    // 診斷 MTil 檔案內容
+                    // mtil-debug <mtil_file> [block_index]
+                    if (args.Length < 2) { Console.WriteLine("Usage: mtil-debug <mtil_file> [block_index]"); return; }
+                    int debugBlockIdx = args.Length > 2 ? int.Parse(args[2]) : -1;
+                    DebugMTil(args[1], debugBlockIdx);
+                    break;
+
+                case "mtil-render-debug":
+                    // 調試 MTil 渲染
+                    if (args.Length < 3) { Console.WriteLine("Usage: mtil-render-debug <mtil_file> <block_index>"); return; }
+                    DebugRenderBlock(args[1], int.Parse(args[2]));
+                    break;
+
+                case "til-md5":
+                    // 計算 tile blocks 的 MD5
+                    // til-md5 <til_file> [block_index]
+                    if (args.Length < 2) { Console.WriteLine("Usage: til-md5 <til_file> [block_index]"); return; }
+                    TilMd5(args[1], args.Length > 2 ? int.Parse(args[2]) : -1);
+                    break;
+
+                case "til-compare":
+                    // 比較兩個 tile 檔案的 blocks
+                    // til-compare <til_file1> <til_file2>
+                    if (args.Length < 3) { Console.WriteLine("Usage: til-compare <til_file1> <til_file2>"); return; }
+                    TilCompare(args[1], args[2]);
+                    break;
+
                 default:
                     ShowHelp();
                     break;
@@ -3870,6 +3898,265 @@ namespace PakViewer
                 if (errors.Count > showCount)
                 {
                     Console.WriteLine($"  ... and {errors.Count - showCount} more errors");
+                }
+            }
+        }
+
+        static void TilMd5(string filePath, int blockIndex)
+        {
+            Console.WriteLine($"=== Tile MD5: {Path.GetFileName(filePath)} ===");
+            Console.WriteLine();
+
+            if (!File.Exists(filePath))
+            {
+                Console.WriteLine($"Error: File not found: {filePath}");
+                return;
+            }
+
+            try
+            {
+                var blocks = L1Til.Parse(File.ReadAllBytes(filePath));
+                Console.WriteLine($"Total blocks: {blocks.Count}");
+                Console.WriteLine();
+
+                if (blockIndex >= 0)
+                {
+                    // 顯示單一 block
+                    if (blockIndex < blocks.Count)
+                    {
+                        string md5 = L1Til.GetBlockMd5(blocks[blockIndex]);
+                        Console.WriteLine($"Block {blockIndex}: {md5} ({blocks[blockIndex].Length} bytes)");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Error: Block index {blockIndex} out of range");
+                    }
+                }
+                else
+                {
+                    // 顯示所有 blocks
+                    for (int i = 0; i < blocks.Count; i++)
+                    {
+                        string md5 = L1Til.GetBlockMd5(blocks[i]);
+                        Console.WriteLine($"[{i,3}] {md5} ({blocks[i].Length,4} bytes)");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+            }
+        }
+
+        static void TilCompare(string file1, string file2)
+        {
+            Console.WriteLine($"=== Tile Compare ===");
+            Console.WriteLine($"  File1: {Path.GetFileName(file1)}");
+            Console.WriteLine($"  File2: {Path.GetFileName(file2)}");
+            Console.WriteLine();
+
+            if (!File.Exists(file1))
+            {
+                Console.WriteLine($"Error: File not found: {file1}");
+                return;
+            }
+            if (!File.Exists(file2))
+            {
+                Console.WriteLine($"Error: File not found: {file2}");
+                return;
+            }
+
+            try
+            {
+                var (matched, different, onlyIn1, onlyIn2, diffIndices) = L1Til.CompareBlocks(file1, file2);
+
+                Console.WriteLine($"Results:");
+                Console.WriteLine($"  Matched:       {matched}");
+                Console.WriteLine($"  Different:     {different}");
+                Console.WriteLine($"  Only in file1: {onlyIn1}");
+                Console.WriteLine($"  Only in file2: {onlyIn2}");
+                Console.WriteLine();
+
+                if (diffIndices.Count > 0 && diffIndices.Count <= 50)
+                {
+                    Console.WriteLine($"Different block indices: {string.Join(", ", diffIndices)}");
+                }
+                else if (diffIndices.Count > 50)
+                {
+                    Console.WriteLine($"Different block indices (first 50): {string.Join(", ", diffIndices.Take(50))}...");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+            }
+        }
+
+        static void DebugMTil(string filePath, int blockIndex)
+        {
+            Console.WriteLine($"=== MTil Debug: {Path.GetFileName(filePath)} ===");
+            Console.WriteLine();
+
+            if (!File.Exists(filePath))
+            {
+                Console.WriteLine($"Error: File not found: {filePath}");
+                return;
+            }
+
+            try
+            {
+                var parsed = MTil.ParseFile(filePath);
+
+                Console.WriteLine($"Block Count: {parsed.BlockCount}");
+                Console.WriteLine($"Has Global Palette: {parsed.HasGlobalPalette}");
+                Console.WriteLine($"Palette Size: {parsed.GlobalPalette.Length}");
+                Console.WriteLine();
+
+                // 輸出前 20 個 palette 顏色
+                Console.WriteLine("Global Palette (first 20):");
+                for (int i = 0; i < Math.Min(20, parsed.GlobalPalette.Length); i++)
+                {
+                    ushort c = parsed.GlobalPalette[i];
+                    int r = (c >> 10) & 0x1F;
+                    int g = (c >> 5) & 0x1F;
+                    int b = c & 0x1F;
+                    Console.WriteLine($"  [{i,3}] 0x{c:X4} -> R={r,2}, G={g,2}, B={b,2}");
+                }
+                Console.WriteLine();
+
+                // 輸出指定 block 或所有 block 的摘要
+                if (blockIndex >= 0 && blockIndex < parsed.Blocks.Count)
+                {
+                    var block = parsed.Blocks[blockIndex];
+                    PrintBlockDebug(block, parsed.GlobalPalette);
+                }
+                else
+                {
+                    // 輸出所有 block 的 flags 摘要
+                    Console.WriteLine("Block Flags Summary:");
+                    var flagGroups = parsed.Blocks.GroupBy(b => b.Flags).OrderBy(g => g.Key);
+                    foreach (var group in flagGroups)
+                    {
+                        byte flags = group.Key;
+                        bool isDefault = (flags & 0x40) != 0;
+                        bool useTableB = (flags & 0x01) != 0;
+                        Console.WriteLine($"  Flags 0x{flags:X2}: {group.Count()} blocks (IsDefault={isDefault}, UseTableB={useTableB})");
+                    }
+                    Console.WriteLine();
+
+                    // 輸出前 5 個 block 的詳細信息
+                    Console.WriteLine("First 5 blocks:");
+                    for (int i = 0; i < Math.Min(5, parsed.Blocks.Count); i++)
+                    {
+                        var block = parsed.Blocks[i];
+                        Console.WriteLine($"  Block {i}: Flags=0x{block.Flags:X2}, IsDefault={block.IsDefault}, UseTableB={block.UseTableB}, Pixels={block.Pixels.Length}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+            }
+        }
+
+        static void DebugRenderBlock(string filePath, int blockIndex)
+        {
+            var parsed = MTil.ParseFile(filePath);
+            if (blockIndex < 0 || blockIndex >= parsed.Blocks.Count)
+            {
+                Console.WriteLine($"Block {blockIndex} out of range");
+                return;
+            }
+
+            var block = parsed.Blocks[blockIndex];
+            Console.WriteLine($"Block {blockIndex}:");
+            Console.WriteLine($"  Flags: 0x{block.Flags:X2}, IsDefault: {block.IsDefault}");
+            Console.WriteLine($"  RleData.Count: {block.RleData.Count}");
+            Console.WriteLine($"  Pixels.Length: {block.Pixels.Length}");
+
+            // 模擬渲染
+            var canvas = new ushort[24 * 24];
+            var pixelColors = new List<ushort>();
+            foreach (byte idx in block.Pixels)
+            {
+                if (idx < parsed.GlobalPalette.Length)
+                    pixelColors.Add(MTil.Rgb565ToRgb555(parsed.GlobalPalette[idx]));
+                else
+                    pixelColors.Add(0);
+            }
+
+            Console.WriteLine($"  PixelColors.Count: {pixelColors.Count}");
+            Console.WriteLine($"  First 5 colors: {string.Join(", ", pixelColors.Take(5).Select(c => $"0x{c:X4}"))}");
+
+            // RLE 渲染
+            var rleEntries = new List<(int skip, int draw, int rowFlag)>();
+            if (block.RleData.Count > 0)
+            {
+                foreach (ushort rleValue in block.RleData)
+                {
+                    int skip = rleValue & 0x1F;
+                    int draw = (rleValue >> 5) & 0x1F;
+                    int rowFlag = (rleValue >> 10) & 0x1F;
+                    rleEntries.Add((skip, draw, rowFlag));
+                }
+            }
+
+            Console.WriteLine($"  RLE entries: {rleEntries.Count}");
+            Console.WriteLine($"  First 3 RLE: {string.Join(", ", rleEntries.Take(3).Select(e => $"({e.skip},{e.draw},{e.rowFlag})"))}");
+
+            int pixelIdx = 0, row = 0, xBase = 0, placed = 0;
+            foreach (var (skip, draw, rowFlag) in rleEntries)
+            {
+                int x = xBase + skip;
+                for (int j = 0; j < draw && pixelIdx < pixelColors.Count; j++)
+                {
+                    int px = x + j;
+                    if (px >= 0 && px < 24 && row >= 0 && row < 24)
+                    {
+                        canvas[row * 24 + px] = pixelColors[pixelIdx];
+                        placed++;
+                    }
+                    pixelIdx++;
+                }
+                if (rowFlag > 0) { row += rowFlag; xBase = 0; }
+                else { xBase = x + draw; }
+            }
+
+            Console.WriteLine($"  Pixels placed: {placed}");
+            int nonZero = canvas.Count(c => c != 0);
+            Console.WriteLine($"  Non-zero in canvas: {nonZero}");
+        }
+
+        static void PrintBlockDebug(MTil.MBlock block, ushort[] globalPalette)
+        {
+            Console.WriteLine($"Block {block.Index}:");
+            Console.WriteLine($"  Flags: 0x{block.Flags:X2}");
+            Console.WriteLine($"  IsDefault: {block.IsDefault}");
+            Console.WriteLine($"  UseTableB: {block.UseTableB}");
+            Console.WriteLine($"  Width: {block.Width}");
+            Console.WriteLine($"  Height: {block.Height}");
+            Console.WriteLine($"  ColorCount: {block.ColorCount}");
+            Console.WriteLine($"  DataSize: {block.DataSize}");
+            Console.WriteLine($"  Pixels Length: {block.Pixels.Length}");
+            Console.WriteLine($"  RleData Count: {block.RleData.Count}");
+            Console.WriteLine();
+
+            // 輸出前 10 個 pixel indices 和對應顏色
+            Console.WriteLine("  First 10 pixel indices and colors:");
+            for (int i = 0; i < Math.Min(10, block.Pixels.Length); i++)
+            {
+                byte idx = block.Pixels[i];
+                if (idx < globalPalette.Length)
+                {
+                    ushort c = globalPalette[idx];
+                    int r = (c >> 10) & 0x1F;
+                    int g = (c >> 5) & 0x1F;
+                    int b = c & 0x1F;
+                    Console.WriteLine($"    [{i}] idx={idx,3} -> 0x{c:X4} (R={r,2}, G={g,2}, B={b,2})");
+                }
+                else
+                {
+                    Console.WriteLine($"    [{i}] idx={idx,3} -> OUT OF RANGE");
                 }
             }
         }

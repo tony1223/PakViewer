@@ -1089,5 +1089,83 @@ namespace Lin.Helper.Core.Tile
         }
 
         #endregion
+
+        #region Checksum
+
+        /// <summary>
+        /// 計算單個 block 的 MD5 checksum
+        /// </summary>
+        public static string GetBlockMd5(byte[] blockData)
+        {
+            if (blockData == null || blockData.Length == 0)
+                return string.Empty;
+
+            using var md5 = System.Security.Cryptography.MD5.Create();
+            byte[] hash = md5.ComputeHash(blockData);
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        }
+
+        /// <summary>
+        /// 計算 tile 中所有 blocks 的 MD5 checksums
+        /// </summary>
+        /// <returns>每個 block index 對應的 MD5 字串</returns>
+        public static string[] GetAllBlockMd5(byte[] tilData)
+        {
+            var blocks = Parse(tilData);
+            var checksums = new string[blocks.Count];
+
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                checksums[i] = GetBlockMd5(blocks[i]);
+            }
+
+            return checksums;
+        }
+
+        /// <summary>
+        /// 從檔案計算所有 blocks 的 MD5 checksums
+        /// </summary>
+        public static string[] GetAllBlockMd5FromFile(string filePath)
+        {
+            byte[] data = File.ReadAllBytes(filePath);
+            return GetAllBlockMd5(data);
+        }
+
+        /// <summary>
+        /// 比較兩個 tile 檔案的 blocks，回傳差異資訊
+        /// </summary>
+        public static (int matched, int different, int onlyInFirst, int onlyInSecond, List<int> diffIndices)
+            CompareBlocks(string file1, string file2)
+        {
+            var blocks1 = Parse(File.ReadAllBytes(file1));
+            var blocks2 = Parse(File.ReadAllBytes(file2));
+
+            int matched = 0, different = 0;
+            var diffIndices = new List<int>();
+
+            int maxCount = Math.Max(blocks1.Count, blocks2.Count);
+            int minCount = Math.Min(blocks1.Count, blocks2.Count);
+
+            for (int i = 0; i < minCount; i++)
+            {
+                string md5_1 = GetBlockMd5(blocks1[i]);
+                string md5_2 = GetBlockMd5(blocks2[i]);
+
+                if (md5_1 == md5_2)
+                    matched++;
+                else
+                {
+                    different++;
+                    diffIndices.Add(i);
+                }
+            }
+
+            int onlyInFirst = blocks1.Count > minCount ? blocks1.Count - minCount : 0;
+            int onlyInSecond = blocks2.Count > minCount ? blocks2.Count - minCount : 0;
+
+            return (matched, different, onlyInFirst, onlyInSecond, diffIndices);
+        }
+
+        #endregion
     }
 }

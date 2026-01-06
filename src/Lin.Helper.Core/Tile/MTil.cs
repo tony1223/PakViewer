@@ -199,11 +199,12 @@ namespace Lin.Helper.Core.Tile
                 return canvas;
 
             // Convert indexed pixels to RGB555 colors
+            // MTil palette 是 RGB565，需要轉換成 RGB555
             var pixelColors = new List<ushort>();
             foreach (byte idx in block.Pixels)
             {
                 if (idx < globalPalette.Length)
-                    pixelColors.Add(globalPalette[idx]);
+                    pixelColors.Add(Rgb565ToRgb555(globalPalette[idx]));
                 else
                     pixelColors.Add(0);
             }
@@ -278,36 +279,127 @@ namespace Lin.Helper.Core.Tile
 
         /// <summary>
         /// 將 block 渲染為 24x24 的 byte[] (L1Tile 相容格式)
-        /// 格式: type + RGB555 pixels (簡單菱形格式)
+        /// DEFAULT blocks -> type 0/1 簡單菱形
+        /// NORMAL blocks -> type 6/7 壓縮格式
         /// </summary>
         public static byte[] RenderBlockToL1Format(MBlock block, ushort[] globalPalette)
         {
-            var rgb555 = RenderBlockToRgb555(block, globalPalette);
-
-            // 使用 L1Tile 的簡單菱形格式 (type 0)
-            // 依照菱形順序輸出像素
-            var result = new List<byte>();
-            result.Add(0); // type = 0 (簡單菱形)
-
-            // 24x24 菱形: 每行的像素數
-            // 第 0 行: 2 像素, 第 1 行: 4 像素, ..., 第 11 行: 24 像素
-            // 第 12 行: 22 像素, ..., 第 22 行: 2 像素
-            for (int y = 0; y < 23; y++)
+            // 對於 DEFAULT blocks，使用簡單菱形格式 (type 0/1)
+            if (block.IsDefault && block.Pixels.Length == 288)
             {
-                int n;
-                if (y <= 11)
-                    n = (y + 1) * 2;
-                else
-                    n = (23 - y) * 2;
+                return RenderDefaultBlockToL1(block, globalPalette);
+            }
+            else
+            {
+                // 非 DEFAULT blocks，使用壓縮格式 (type 6/7)
+                return RenderNormalBlockToL1Compressed(block, globalPalette);
+            }
+        }
 
-                int startX = (24 - n) / 2;
+        /// <summary>
+        /// DEFAULT block -> type 0/1 簡單菱形
+        /// </summary>
+        private static byte[] RenderDefaultBlockToL1(MBlock block, ushort[] globalPalette)
+        {
+            byte blockType = (byte)(block.UseTableB ? 1 : 0);
+            var result = new List<byte>();
+            result.Add(blockType);
 
-                for (int x = 0; x < n; x++)
+            foreach (byte idx in block.Pixels)
+            {
+                ushort color = 0;
+                if (idx < globalPalette.Length)
                 {
-                    int px = startX + x;
-                    ushort color = rgb555[y * BlockSize + px];
-                    result.Add((byte)(color & 0xFF));
-                    result.Add((byte)((color >> 8) & 0xFF));
+                    color = Rgb565ToRgb555(globalPalette[idx]);
+                }
+                result.Add((byte)(color & 0xFF));
+                result.Add((byte)((color >> 8) & 0xFF));
+            }
+
+            result.Add(0);
+            return result.ToArray();
+        }
+
+        /// <summary>
+        /// NORMAL block -> type 6/7 壓縮格式
+        /// </summary>
+        private static byte[] RenderNormalBlockToL1Compressed(MBlock block, ushort[] globalPalette)
+        {
+            // 先渲染到 canvas
+            var canvas = RenderBlockToRgb555(block, globalPalette);
+
+            // 找出 bounding box
+            int minX = BlockSize, minY = BlockSize, maxX = -1, maxY = -1;
+            for (int y = 0; y < BlockSize; y++)
+            {
+                for (int x = 0; x < BlockSize; x++)
+                {
+                    if (canvas[y * BlockSize + x] != 0)
+                    {
+                        minX = Math.Min(minX, x);
+                        minY = Math.Min(minY, y);
+                        maxX = Math.Max(maxX, x);
+                        maxY = Math.Max(maxY, y);
+                    }
+                }
+            }
+
+            // 如果沒有任何像素，返回空 block
+            if (maxX < 0)
+            {
+                return new byte[] { 0, 0 };
+            }
+
+            // type 6 = 置中, type 7 = 左對齊
+            byte blockType = (byte)(block.UseTableB ? 7 : 6);
+            var result = new List<byte>();
+            result.Add(blockType);
+            result.Add((byte)minX);           // x_offset
+            result.Add((byte)minY);           // y_offset
+            result.Add((byte)(maxX - minX + 1)); // xxLen
+            result.Add((byte)(maxY - minY + 1)); // yLen
+
+            // 逐行編碼
+            for (int y = minY; y <= maxY; y++)
+            {
+                var segments = new List<(int start, List<ushort> pixels)>();
+                int x = minX;
+
+                while (x <= maxX)
+                {
+                    // 跳過透明像素
+                    while (x <= maxX && canvas[y * BlockSize + x] == 0)
+                        x++;
+
+                    if (x > maxX) break;
+
+                    // 收集連續非透明像素
+                    int startX = x;
+                    var segPixels = new List<ushort>();
+                    while (x <= maxX && canvas[y * BlockSize + x] != 0)
+                    {
+                        segPixels.Add(canvas[y * BlockSize + x]);
+                        x++;
+                    }
+                    segments.Add((startX, segPixels));
+                }
+
+                // 寫入 segment count
+                result.Add((byte)segments.Count);
+
+                int currentX = minX;
+                foreach (var seg in segments)
+                {
+                    int skip = seg.start - currentX;
+                    result.Add((byte)(skip * 2)); // skip in bytes
+                    result.Add((byte)seg.pixels.Count);
+
+                    foreach (var color in seg.pixels)
+                    {
+                        result.Add((byte)(color & 0xFF));
+                        result.Add((byte)((color >> 8) & 0xFF));
+                    }
+                    currentX = seg.start + seg.pixels.Count;
                 }
             }
 
@@ -391,6 +483,36 @@ namespace Lin.Helper.Core.Tile
             byte b8 = (byte)((b5 << 3) | (b5 >> 2));
 
             return (r8, g8, b8, 255);
+        }
+
+        /// <summary>
+        /// 將 RGB565 轉換為 RGB555
+        /// MTil palette 使用 RGB565 (R5 G6 B5)
+        /// L1Til 使用 RGB555 (R5 G5 B5)
+        /// </summary>
+        public static ushort Rgb565ToRgb555(ushort rgb565)
+        {
+            if (rgb565 == 0) return 0;
+            // RGB565: RRRRR GGGGGG BBBBB
+            int r = (rgb565 >> 11) & 0x1F;  // bits 11-15
+            int g = (rgb565 >> 5) & 0x3F;   // bits 5-10 (6 bits)
+            int b = rgb565 & 0x1F;          // bits 0-4
+            // 轉換 G 從 6-bit 到 5-bit
+            int g5 = g >> 1;
+            // RGB555: RRRRR GGGGG BBBBB
+            return (ushort)((r << 10) | (g5 << 5) | b);
+        }
+
+        /// <summary>
+        /// 交換 RGB555 的 R 和 B 通道 (已棄用)
+        /// </summary>
+        public static ushort SwapRB(ushort color)
+        {
+            if (color == 0) return 0;
+            int r = (color >> 10) & 0x1F;
+            int g = (color >> 5) & 0x1F;
+            int b = color & 0x1F;
+            return (ushort)((b << 10) | (g << 5) | r);
         }
 
         #endregion
