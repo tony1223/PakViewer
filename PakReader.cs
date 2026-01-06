@@ -4562,37 +4562,58 @@ namespace PakViewer
 
         static void GenerateTileCompareSheetInternal(List<byte[]> blocks1, List<byte[]> blocks2, string label1, string label2, string outputPath)
         {
-            int blockSize = 24;
-            int gridSize = 16;
-            int tileSheetSize = gridSize * blockSize;
-            int gap = 10;
-            int totalWidth = tileSheetSize * 2 + gap;
-            int totalHeight = tileSheetSize + 40;
+            const int BlockSize = 24;
+            const int CellPadding = 2;
+            const int LabelHeight = 14;
+            const int CellSize = BlockSize + CellPadding + LabelHeight;  // 40
+            const int ColCount = 12;
+            int rowCount = (int)Math.Ceiling(Math.Max(blocks1.Count, blocks2.Count) / (double)ColCount);
+            int sheetWidth = CellSize * ColCount;
+            int sheetHeight = CellSize * rowCount;
+            int gap = 20;
+            int headerHeight = 30;
+            int totalWidth = sheetWidth * 2 + gap;
+            int totalHeight = sheetHeight + headerHeight;
 
             using var bmp = new Bitmap(totalWidth, totalHeight);
             using var g = Graphics.FromImage(bmp);
 
-            g.Clear(Color.FromArgb(40, 40, 40));
+            g.Clear(Color.FromArgb(30, 30, 30));
 
-            using var font = new Font("Arial", 10);
-            using var brush = new SolidBrush(Color.White);
-            g.DrawString($"til1: {label1}", font, brush, 5, 5);
-            g.DrawString($"til2: {label2}", font, brush, tileSheetSize + gap + 5, 5);
+            using var titleFont = new Font("Arial", 10, FontStyle.Bold);
+            using var labelFont = new Font("Arial", 8);
+            using var whiteBrush = new SolidBrush(Color.White);
+            using var grayBrush = new SolidBrush(Color.FromArgb(180, 180, 180));
+            using var gridPen = new Pen(Color.FromArgb(60, 60, 60), 1);
 
-            int yOffset = 25;
+            g.DrawString($"til1: {label1}", titleFont, whiteBrush, 5, 5);
+            g.DrawString($"til2: {label2}", titleFont, whiteBrush, sheetWidth + gap + 5, 5);
 
-            for (int i = 0; i < Math.Min(256, blocks1.Count); i++)
+            // Draw til1 blocks
+            for (int i = 0; i < blocks1.Count; i++)
             {
-                int x = (i % gridSize) * blockSize;
-                int y = (i / gridSize) * blockSize + yOffset;
-                RenderBlockToBitmap(bmp, blocks1[i], x, y);
+                int col = i % ColCount;
+                int row = i / ColCount;
+                int cellX = col * CellSize;
+                int cellY = row * CellSize + headerHeight;
+
+                g.DrawRectangle(gridPen, cellX, cellY, CellSize - 1, CellSize - 1);
+                g.DrawString(i.ToString(), labelFont, grayBrush, cellX + 2, cellY + 1);
+                RenderBlockToBitmap(bmp, blocks1[i], cellX + CellPadding / 2, cellY + LabelHeight);
             }
 
-            for (int i = 0; i < Math.Min(256, blocks2.Count); i++)
+            // Draw til2 blocks
+            int xOffset = sheetWidth + gap;
+            for (int i = 0; i < blocks2.Count; i++)
             {
-                int x = tileSheetSize + gap + (i % gridSize) * blockSize;
-                int y = (i / gridSize) * blockSize + yOffset;
-                RenderBlockToBitmap(bmp, blocks2[i], x, y);
+                int col = i % ColCount;
+                int row = i / ColCount;
+                int cellX = xOffset + col * CellSize;
+                int cellY = row * CellSize + headerHeight;
+
+                g.DrawRectangle(gridPen, cellX, cellY, CellSize - 1, CellSize - 1);
+                g.DrawString(i.ToString(), labelFont, grayBrush, cellX + 2, cellY + 1);
+                RenderBlockToBitmap(bmp, blocks2[i], cellX + CellPadding / 2, cellY + LabelHeight);
             }
 
             bmp.Save(outputPath, ImageFormat.Png);
