@@ -444,8 +444,8 @@ namespace Lin.Helper.Core.Tile
 
                     if (maxWidth > 0 && totalRows > 0)
                     {
-                        // 輸出一個有效的壓縮格式空 block
-                        byte emptyBlockType = (byte)(block.UseTableB ? 7 : 6);
+                        // 輸出一個有效的壓縮格式空 block (使用 MTil Flags)
+                        byte emptyBlockType = (byte)(block.Flags & 0x07);
                         var emptyResult = new List<byte>();
                         emptyResult.Add(emptyBlockType);
                         emptyResult.Add(0);                    // x_offset
@@ -463,12 +463,25 @@ namespace Lin.Helper.Core.Tile
                     }
                 }
 
-                // 真的沒有任何資料，輸出最小有效結構
-                return new byte[] { (byte)(block.UseTableB ? 7 : 6), 0, 0, 1, 1, 0, 0 };
+                // 真的沒有任何資料，輸出最小有效結構 (使用 MTil Flags)
+                return new byte[] { (byte)(block.Flags & 0x07), 0, 0, 1, 1, 0, 0 };
             }
 
-            // type 6 = 置中, type 7 = 左對齊
-            byte blockType = (byte)(block.UseTableB ? 7 : 6);
+            // L1Til block type 格式:
+            // - bit0 (0x01): flip/左對齊
+            // - bit1 (0x02): 壓縮格式
+            // - bit2 (0x04): 特殊渲染效果 (用於半透明地形等)
+            // - bit3 (0x08): shadow
+            // - bit4 (0x10): transparency
+            //
+            // MTil Flags 直接對應 L1Til type:
+            // - Flags 0x02 → type 2 (壓縮格式)
+            // - Flags 0x03 → type 3 (壓縮格式 + flip)
+            // - Flags 0x06 → type 6 (壓縮格式 + bit2 特效)
+            // - Flags 0x07 → type 7 (壓縮格式 + flip + bit2 特效)
+            //
+            // 使用 MTil Flags 的低 3 bits 作為 L1Til block type
+            byte blockType = (byte)(block.Flags & 0x07);
             var result = new List<byte>();
             result.Add(blockType);
             result.Add((byte)minX);           // x_offset

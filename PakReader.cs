@@ -196,6 +196,14 @@ namespace PakViewer
                     BatchConvertMTil(args[1], args[2], pattern, compStr);
                     break;
 
+                case "mtil-single":
+                    // 單檔轉換 M Tile 到 L1 Til 格式
+                    // mtil-single <input_file> <output_file>
+                    if (args.Length < 3) { Console.WriteLine("Usage: mtil-single <input_file> <output_file>"); return; }
+                    MTil.SaveToL1Til(args[1], args[2]);
+                    Console.WriteLine($"Converted: {args[1]} -> {args[2]}");
+                    break;
+
                 case "mtil-debug":
                     // 診斷 MTil 檔案內容
                     // mtil-debug <mtil_file> [block_index]
@@ -4902,6 +4910,21 @@ namespace PakViewer
                 {
                     string typeName = GetL1BlockTypeName(kv.Key);
                     Console.WriteLine($"  Type {kv.Key} ({typeName}): {kv.Value} blocks");
+                }
+
+                // 列出 type 6/7 的 block indices
+                var type67Blocks = new List<int>();
+                for (int i = 0; i < blocks.Count; i++)
+                {
+                    if (blocks[i].Length > 0 && (blocks[i][0] == 6 || blocks[i][0] == 7))
+                    {
+                        type67Blocks.Add(i);
+                    }
+                }
+                if (type67Blocks.Count > 0)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine($"Type 6/7 block indices: {string.Join(", ", type67Blocks)}");
                 }
             }
         }

@@ -1275,8 +1275,25 @@ namespace Lin.Helper.Core.Tile
         /// </summary>
         public static void RenderBlockToBgra(byte[] blockData, int destX, int destY, byte[] canvas, int canvasWidth, int canvasHeight, byte bgR = 0, byte bgG = 0, byte bgB = 0)
         {
+            RenderBlockToBgra(blockData, destX, destY, canvas, canvasWidth, canvasHeight, bgR, bgG, bgB, applyTypeAlpha: false);
+        }
+
+        /// <summary>
+        /// 將 block 渲染到 BGRA32 格式，支援 type 6/7 半透明渲染
+        /// </summary>
+        /// <param name="applyTypeAlpha">是否根據 block type 套用透明度 (type 6/7 = 50% opacity)</param>
+        public static void RenderBlockToBgra(byte[] blockData, int destX, int destY, byte[] canvas, int canvasWidth, int canvasHeight, byte bgR, byte bgG, byte bgB, bool applyTypeAlpha)
+        {
+            if (blockData == null || blockData.Length < 1)
+                return;
+
             var rgb555Canvas = new ushort[canvasWidth * canvasHeight];
             RenderBlock(blockData, destX, destY, rgb555Canvas, canvasWidth, canvasHeight);
+
+            // 檢查 block type 是否有 bit2 (type 6/7)
+            byte blockType = blockData[0];
+            bool hasTypeBit2 = (blockType & 0x04) != 0;
+            byte alpha = (applyTypeAlpha && hasTypeBit2) ? (byte)128 : (byte)255;
 
             // Convert RGB555 to BGRA32
             for (int y = 0; y < canvasHeight; y++)
@@ -1292,7 +1309,7 @@ namespace Lin.Helper.Core.Tile
                         canvas[dstIdx + 0] = bgB; // B
                         canvas[dstIdx + 1] = bgG; // G
                         canvas[dstIdx + 2] = bgR; // R
-                        canvas[dstIdx + 3] = 255; // A
+                        canvas[dstIdx + 3] = 255; // A (背景不透明)
                     }
                     else
                     {
@@ -1302,10 +1319,20 @@ namespace Lin.Helper.Core.Tile
                         canvas[dstIdx + 0] = (byte)((b5 << 3) | (b5 >> 2)); // B
                         canvas[dstIdx + 1] = (byte)((g5 << 3) | (g5 >> 2)); // G
                         canvas[dstIdx + 2] = (byte)((r5 << 3) | (r5 >> 2)); // R
-                        canvas[dstIdx + 3] = 255; // A
+                        canvas[dstIdx + 3] = alpha; // A (type 6/7 半透明)
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// 檢查 block type 是否有特殊渲染標記 (bit2)
+        /// </summary>
+        public static bool HasSpecialRenderingFlag(byte[] blockData)
+        {
+            if (blockData == null || blockData.Length < 1)
+                return false;
+            return (blockData[0] & 0x04) != 0;
         }
 
         /// <summary>
@@ -1397,6 +1424,144 @@ namespace Lin.Helper.Core.Tile
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// 直接渲染到 unsafe byte* 緩衝區 (高效能版本，RGB555 格式)，支援 type 6/7 半透明渲染
+        /// </summary>
+        /// <param name="blockData">block 資料</param>
+        /// <param name="destX">目標 X 座標</param>
+        /// <param name="destY">目標 Y 座標</param>
+        /// <param name="buffer">目標緩衝區指標</param>
+        /// <param name="rowPitch">每行的 byte 數</param>
+        /// <param name="maxWidth">最大寬度</param>
+        /// <param name="maxHeight">最大高度</param>
+        /// <param name="applyTypeAlpha">是否根據 block type 套用透明度 (type 6/7 = 50% opacity)</param>
+        public static unsafe void RenderBlockDirect(byte[] blockData, int destX, int destY, byte* buffer, int rowPitch, int maxWidth, int maxHeight, bool applyTypeAlpha)
+        {
+            if (blockData == null || blockData.Length < 2) return;
+
+            // 檢查是否需要半透明渲染 (type 6/7 = bit2 設定)
+            bool useAlpha = applyTypeAlpha && (blockData[0] & 0x04) != 0;
+
+            if (!useAlpha)
+            {
+                // 不需要 alpha，使用原本的高效能版本
+                RenderBlockDirect(blockData, destX, destY, buffer, rowPitch, maxWidth, maxHeight);
+                return;
+            }
+
+            // 需要 alpha blending (50% opacity)
+            fixed (byte* tilPtr = blockData)
+            {
+                byte* ptr = tilPtr;
+                byte type = *(ptr++);
+
+                // Type 1: 左對齊菱形
+                if ((type & 0x02) == 0 && (type & 0x01) != 0)
+                {
+                    for (int ty = 0; ty < 24; ty++)
+                    {
+                        int n = (ty <= 11) ? (ty + 1) * 2 : (23 - ty) * 2;
+                        int tx = 0;
+                        for (int p = 0; p < n; p++)
+                        {
+                            ushort srcColor = (ushort)(*(ptr++) | (*(ptr++) << 8));
+                            int px = destX + tx;
+                            int py = destY + ty;
+                            if (px >= 0 && px < maxWidth && py >= 0 && py < maxHeight)
+                            {
+                                int offset = py * rowPitch + (px * 2);
+                                ushort dstColor = (ushort)(*(buffer + offset) | (*(buffer + offset + 1) << 8));
+                                ushort blended = BlendRgb555(srcColor, dstColor);
+                                *(buffer + offset) = (byte)(blended & 0xFF);
+                                *(buffer + offset + 1) = (byte)(blended >> 8);
+                            }
+                            tx++;
+                        }
+                    }
+                }
+                // Type 0: 靠右對齊菱形
+                else if ((type & 0x02) == 0 && (type & 0x01) == 0)
+                {
+                    for (int ty = 0; ty < 24; ty++)
+                    {
+                        int n = (ty <= 11) ? (ty + 1) * 2 : (23 - ty) * 2;
+                        int tx = 24 - n;
+                        for (int p = 0; p < n; p++)
+                        {
+                            ushort srcColor = (ushort)(*(ptr++) | (*(ptr++) << 8));
+                            int px = destX + tx;
+                            int py = destY + ty;
+                            if (px >= 0 && px < maxWidth && py >= 0 && py < maxHeight)
+                            {
+                                int offset = py * rowPitch + (px * 2);
+                                ushort dstColor = (ushort)(*(buffer + offset) | (*(buffer + offset + 1) << 8));
+                                ushort blended = BlendRgb555(srcColor, dstColor);
+                                *(buffer + offset) = (byte)(blended & 0xFF);
+                                *(buffer + offset + 1) = (byte)(blended >> 8);
+                            }
+                            tx++;
+                        }
+                    }
+                }
+                // 壓縮格式
+                else
+                {
+                    byte xOffset = *(ptr++);
+                    byte yOffset = *(ptr++);
+                    byte xxLen = *(ptr++);
+                    byte yLen = *(ptr++);
+
+                    for (int ty = 0; ty < yLen; ty++)
+                    {
+                        int tx = xOffset;
+                        byte segCount = *(ptr++);
+                        for (int seg = 0; seg < segCount; seg++)
+                        {
+                            tx += *(ptr++) / 2;
+                            int count = *(ptr++);
+                            for (int p = 0; p < count; p++)
+                            {
+                                ushort srcColor = (ushort)(*(ptr++) | (*(ptr++) << 8));
+                                int px = destX + tx;
+                                int py = destY + ty + yOffset;
+                                if (px >= 0 && px < maxWidth && py >= 0 && py < maxHeight)
+                                {
+                                    int offset = py * rowPitch + (px * 2);
+                                    ushort dstColor = (ushort)(*(buffer + offset) | (*(buffer + offset + 1) << 8));
+                                    ushort blended = BlendRgb555(srcColor, dstColor);
+                                    *(buffer + offset) = (byte)(blended & 0xFF);
+                                    *(buffer + offset + 1) = (byte)(blended >> 8);
+                                }
+                                tx++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// RGB555 顏色混合 (50% opacity)
+        /// </summary>
+        private static ushort BlendRgb555(ushort src, ushort dst)
+        {
+            // RGB555 格式: 0RRRRRGGGGGBBBBB
+            int srcR = (src >> 10) & 0x1F;
+            int srcG = (src >> 5) & 0x1F;
+            int srcB = src & 0x1F;
+
+            int dstR = (dst >> 10) & 0x1F;
+            int dstG = (dst >> 5) & 0x1F;
+            int dstB = dst & 0x1F;
+
+            // 50% blend: (src + dst) / 2
+            int blendR = (srcR + dstR) >> 1;
+            int blendG = (srcG + dstG) >> 1;
+            int blendB = (srcB + dstB) >> 1;
+
+            return (ushort)((blendR << 10) | (blendG << 5) | blendB);
         }
 
         #endregion
