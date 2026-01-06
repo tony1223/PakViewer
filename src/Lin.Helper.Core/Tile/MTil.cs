@@ -283,21 +283,13 @@ namespace Lin.Helper.Core.Tile
 
         /// <summary>
         /// 將 block 渲染為 24x24 的 byte[] (L1Tile 相容格式)
-        /// DEFAULT blocks -> type 0/1 簡單菱形
-        /// NORMAL blocks -> type 6/7 壓縮格式
+        /// 全部使用 compressed format (type 2/3/6/7) 以保持正確位置
         /// </summary>
         public static byte[] RenderBlockToL1Format(MBlock block, ushort[] globalPalette)
         {
-            // 對於 DEFAULT blocks，使用簡單菱形格式 (type 0/1)
-            if (block.IsDefault && block.Pixels.Length == 288)
-            {
-                return RenderDefaultBlockToL1(block, globalPalette);
-            }
-            else
-            {
-                // 非 DEFAULT blocks，使用壓縮格式 (type 6/7)
-                return RenderNormalBlockToL1Compressed(block, globalPalette);
-            }
+            // 全部使用壓縮格式，因為 DEFAULT blocks 的 RLE table 會造成非置中的形狀
+            // 而 type 0/1 是置中的簡單菱形，位置會不對
+            return RenderNormalBlockToL1Compressed(block, globalPalette);
         }
 
         /// <summary>
