@@ -891,6 +891,93 @@ namespace Lin.Helper.Core.Tile
 
         #endregion
 
+        #region Save
+
+        /// <summary>
+        /// 將 TileBlocks 儲存為 .til 檔案
+        /// </summary>
+        public static void Save(TileBlocks tileBlocks, string filePath, CompressionType compression = CompressionType.None)
+        {
+            byte[] data = BuildTilFromTileBlocks(tileBlocks);
+            data = Compress(data, compression);
+            File.WriteAllBytes(filePath, data);
+        }
+
+        /// <summary>
+        /// 將 block 列表儲存為 .til 檔案
+        /// </summary>
+        public static void Save(List<byte[]> blocks, string filePath, CompressionType compression = CompressionType.None)
+        {
+            byte[] data = BuildTil(blocks);
+            data = Compress(data, compression);
+            File.WriteAllBytes(filePath, data);
+        }
+
+        /// <summary>
+        /// 壓縮資料
+        /// </summary>
+        public static byte[] Compress(byte[] data, CompressionType compressionType)
+        {
+            if (data == null || data.Length == 0)
+                return data;
+
+            switch (compressionType)
+            {
+                case CompressionType.Brotli:
+                    return CompressBrotli(data);
+                case CompressionType.Zlib:
+                    return CompressZlib(data);
+                default:
+                    return data;
+            }
+        }
+
+        private static byte[] CompressBrotli(byte[] data)
+        {
+            using var outputStream = new MemoryStream();
+            using (var brotliStream = new BrotliStream(outputStream, CompressionLevel.Optimal))
+            {
+                brotliStream.Write(data, 0, data.Length);
+            }
+            return outputStream.ToArray();
+        }
+
+        private static byte[] CompressZlib(byte[] data)
+        {
+            using var outputStream = new MemoryStream();
+            // Zlib header: CMF=0x78, FLG=0x9C (default compression)
+            outputStream.WriteByte(0x78);
+            outputStream.WriteByte(0x9C);
+
+            using (var deflateStream = new DeflateStream(outputStream, CompressionLevel.Optimal, leaveOpen: true))
+            {
+                deflateStream.Write(data, 0, data.Length);
+            }
+
+            // Adler-32 checksum
+            uint adler = ComputeAdler32(data);
+            outputStream.WriteByte((byte)((adler >> 24) & 0xFF));
+            outputStream.WriteByte((byte)((adler >> 16) & 0xFF));
+            outputStream.WriteByte((byte)((adler >> 8) & 0xFF));
+            outputStream.WriteByte((byte)(adler & 0xFF));
+
+            return outputStream.ToArray();
+        }
+
+        private static uint ComputeAdler32(byte[] data)
+        {
+            const uint MOD_ADLER = 65521;
+            uint a = 1, b = 0;
+            foreach (byte c in data)
+            {
+                a = (a + c) % MOD_ADLER;
+                b = (b + a) % MOD_ADLER;
+            }
+            return (b << 16) | a;
+        }
+
+        #endregion
+
         #region Block Analysis
 
         /// <summary>

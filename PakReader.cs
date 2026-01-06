@@ -182,6 +182,17 @@ namespace PakViewer
                     ComparePakFiles(args[1], args[2], args[3], args[4], args.Length > 5 ? args[5] : null);
                     break;
 
+                case "mtil-convert":
+                    // 批量轉換 M Tile 到 L1 Til 格式
+                    // mtil-convert <input_dir> <output_dir> [pattern] [compression]
+                    // pattern: 搜尋模式，預設 *.bin
+                    // compression: none, zlib, brotli (預設 none)
+                    if (args.Length < 3) { Console.WriteLine("Usage: mtil-convert <input_dir> <output_dir> [pattern] [compression]"); return; }
+                    string pattern = args.Length > 3 ? args[3] : "*.bin";
+                    string compStr = args.Length > 4 ? args[4].ToLower() : "none";
+                    BatchConvertMTil(args[1], args[2], pattern, compStr);
+                    break;
+
                 default:
                     ShowHelp();
                     break;
@@ -3768,6 +3779,99 @@ namespace PakViewer
 
             public string CurrentPakName => $"sprite{CurrentPakIndex:D2}.pak";
             public string ExpectedPakName => $"sprite{ExpectedPakIndex:D2}.pak";
+        }
+
+        #endregion
+
+        #region M Tile Conversion
+
+        static void BatchConvertMTil(string inputDir, string outputDir, string pattern, string compressionStr)
+        {
+            Console.WriteLine("M Tile to L1 Til Batch Converter");
+            Console.WriteLine($"  Input:  {inputDir}");
+            Console.WriteLine($"  Output: {outputDir}");
+            Console.WriteLine($"  Pattern: {pattern}");
+            Console.WriteLine($"  Compression: {compressionStr}");
+            Console.WriteLine();
+
+            if (!Directory.Exists(inputDir))
+            {
+                Console.WriteLine($"Error: Input directory not found: {inputDir}");
+                return;
+            }
+
+            // 建立輸出目錄
+            Directory.CreateDirectory(outputDir);
+
+            // 解析壓縮類型
+            L1Til.CompressionType compression;
+            switch (compressionStr)
+            {
+                case "zlib":
+                    compression = L1Til.CompressionType.Zlib;
+                    break;
+                case "brotli":
+                    compression = L1Til.CompressionType.Brotli;
+                    break;
+                default:
+                    compression = L1Til.CompressionType.None;
+                    break;
+            }
+
+            // 找出所有符合的檔案
+            var files = Directory.GetFiles(inputDir, pattern);
+            Console.WriteLine($"Found {files.Length} files to convert");
+            Console.WriteLine();
+
+            int success = 0;
+            int failed = 0;
+            var errors = new List<string>();
+
+            for (int i = 0; i < files.Length; i++)
+            {
+                var file = files[i];
+                var fileName = Path.GetFileNameWithoutExtension(file);
+                var outputPath = Path.Combine(outputDir, fileName + ".til");
+
+                try
+                {
+                    MTil.SaveToL1Til(file, outputPath, compression);
+                    success++;
+
+                    // 進度顯示
+                    if ((i + 1) % 100 == 0 || i == files.Length - 1)
+                    {
+                        Console.Write($"\rProgress: {i + 1}/{files.Length} ({success} success, {failed} failed)");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    errors.Add($"{fileName}: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine();
+            Console.WriteLine();
+            Console.WriteLine("=== Conversion Complete ===");
+            Console.WriteLine($"  Success: {success}");
+            Console.WriteLine($"  Failed:  {failed}");
+            Console.WriteLine($"  Output:  {outputDir}");
+
+            if (errors.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Errors:");
+                int showCount = Math.Min(errors.Count, 20);
+                foreach (var error in errors.Take(showCount))
+                {
+                    Console.WriteLine($"  {error}");
+                }
+                if (errors.Count > showCount)
+                {
+                    Console.WriteLine($"  ... and {errors.Count - showCount} more errors");
+                }
+            }
         }
 
         #endregion
