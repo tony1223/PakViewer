@@ -327,6 +327,7 @@ namespace Lin.Helper.Core.Tile
             }
 
             // RLE rendering with mask tracking
+            // NORMAL blocks 使用 Width/Height 作為 x_offset/y_offset
             int xOffset = block.IsDefault ? 0 : block.Width;
             int yOffset = block.IsDefault ? 0 : block.Height;
 
@@ -353,7 +354,7 @@ namespace Lin.Helper.Core.Tile
                 if (rowFlag > 0)
                 {
                     row += rowFlag;
-                    xBase = xOffset;
+                    xBase = xOffset;  // 重置到 xOffset
                 }
                 else
                 {
@@ -475,7 +476,7 @@ namespace Lin.Helper.Core.Tile
             result.Add((byte)(maxX - minX + 1)); // xxLen
             result.Add((byte)(maxY - minY + 1)); // yLen
 
-            // 逐行編碼
+            // 逐行編碼（相對於 minX, minY）
             for (int y = minY; y <= maxY; y++)
             {
                 var segments = new List<(int start, List<ushort> pixels)>();

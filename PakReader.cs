@@ -163,10 +163,11 @@ namespace PakViewer
                     break;
 
                 case "tilinfo":
-                    // 分析 TIL 檔案的 block type
-                    // tilinfo <til_file>
-                    if (args.Length < 2) { Console.WriteLine("Usage: tilinfo <til_file>"); return; }
-                    AnalyzeTilFile(args[1]);
+                    // 顯示 tile 檔案的詳細資訊
+                    // tilinfo <til_file> [block_id]
+                    if (args.Length < 2) { Console.WriteLine("Usage: tilinfo <til_file> [block_id]"); return; }
+                    int? blockId = args.Length > 2 ? int.Parse(args[2]) : null;
+                    ShowTilInfo(args[1], blockId);
                     break;
 
                 case "tildiff-export":
@@ -246,6 +247,14 @@ namespace PakViewer
                     double sheetThreshold = args.Length > 4 ? double.Parse(args[4]) : 30.0;
                     int sheetMaxTileId = args.Length > 5 ? int.Parse(args[5]) : int.MaxValue;
                     GenerateTileCompareSheetBatch(args[1], args[2], args[3], sheetThreshold, sheetMaxTileId);
+                    break;
+
+                case "mtilinfo":
+                    // 顯示 MTil 檔案的詳細資訊
+                    // mtilinfo <mtil_file> [block_id]
+                    if (args.Length < 2) { Console.WriteLine("Usage: mtilinfo <mtil_file> [block_id]"); return; }
+                    int? mblockId = args.Length > 2 ? int.Parse(args[2]) : null;
+                    ShowMTilInfo(args[1], mblockId);
                     break;
 
                 default:
@@ -3886,7 +3895,11 @@ namespace PakViewer
             {
                 var file = files[i];
                 var fileName = Path.GetFileNameWithoutExtension(file);
-                var outputPath = Path.Combine(outputDir, fileName + ".til");
+
+                // 嘗試從檔名中提取數字（支援 Tile_X_output.bin 格式）
+                var match = System.Text.RegularExpressions.Regex.Match(fileName, @"(\d+)");
+                string outputName = match.Success ? match.Groups[1].Value : fileName;
+                var outputPath = Path.Combine(outputDir, outputName + ".til");
 
                 try
                 {
@@ -4398,46 +4411,89 @@ namespace PakViewer
                 var blocks1 = L1Til.Parse(File.ReadAllBytes(til1Path));
                 var blocks2 = L1Til.Parse(File.ReadAllBytes(til2Path));
 
-                // 16x16 grid = 256 blocks, each block 24x24
-                // Sheet: til1 on left, til2 on right
-                // Each tile sheet: 16 blocks wide * 24 pixels = 384 pixels
-                // 16 blocks tall * 24 pixels = 384 pixels
-                // Total width: 384 * 2 + 10 (gap) = 778 pixels
+                // Compare blocks to find differences
+                var diffBlocks = new HashSet<int>();
+                int maxBlocks = Math.Min(blocks1.Count, blocks2.Count);
+                for (int i = 0; i < maxBlocks; i++)
+                {
+                    if (!CompareBlockPixels(blocks1[i], blocks2[i]))
+                    {
+                        diffBlocks.Add(i);
+                    }
+                }
+                Console.WriteLine($"  Different blocks: {diffBlocks.Count}/{maxBlocks}");
+
+                // 16x16 grid = 256 blocks
+                // Each cell: block (24x24) + label height (16) + padding (4) = 44 pixels
                 int blockSize = 24;
+                int labelHeight = 16;
+                int cellPadding = 4;
+                int cellSize = blockSize + labelHeight + cellPadding;  // 44
                 int gridSize = 16;
-                int tileSheetSize = gridSize * blockSize; // 384
-                int gap = 10;
+                int tileSheetSize = gridSize * cellSize;  // 704
+                int gap = 30;
+                int headerHeight = 35;
                 int totalWidth = tileSheetSize * 2 + gap;
-                int totalHeight = tileSheetSize + 40; // Extra space for labels
+                int totalHeight = tileSheetSize + headerHeight;
 
                 using var bmp = new Bitmap(totalWidth, totalHeight);
                 using var g = Graphics.FromImage(bmp);
 
                 // Background
-                g.Clear(Color.FromArgb(40, 40, 40));
+                g.Clear(Color.Black);
 
-                // Draw labels
-                using var font = new Font("Arial", 10);
-                using var brush = new SolidBrush(Color.White);
-                g.DrawString($"til1: {Path.GetFileName(til1Path)}", font, brush, 5, 5);
-                g.DrawString($"til2: {Path.GetFileName(til2Path)}", font, brush, tileSheetSize + gap + 5, 5);
+                // Fonts and brushes
+                using var titleFont = new Font("Arial", 12, FontStyle.Bold);
+                using var labelFont = new Font("Arial", 9, FontStyle.Bold);
+                using var whiteBrush = new SolidBrush(Color.White);
+                using var labelBrush = new SolidBrush(Color.FromArgb(180, 180, 180));  // 淡灰色
+                using var gridPen = new Pen(Color.FromArgb(120, 120, 120), 1);
+                using var diffPen = new Pen(Color.FromArgb(255, 100, 100), 2);  // 紅色框，差異 block
+                using var diffLabelBrush = new SolidBrush(Color.FromArgb(255, 100, 100));  // 紅色數字
 
-                int yOffset = 25;
+                // Draw titles
+                g.DrawString($"til1: {Path.GetFileName(til1Path)}", titleFont, whiteBrush, 5, 8);
+                g.DrawString($"til2: {Path.GetFileName(til2Path)}", titleFont, whiteBrush, tileSheetSize + gap + 5, 8);
 
-                // Render til1 blocks
+                // Render til1 blocks with grid and numbers
                 for (int i = 0; i < Math.Min(256, blocks1.Count); i++)
                 {
-                    int x = (i % gridSize) * blockSize;
-                    int y = (i / gridSize) * blockSize + yOffset;
-                    RenderBlockToBitmap(bmp, blocks1[i], x, y);
+                    int col = i % gridSize;
+                    int row = i / gridSize;
+                    int cellX = col * cellSize;
+                    int cellY = row * cellSize + headerHeight;
+
+                    bool isDiff = diffBlocks.Contains(i);
+                    var pen = isDiff ? diffPen : gridPen;
+                    var brush = isDiff ? diffLabelBrush : labelBrush;
+
+                    // Grid line
+                    g.DrawRectangle(pen, cellX, cellY, cellSize, cellSize);
+                    // Block number
+                    g.DrawString(i.ToString(), labelFont, brush, cellX + 2, cellY + 1);
+                    // Block image
+                    RenderBlockToBitmap(bmp, blocks1[i], cellX + (cellSize - blockSize) / 2, cellY + labelHeight);
                 }
 
-                // Render til2 blocks
+                // Render til2 blocks with grid and numbers
+                int xOffset = tileSheetSize + gap;
                 for (int i = 0; i < Math.Min(256, blocks2.Count); i++)
                 {
-                    int x = tileSheetSize + gap + (i % gridSize) * blockSize;
-                    int y = (i / gridSize) * blockSize + yOffset;
-                    RenderBlockToBitmap(bmp, blocks2[i], x, y);
+                    int col = i % gridSize;
+                    int row = i / gridSize;
+                    int cellX = xOffset + col * cellSize;
+                    int cellY = row * cellSize + headerHeight;
+
+                    bool isDiff = diffBlocks.Contains(i);
+                    var pen = isDiff ? diffPen : gridPen;
+                    var brush = isDiff ? diffLabelBrush : labelBrush;
+
+                    // Grid line
+                    g.DrawRectangle(pen, cellX, cellY, cellSize, cellSize);
+                    // Block number
+                    g.DrawString(i.ToString(), labelFont, brush, cellX + 2, cellY + 1);
+                    // Block image
+                    RenderBlockToBitmap(bmp, blocks2[i], cellX + (cellSize - blockSize) / 2, cellY + labelHeight);
                 }
 
                 // Save
@@ -4448,6 +4504,81 @@ namespace PakViewer
             {
                 Console.WriteLine($"Error: {ex.Message}");
             }
+        }
+
+        // Compare two L1Til blocks by rendering and comparing pixel positions
+        static bool CompareBlockPixels(byte[] block1, byte[] block2)
+        {
+            var pos1 = GetBlockPixelPositions(block1);
+            var pos2 = GetBlockPixelPositions(block2);
+            return pos1.SetEquals(pos2);
+        }
+
+        // Get pixel positions from a L1Til block
+        static HashSet<(int x, int y)> GetBlockPixelPositions(byte[] blockData)
+        {
+            var positions = new HashSet<(int x, int y)>();
+            if (blockData == null || blockData.Length < 2)
+                return positions;
+
+            int blockType = blockData[0];
+            bool isSimple = blockType == 0 || blockType == 1 || blockType == 8 || blockType == 9 || blockType == 16 || blockType == 17;
+
+            if (isSimple)
+            {
+                int[] rowWidths = { 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2 };
+                int idx = 1;
+                for (int row = 0; row < 23; row++)
+                {
+                    if (idx >= blockData.Length - 1) break;
+                    int width = rowWidths[row];
+                    int startX = (blockType & 1) != 0 ? 0 : (24 - width) / 2;
+                    for (int col = 0; col < width; col++)
+                    {
+                        if (idx + 1 >= blockData.Length) break;
+                        idx += 2;
+                        if (startX + col >= 0 && startX + col < 24)
+                            positions.Add((startX + col, row));
+                    }
+                }
+            }
+            else if (blockData.Length >= 5)
+            {
+                int xOffset = blockData[1];
+                int yOffset = blockData[2];
+                int yLen = blockData[4];
+                int idx = 5;
+
+                for (int row = 0; row < yLen; row++)
+                {
+                    if (idx >= blockData.Length) break;
+                    int segCount = blockData[idx];
+                    idx++;
+                    int currentX = xOffset;
+
+                    for (int s = 0; s < segCount; s++)
+                    {
+                        if (idx + 1 >= blockData.Length) break;
+                        int skip = blockData[idx];
+                        int count = blockData[idx + 1];
+                        idx += 2;
+                        currentX += skip / 2;
+
+                        for (int p = 0; p < count; p++)
+                        {
+                            if (idx + 1 >= blockData.Length) break;
+                            idx += 2;
+                            int px = currentX + p;
+                            int py = yOffset + row;
+                            if (px >= 0 && px < 24 && py >= 0 && py < 24)
+                                positions.Add((px, py));
+                        }
+                        currentX += count;
+                    }
+                }
+            }
+
+            return positions;
         }
 
         static void GenerateTileCompareSheetBatch(string til1Dir, string til2Dir, string outputDir, double threshold, int maxTileId)
@@ -4563,31 +4694,32 @@ namespace PakViewer
         static void GenerateTileCompareSheetInternal(List<byte[]> blocks1, List<byte[]> blocks2, string label1, string label2, string outputPath)
         {
             const int BlockSize = 24;
-            const int CellPadding = 2;
-            const int LabelHeight = 14;
-            const int CellSize = BlockSize + CellPadding + LabelHeight;  // 40
-            const int ColCount = 12;
+            const int CellPadding = 8;
+            const int LabelHeight = 20;
+            const int CellSize = BlockSize + CellPadding + LabelHeight;  // 52
+            const int ColCount = 16;  // 16 columns = 256 blocks in 16 rows
             int rowCount = (int)Math.Ceiling(Math.Max(blocks1.Count, blocks2.Count) / (double)ColCount);
             int sheetWidth = CellSize * ColCount;
             int sheetHeight = CellSize * rowCount;
-            int gap = 20;
-            int headerHeight = 30;
+            int gap = 50;
+            int headerHeight = 45;
             int totalWidth = sheetWidth * 2 + gap;
             int totalHeight = sheetHeight + headerHeight;
 
             using var bmp = new Bitmap(totalWidth, totalHeight);
             using var g = Graphics.FromImage(bmp);
 
-            g.Clear(Color.FromArgb(30, 30, 30));
+            g.Clear(Color.Black);
 
-            using var titleFont = new Font("Arial", 10, FontStyle.Bold);
-            using var labelFont = new Font("Arial", 8);
+            using var titleFont = new Font("Arial", 14, FontStyle.Bold);
+            using var labelFont = new Font("Arial", 10, FontStyle.Bold);
             using var whiteBrush = new SolidBrush(Color.White);
-            using var grayBrush = new SolidBrush(Color.FromArgb(180, 180, 180));
-            using var gridPen = new Pen(Color.FromArgb(60, 60, 60), 1);
+            using var cyanBrush = new SolidBrush(Color.Cyan);
+            using var gridPen = new Pen(Color.FromArgb(150, 150, 150), 2);
 
-            g.DrawString($"til1: {label1}", titleFont, whiteBrush, 5, 5);
-            g.DrawString($"til2: {label2}", titleFont, whiteBrush, sheetWidth + gap + 5, 5);
+            // Draw titles
+            g.DrawString($"til1: {label1}", titleFont, whiteBrush, 10, 12);
+            g.DrawString($"til2: {label2}", titleFont, whiteBrush, sheetWidth + gap + 10, 12);
 
             // Draw til1 blocks
             for (int i = 0; i < blocks1.Count; i++)
@@ -4597,9 +4729,12 @@ namespace PakViewer
                 int cellX = col * CellSize;
                 int cellY = row * CellSize + headerHeight;
 
-                g.DrawRectangle(gridPen, cellX, cellY, CellSize - 1, CellSize - 1);
-                g.DrawString(i.ToString(), labelFont, grayBrush, cellX + 2, cellY + 1);
-                RenderBlockToBitmap(bmp, blocks1[i], cellX + CellPadding / 2, cellY + LabelHeight);
+                // Grid line (gray border)
+                g.DrawRectangle(gridPen, cellX, cellY, CellSize, CellSize);
+                // Block number (cyan, top-left)
+                g.DrawString(i.ToString(), labelFont, cyanBrush, cellX + 3, cellY + 2);
+                // Block image (centered below label)
+                RenderBlockToBitmap(bmp, blocks1[i], cellX + (CellSize - BlockSize) / 2, cellY + LabelHeight);
             }
 
             // Draw til2 blocks
@@ -4611,9 +4746,12 @@ namespace PakViewer
                 int cellX = xOffset + col * CellSize;
                 int cellY = row * CellSize + headerHeight;
 
-                g.DrawRectangle(gridPen, cellX, cellY, CellSize - 1, CellSize - 1);
-                g.DrawString(i.ToString(), labelFont, grayBrush, cellX + 2, cellY + 1);
-                RenderBlockToBitmap(bmp, blocks2[i], cellX + CellPadding / 2, cellY + LabelHeight);
+                // Grid line (gray border)
+                g.DrawRectangle(gridPen, cellX, cellY, CellSize, CellSize);
+                // Block number (cyan, top-left)
+                g.DrawString(i.ToString(), labelFont, cyanBrush, cellX + 3, cellY + 2);
+                // Block image (centered below label)
+                RenderBlockToBitmap(bmp, blocks2[i], cellX + (CellSize - BlockSize) / 2, cellY + LabelHeight);
             }
 
             bmp.Save(outputPath, ImageFormat.Png);
@@ -4721,6 +4859,330 @@ namespace PakViewer
                     if (px >= 0 && px < bmp.Width && py >= 0 && py < bmp.Height)
                         bmp.SetPixel(px, py, color);
                 }
+            }
+        }
+
+        #endregion
+
+        #region TilInfo
+
+        static void ShowTilInfo(string tilPath, int? blockId)
+        {
+            Console.WriteLine($"=== L1Til Info ===");
+            Console.WriteLine($"File: {tilPath}");
+
+            byte[] data = File.ReadAllBytes(tilPath);
+            var blocks = L1Til.Parse(data);
+
+            Console.WriteLine($"Block count: {blocks.Count}");
+            Console.WriteLine();
+
+            if (blockId.HasValue)
+            {
+                // Show specific block
+                if (blockId.Value < 0 || blockId.Value >= blocks.Count)
+                {
+                    Console.WriteLine($"Error: Block {blockId.Value} not found (valid: 0-{blocks.Count - 1})");
+                    return;
+                }
+                ShowL1BlockInfo(blocks[blockId.Value], blockId.Value);
+            }
+            else
+            {
+                // Show summary of all blocks
+                var typeCounts = new Dictionary<int, int>();
+                for (int i = 0; i < blocks.Count; i++)
+                {
+                    int type = blocks[i].Length > 0 ? blocks[i][0] : -1;
+                    typeCounts[type] = typeCounts.GetValueOrDefault(type, 0) + 1;
+                }
+
+                Console.WriteLine("Block type distribution:");
+                foreach (var kv in typeCounts.OrderBy(x => x.Key))
+                {
+                    string typeName = GetL1BlockTypeName(kv.Key);
+                    Console.WriteLine($"  Type {kv.Key} ({typeName}): {kv.Value} blocks");
+                }
+            }
+        }
+
+        static void ShowL1BlockInfo(byte[] blockData, int blockIndex)
+        {
+            Console.WriteLine($"=== Block {blockIndex} ===");
+
+            if (blockData == null || blockData.Length < 1)
+            {
+                Console.WriteLine("  Empty block");
+                return;
+            }
+
+            int blockType = blockData[0];
+            string typeName = GetL1BlockTypeName(blockType);
+            Console.WriteLine($"  Type: {blockType} ({typeName})");
+            Console.WriteLine($"  Data size: {blockData.Length} bytes");
+
+            // Show hex dump of first 32 bytes
+            Console.WriteLine($"  Data (first 32 bytes):");
+            int showLen = Math.Min(32, blockData.Length);
+            Console.Write("    ");
+            for (int i = 0; i < showLen; i++)
+            {
+                Console.Write($"{blockData[i]:x2} ");
+                if ((i + 1) % 16 == 0 && i + 1 < showLen)
+                    Console.Write("\n    ");
+            }
+            Console.WriteLine();
+
+            // Parse based on type
+            if (blockType == 0 || blockType == 1 || blockType == 8 || blockType == 9 || blockType == 16 || blockType == 17)
+            {
+                // Simple diamond
+                bool isLeftAligned = (blockType & 1) == 1;
+                Console.WriteLine($"  Format: Simple Diamond ({(isLeftAligned ? "left-aligned" : "centered")})");
+                Console.WriteLine($"  Expected pixels: 288 (23 rows diamond)");
+            }
+            else if (blockType == 2 || blockType == 3 || blockType == 6 || blockType == 7)
+            {
+                // Compressed format
+                if (blockData.Length >= 5)
+                {
+                    int xOffset = blockData[1];
+                    int yOffset = blockData[2];
+                    int xxLen = blockData[3];
+                    int yLen = blockData[4];
+                    Console.WriteLine($"  Format: Compressed");
+                    Console.WriteLine($"  x_offset: {xOffset}");
+                    Console.WriteLine($"  y_offset: {yOffset}");
+                    Console.WriteLine($"  xxLen: {xxLen}");
+                    Console.WriteLine($"  yLen: {yLen}");
+
+                    // Parse row segments
+                    Console.WriteLine($"  Row data:");
+                    int idx = 5;
+                    for (int row = 0; row < yLen && idx < blockData.Length; row++)
+                    {
+                        int segCount = blockData[idx++];
+                        Console.Write($"    Row {row}: {segCount} segment(s)");
+                        if (segCount > 0 && idx < blockData.Length)
+                        {
+                            Console.Write(" -> ");
+                            for (int s = 0; s < segCount && idx + 1 < blockData.Length; s++)
+                            {
+                                int skip = blockData[idx++];
+                                int count = blockData[idx++];
+                                Console.Write($"[skip={skip}, draw={count}] ");
+                                idx += count * 2; // Skip pixel data
+                            }
+                        }
+                        Console.WriteLine();
+                    }
+                }
+            }
+
+            // ASCII visualization
+            Console.WriteLine();
+            Console.WriteLine($"  Canvas visualization (24x24):");
+            var canvas = RenderL1BlockToCanvas(blockData);
+            for (int y = 0; y < 24; y++)
+            {
+                Console.Write($"    {y,2}: ");
+                for (int x = 0; x < 24; x++)
+                {
+                    Console.Write(canvas[y * 24 + x] != 0 ? "█" : "·");
+                }
+                Console.WriteLine();
+            }
+        }
+
+        static string GetL1BlockTypeName(int type)
+        {
+            return type switch
+            {
+                0 => "SimpleDiamond-Center",
+                1 => "SimpleDiamond-Left",
+                2 => "Compressed2-Center",
+                3 => "Compressed3-Left",
+                6 => "Compressed6-Center",
+                7 => "Compressed7-Left",
+                8 => "SimpleDiamond8-Center",
+                9 => "SimpleDiamond9-Left",
+                16 => "SimpleDiamond16-Center",
+                17 => "SimpleDiamond17-Left",
+                _ => "Unknown"
+            };
+        }
+
+        static ushort[] RenderL1BlockToCanvas(byte[] blockData)
+        {
+            var canvas = new ushort[24 * 24];
+            if (blockData == null || blockData.Length < 2)
+                return canvas;
+
+            int blockType = blockData[0];
+            bool isSimpleDiamond = blockType == 0 || blockType == 1 || blockType == 8 || blockType == 9 ||
+                                   blockType == 16 || blockType == 17;
+
+            if (isSimpleDiamond)
+            {
+                int[] rowWidths = { 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2 };
+                int dataIdx = 1;
+
+                for (int row = 0; row < 23 && dataIdx < blockData.Length - 1; row++)
+                {
+                    int width = rowWidths[row];
+                    int startX = (blockType & 1) == 0 ? (24 - width) / 2 : 0;
+
+                    for (int col = 0; col < width && dataIdx + 1 < blockData.Length; col++)
+                    {
+                        ushort color = (ushort)(blockData[dataIdx] | (blockData[dataIdx + 1] << 8));
+                        dataIdx += 2;
+                        int px = startX + col;
+                        if (px >= 0 && px < 24 && row >= 0 && row < 24)
+                            canvas[row * 24 + px] = color;
+                    }
+                }
+            }
+            else if (blockData.Length >= 5)
+            {
+                int xOffset = blockData[1];
+                int yOffset = blockData[2];
+                int yLen = blockData[4];
+                int idx = 5;
+
+                for (int row = 0; row < yLen && idx < blockData.Length; row++)
+                {
+                    int segCount = blockData[idx++];
+                    int currentX = xOffset;
+
+                    for (int s = 0; s < segCount && idx + 1 < blockData.Length; s++)
+                    {
+                        int skip = blockData[idx++];
+                        int count = blockData[idx++];
+                        currentX += skip / 2;
+
+                        for (int p = 0; p < count && idx + 1 < blockData.Length; p++)
+                        {
+                            ushort color = (ushort)(blockData[idx] | (blockData[idx + 1] << 8));
+                            idx += 2;
+                            int px = currentX + p;
+                            int py = yOffset + row;
+                            if (px >= 0 && px < 24 && py >= 0 && py < 24)
+                                canvas[py * 24 + px] = color;
+                        }
+                        currentX += count;
+                    }
+                }
+            }
+
+            return canvas;
+        }
+
+        static void ShowMTilInfo(string mtilPath, int? blockId)
+        {
+            Console.WriteLine($"=== MTil Info ===");
+            Console.WriteLine($"File: {mtilPath}");
+
+            byte[] data = File.ReadAllBytes(mtilPath);
+            var parsed = MTil.Parse(data);
+
+            Console.WriteLine($"Block count: {parsed.BlockCount}");
+            Console.WriteLine($"Has palette: {parsed.HasGlobalPalette}");
+            Console.WriteLine($"Palette size: {parsed.GlobalPalette.Length}");
+            Console.WriteLine();
+
+            if (blockId.HasValue)
+            {
+                if (blockId.Value < 0 || blockId.Value >= parsed.Blocks.Count)
+                {
+                    Console.WriteLine($"Error: Block {blockId.Value} not found (valid: 0-{parsed.Blocks.Count - 1})");
+                    return;
+                }
+                ShowMTilBlockInfo(parsed.Blocks[blockId.Value], parsed.GlobalPalette);
+            }
+            else
+            {
+                // Show summary
+                int defaultCount = parsed.Blocks.Count(b => b.IsDefault);
+                int normalCount = parsed.Blocks.Count - defaultCount;
+                Console.WriteLine($"DEFAULT blocks: {defaultCount}");
+                Console.WriteLine($"NORMAL blocks: {normalCount}");
+            }
+        }
+
+        static void ShowMTilBlockInfo(MTil.MBlock block, ushort[] palette)
+        {
+            Console.WriteLine($"=== Block {block.Index} ===");
+            Console.WriteLine($"  Flags: 0x{block.Flags:x2}");
+            Console.WriteLine($"  IsDefault: {block.IsDefault}");
+            Console.WriteLine($"  UseTableB: {block.UseTableB}");
+
+            if (block.IsDefault)
+            {
+                Console.WriteLine($"  Format: DEFAULT (uses predefined RLE table)");
+                Console.WriteLine($"  Data size: {block.DataSize} bytes ({block.Pixels.Length} pixels)");
+            }
+            else
+            {
+                Console.WriteLine($"  x_offset (Width field): {block.Width}");
+                Console.WriteLine($"  y_offset (Height field): {block.Height}");
+                Console.WriteLine($"  ColorCount (RLE entries): {block.ColorCount}");
+                Console.WriteLine($"  Data size: {block.DataSize} bytes ({block.Pixels.Length} pixels)");
+
+                if (block.RleData.Count > 0)
+                {
+                    Console.WriteLine($"  RLE entries:");
+                    for (int i = 0; i < Math.Min(20, block.RleData.Count); i++)
+                    {
+                        ushort rle = block.RleData[i];
+                        int skip = rle & 0x1F;
+                        int draw = (rle >> 5) & 0x1F;
+                        int rowFlag = (rle >> 10) & 0x1F;
+                        Console.WriteLine($"    [{i,3}] 0x{rle:x4} -> skip={skip,2}, draw={draw,2}, rowFlag={rowFlag}");
+                    }
+                    if (block.RleData.Count > 20)
+                        Console.WriteLine($"    ... ({block.RleData.Count - 20} more)");
+                }
+            }
+
+            // Render and visualize
+            Console.WriteLine();
+            Console.WriteLine($"  Canvas visualization (24x24):");
+            var canvas = MTil.RenderBlockToRgb555(block, palette);
+            for (int y = 0; y < 24; y++)
+            {
+                Console.Write($"    {y,2}: ");
+                for (int x = 0; x < 24; x++)
+                {
+                    Console.Write(canvas[y * 24 + x] != 0 ? "█" : "·");
+                }
+                Console.WriteLine();
+            }
+
+            // Find bounding box
+            int minX = 24, minY = 24, maxX = -1, maxY = -1;
+            for (int y = 0; y < 24; y++)
+            {
+                for (int x = 0; x < 24; x++)
+                {
+                    if (canvas[y * 24 + x] != 0)
+                    {
+                        minX = Math.Min(minX, x);
+                        minY = Math.Min(minY, y);
+                        maxX = Math.Max(maxX, x);
+                        maxY = Math.Max(maxY, y);
+                    }
+                }
+            }
+
+            if (maxX >= 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"  Rendered bounding box: x={minX}, y={minY}, w={maxX - minX + 1}, h={maxY - minY + 1}");
+            }
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine($"  Rendered bounding box: EMPTY (no visible pixels)");
             }
         }
 
