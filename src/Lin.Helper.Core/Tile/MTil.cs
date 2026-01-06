@@ -245,9 +245,13 @@ namespace Lin.Helper.Core.Tile
             }
 
             // RLE rendering
+            // 對於 NORMAL blocks，Width 和 Height 欄位實際上是 x_offset 和 y_offset
+            int xOffset = block.IsDefault ? 0 : block.Width;
+            int yOffset = block.IsDefault ? 0 : block.Height;
+
             int pixelIdx = 0;
-            int row = 0;
-            int xBase = 0;
+            int row = yOffset;
+            int xBase = xOffset;
 
             foreach (var (skip, draw, rowFlag) in rleEntries)
             {
@@ -266,7 +270,7 @@ namespace Lin.Helper.Core.Tile
                 if (rowFlag > 0)
                 {
                     row += rowFlag;
-                    xBase = 0;
+                    xBase = xOffset;  // 重置到 x_offset，不是 0
                 }
                 else
                 {
