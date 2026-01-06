@@ -4532,7 +4532,7 @@ namespace PakViewer
                 {
                     if (idx >= blockData.Length - 1) break;
                     int width = rowWidths[row];
-                    int startX = (blockType & 1) != 0 ? 0 : (24 - width) / 2;
+                    int startX = (blockType & 1) != 0 ? 0 : (24 - width); // type 0=right-aligned, type 1=left
                     for (int col = 0; col < width; col++)
                     {
                         if (idx + 1 >= blockData.Length) break;
@@ -4779,7 +4779,7 @@ namespace PakViewer
                 for (int row = 0; row < 23 && dataIdx < blockData.Length - 1; row++)
                 {
                     int width = rowWidths[row];
-                    int startX = (blockType & 1) == 0 ? (24 - width) / 2 : 0; // type 0=centered, type 1=left
+                    int startX = (blockType & 1) == 0 ? (24 - width) : 0; // type 0=right-aligned, type 1=left
 
                     for (int col = 0; col < width && dataIdx + 1 < blockData.Length; col++)
                     {
@@ -4998,15 +4998,15 @@ namespace PakViewer
         {
             return type switch
             {
-                0 => "SimpleDiamond-Center",
+                0 => "SimpleDiamond-Right",
                 1 => "SimpleDiamond-Left",
-                2 => "Compressed2-Center",
+                2 => "Compressed2-Right",
                 3 => "Compressed3-Left",
-                6 => "Compressed6-Center",
+                6 => "Compressed6-Right",
                 7 => "Compressed7-Left",
-                8 => "SimpleDiamond8-Center",
+                8 => "SimpleDiamond8-Right",
                 9 => "SimpleDiamond9-Left",
-                16 => "SimpleDiamond16-Center",
+                16 => "SimpleDiamond16-Right",
                 17 => "SimpleDiamond17-Left",
                 _ => "Unknown"
             };
@@ -5030,7 +5030,7 @@ namespace PakViewer
                 for (int row = 0; row < 23 && dataIdx < blockData.Length - 1; row++)
                 {
                     int width = rowWidths[row];
-                    int startX = (blockType & 1) == 0 ? (24 - width) / 2 : 0;
+                    int startX = (blockType & 1) == 0 ? (24 - width) : 0; // type 0=right-aligned, type 1=left
 
                     for (int col = 0; col < width && dataIdx + 1 < blockData.Length; col++)
                     {
