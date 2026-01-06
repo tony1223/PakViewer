@@ -5,12 +5,13 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>Lin.Helper.Core</RootNamespace>
     <AssemblyName>Lin.Helper.Core</AssemblyName>
 
     <!-- NuGet 套件屬性 -->
     <PackageId>Lin.Helper.Core</PackageId>
-    <Version>1.3.3</Version>
+    <Version>1.3.4</Version>
     <Authors>Flyworld</Authors>
     <Company></Company>
     <Description>Cross-platform Lineage 1 file format library - PAK, SPR, DAT, IMG, TIL and XML encryption/decryption tools</Description>

@@ -1167,5 +1167,238 @@ namespace Lin.Helper.Core.Tile
         }
 
         #endregion
+
+        #region Rendering
+
+        /// <summary>
+        /// 將 block 渲染到 RGB555 canvas
+        /// </summary>
+        /// <param name="blockData">Block 資料</param>
+        /// <param name="destX">目標 X 座標</param>
+        /// <param name="destY">目標 Y 座標</param>
+        /// <param name="canvas">RGB555 canvas (ushort[])</param>
+        /// <param name="canvasWidth">Canvas 寬度</param>
+        /// <param name="canvasHeight">Canvas 高度</param>
+        public static void RenderBlock(byte[] blockData, int destX, int destY, ushort[] canvas, int canvasWidth, int canvasHeight)
+        {
+            if (blockData == null || blockData.Length < 2) return;
+
+            int idx = 0;
+            byte type = blockData[idx++];
+
+            // Type 1: 左對齊菱形 (bit1=0, bit0=1)
+            if ((type & 0x02) == 0 && (type & 0x01) != 0)
+            {
+                for (int ty = 0; ty < 24 && idx < blockData.Length - 1; ty++)
+                {
+                    int n = (ty <= 11) ? (ty + 1) * 2 : (23 - ty) * 2;
+                    int tx = 0; // 左對齊
+                    for (int p = 0; p < n && idx < blockData.Length - 1; p++)
+                    {
+                        ushort color = (ushort)(blockData[idx++] | (blockData[idx++] << 8));
+                        int px = destX + tx;
+                        int py = destY + ty;
+                        if (px >= 0 && px < canvasWidth && py >= 0 && py < canvasHeight)
+                        {
+                            canvas[py * canvasWidth + px] = color;
+                        }
+                        tx++;
+                    }
+                }
+            }
+            // Type 0: 靠右對齊菱形 (bit1=0, bit0=0)
+            else if ((type & 0x02) == 0 && (type & 0x01) == 0)
+            {
+                for (int ty = 0; ty < 24 && idx < blockData.Length - 1; ty++)
+                {
+                    int n = (ty <= 11) ? (ty + 1) * 2 : (23 - ty) * 2;
+                    int tx = 24 - n; // 靠右對齊
+                    for (int p = 0; p < n && idx < blockData.Length - 1; p++)
+                    {
+                        ushort color = (ushort)(blockData[idx++] | (blockData[idx++] << 8));
+                        int px = destX + tx;
+                        int py = destY + ty;
+                        if (px >= 0 && px < canvasWidth && py >= 0 && py < canvasHeight)
+                        {
+                            canvas[py * canvasWidth + px] = color;
+                        }
+                        tx++;
+                    }
+                }
+            }
+            // 壓縮格式 (type 2/3/6/7 等)
+            else if (blockData.Length >= 5)
+            {
+                byte xOffset = blockData[idx++];
+                byte yOffset = blockData[idx++];
+                byte xxLen = blockData[idx++];
+                byte yLen = blockData[idx++];
+
+                for (int ty = 0; ty < yLen && idx < blockData.Length; ty++)
+                {
+                    int tx = xOffset;
+                    byte segCount = blockData[idx++];
+                    for (int seg = 0; seg < segCount && idx < blockData.Length - 1; seg++)
+                    {
+                        int skip = blockData[idx++];
+                        int count = blockData[idx++];
+                        tx += skip / 2;
+
+                        for (int p = 0; p < count && idx < blockData.Length - 1; p++)
+                        {
+                            ushort color = (ushort)(blockData[idx++] | (blockData[idx++] << 8));
+                            int px = destX + tx;
+                            int py = destY + ty + yOffset;
+                            if (px >= 0 && px < canvasWidth && py >= 0 && py < canvasHeight)
+                            {
+                                canvas[py * canvasWidth + px] = color;
+                            }
+                            tx++;
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 將 block 渲染到 24x24 的 RGB555 canvas
+        /// </summary>
+        public static ushort[] RenderBlockToCanvas(byte[] blockData)
+        {
+            var canvas = new ushort[24 * 24];
+            RenderBlock(blockData, 0, 0, canvas, 24, 24);
+            return canvas;
+        }
+
+        /// <summary>
+        /// 將 block 渲染到 BGRA32 格式 (用於 WPF/現代圖形)
+        /// </summary>
+        public static void RenderBlockToBgra(byte[] blockData, int destX, int destY, byte[] canvas, int canvasWidth, int canvasHeight, byte bgR = 0, byte bgG = 0, byte bgB = 0)
+        {
+            var rgb555Canvas = new ushort[canvasWidth * canvasHeight];
+            RenderBlock(blockData, destX, destY, rgb555Canvas, canvasWidth, canvasHeight);
+
+            // Convert RGB555 to BGRA32
+            for (int y = 0; y < canvasHeight; y++)
+            {
+                for (int x = 0; x < canvasWidth; x++)
+                {
+                    int srcIdx = y * canvasWidth + x;
+                    int dstIdx = srcIdx * 4;
+                    ushort rgb555 = rgb555Canvas[srcIdx];
+
+                    if (rgb555 == 0)
+                    {
+                        canvas[dstIdx + 0] = bgB; // B
+                        canvas[dstIdx + 1] = bgG; // G
+                        canvas[dstIdx + 2] = bgR; // R
+                        canvas[dstIdx + 3] = 255; // A
+                    }
+                    else
+                    {
+                        int b5 = rgb555 & 0x1F;
+                        int g5 = (rgb555 >> 5) & 0x1F;
+                        int r5 = (rgb555 >> 10) & 0x1F;
+                        canvas[dstIdx + 0] = (byte)((b5 << 3) | (b5 >> 2)); // B
+                        canvas[dstIdx + 1] = (byte)((g5 << 3) | (g5 >> 2)); // G
+                        canvas[dstIdx + 2] = (byte)((r5 << 3) | (r5 >> 2)); // R
+                        canvas[dstIdx + 3] = 255; // A
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 直接渲染到 unsafe byte* 緩衝區 (高效能版本，RGB555 格式)
+        /// </summary>
+        public static unsafe void RenderBlockDirect(byte[] blockData, int destX, int destY, byte* buffer, int rowPitch, int maxWidth, int maxHeight)
+        {
+            if (blockData == null || blockData.Length < 2) return;
+
+            fixed (byte* tilPtr = blockData)
+            {
+                byte* ptr = tilPtr;
+                byte type = *(ptr++);
+
+                // Type 1: 左對齊菱形
+                if ((type & 0x02) == 0 && (type & 0x01) != 0)
+                {
+                    for (int ty = 0; ty < 24; ty++)
+                    {
+                        int n = (ty <= 11) ? (ty + 1) * 2 : (23 - ty) * 2;
+                        int tx = 0;
+                        for (int p = 0; p < n; p++)
+                        {
+                            ushort color = (ushort)(*(ptr++) | (*(ptr++) << 8));
+                            int px = destX + tx;
+                            int py = destY + ty;
+                            if (px >= 0 && px < maxWidth && py >= 0 && py < maxHeight)
+                            {
+                                int offset = py * rowPitch + (px * 2);
+                                *(buffer + offset) = (byte)(color & 0xFF);
+                                *(buffer + offset + 1) = (byte)(color >> 8);
+                            }
+                            tx++;
+                        }
+                    }
+                }
+                // Type 0: 靠右對齊菱形
+                else if ((type & 0x02) == 0 && (type & 0x01) == 0)
+                {
+                    for (int ty = 0; ty < 24; ty++)
+                    {
+                        int n = (ty <= 11) ? (ty + 1) * 2 : (23 - ty) * 2;
+                        int tx = 24 - n;
+                        for (int p = 0; p < n; p++)
+                        {
+                            ushort color = (ushort)(*(ptr++) | (*(ptr++) << 8));
+                            int px = destX + tx;
+                            int py = destY + ty;
+                            if (px >= 0 && px < maxWidth && py >= 0 && py < maxHeight)
+                            {
+                                int offset = py * rowPitch + (px * 2);
+                                *(buffer + offset) = (byte)(color & 0xFF);
+                                *(buffer + offset + 1) = (byte)(color >> 8);
+                            }
+                            tx++;
+                        }
+                    }
+                }
+                // 壓縮格式
+                else
+                {
+                    byte xOffset = *(ptr++);
+                    byte yOffset = *(ptr++);
+                    byte xxLen = *(ptr++);
+                    byte yLen = *(ptr++);
+
+                    for (int ty = 0; ty < yLen; ty++)
+                    {
+                        int tx = xOffset;
+                        byte segCount = *(ptr++);
+                        for (int seg = 0; seg < segCount; seg++)
+                        {
+                            tx += *(ptr++) / 2;
+                            int count = *(ptr++);
+                            for (int p = 0; p < count; p++)
+                            {
+                                ushort color = (ushort)(*(ptr++) | (*(ptr++) << 8));
+                                int px = destX + tx;
+                                int py = destY + ty + yOffset;
+                                if (px >= 0 && px < maxWidth && py >= 0 && py < maxHeight)
+                                {
+                                    int offset = py * rowPitch + (px * 2);
+                                    *(buffer + offset) = (byte)(color & 0xFF);
+                                    *(buffer + offset + 1) = (byte)(color >> 8);
+                                }
+                                tx++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        #endregion
     }
 }
