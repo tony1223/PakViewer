@@ -282,6 +282,89 @@ namespace Lin.Helper.Core.Tile
         }
 
         /// <summary>
+        /// 將 block 渲染為 24x24 的 RGB555 像素陣列，同時返回像素遮罩
+        /// 遮罩用於區分「無像素」和「顏色為 0 的像素」
+        /// </summary>
+        public static (ushort[] canvas, bool[] hasPixel) RenderBlockWithMask(MBlock block, ushort[] globalPalette)
+        {
+            var canvas = new ushort[BlockSize * BlockSize];
+            var hasPixel = new bool[BlockSize * BlockSize];
+
+            if (block.Pixels == null || block.Pixels.Length == 0)
+                return (canvas, hasPixel);
+
+            // Convert indexed pixels to RGB555 colors
+            var pixelColors = new List<ushort>();
+            foreach (byte idx in block.Pixels)
+            {
+                if (idx < globalPalette.Length)
+                    pixelColors.Add(Rgb565ToRgb555(globalPalette[idx]));
+                else
+                    pixelColors.Add(0);
+            }
+
+            // Get RLE entries
+            var rleEntries = new List<(int skip, int draw, int rowFlag)>();
+
+            if (block.RleData.Count > 0)
+            {
+                foreach (ushort rleValue in block.RleData)
+                {
+                    int skip = rleValue & 0x1F;
+                    int draw = (rleValue >> 5) & 0x1F;
+                    int rowFlag = (rleValue >> 10) & 0x1F;
+                    rleEntries.Add((skip, draw, rowFlag));
+                }
+            }
+            else if (block.IsDefault)
+            {
+                var table = block.UseTableB ? RleTableB : RleTableA;
+                rleEntries.AddRange(table);
+            }
+            else
+            {
+                return (canvas, hasPixel);
+            }
+
+            // RLE rendering with mask tracking
+            int xOffset = block.IsDefault ? 0 : block.Width;
+            int yOffset = block.IsDefault ? 0 : block.Height;
+
+            int pixelIdx = 0;
+            int row = yOffset;
+            int xBase = xOffset;
+
+            foreach (var (skip, draw, rowFlag) in rleEntries)
+            {
+                int x = xBase + skip;
+
+                for (int j = 0; j < draw && pixelIdx < pixelColors.Count; j++)
+                {
+                    int px = x + j;
+                    if (px >= 0 && px < BlockSize && row >= 0 && row < BlockSize)
+                    {
+                        int idx = row * BlockSize + px;
+                        canvas[idx] = pixelColors[pixelIdx];
+                        hasPixel[idx] = true;  // 標記此位置有像素
+                    }
+                    pixelIdx++;
+                }
+
+                if (rowFlag > 0)
+                {
+                    row += rowFlag;
+                    xBase = xOffset;
+                }
+                else
+                {
+                    xBase = x + draw;
+                }
+            }
+
+            return (canvas, hasPixel);
+        }
+
+        /// <summary>
         /// 將 block 渲染為 24x24 的 byte[] (L1Tile 相容格式)
         /// 全部使用 compressed format (type 2/3/6/7) 以保持正確位置
         /// </summary>
@@ -321,16 +404,16 @@ namespace Lin.Helper.Core.Tile
         /// </summary>
         private static byte[] RenderNormalBlockToL1Compressed(MBlock block, ushort[] globalPalette)
         {
-            // 先渲染到 canvas
-            var canvas = RenderBlockToRgb555(block, globalPalette);
+            // 渲染到 canvas 並追蹤哪些位置有像素
+            var (canvas, hasPixel) = RenderBlockWithMask(block, globalPalette);
 
-            // 找出 bounding box
+            // 找出 bounding box（使用 hasPixel 而不是檢查顏色值）
             int minX = BlockSize, minY = BlockSize, maxX = -1, maxY = -1;
             for (int y = 0; y < BlockSize; y++)
             {
                 for (int x = 0; x < BlockSize; x++)
                 {
-                    if (canvas[y * BlockSize + x] != 0)
+                    if (hasPixel[y * BlockSize + x])
                     {
                         minX = Math.Min(minX, x);
                         minY = Math.Min(minY, y);
@@ -400,16 +483,16 @@ namespace Lin.Helper.Core.Tile
 
                 while (x <= maxX)
                 {
-                    // 跳過透明像素
-                    while (x <= maxX && canvas[y * BlockSize + x] == 0)
+                    // 跳過無像素的位置（使用 hasPixel 而不是檢查顏色值）
+                    while (x <= maxX && !hasPixel[y * BlockSize + x])
                         x++;
 
                     if (x > maxX) break;
 
-                    // 收集連續非透明像素
+                    // 收集連續有像素的位置
                     int startX = x;
                     var segPixels = new List<ushort>();
-                    while (x <= maxX && canvas[y * BlockSize + x] != 0)
+                    while (x <= maxX && hasPixel[y * BlockSize + x])
                     {
                         segPixels.Add(canvas[y * BlockSize + x]);
                         x++;
