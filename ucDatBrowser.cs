@@ -18,14 +18,18 @@ namespace PakViewer
 
         // UI 元件
         private Panel toolbarPanel;
+        // Row 1
+        private Label lblDatInfo;
         private Label lblFilter;
         private TextBox txtFilter;
+        private Button btnExport;
+        private Button btnExportAll;
+        // Row 2
         private Label lblSearch;
         private TextBox txtSearch;
         private Button btnSearch;
         private Button btnClear;
         private CheckBox chkGalleryMode;
-        private Label lblDatInfo;
         private SplitContainer splitContainer;
         private ListView lvFiles;
         private ucImgViewer imageViewer;
@@ -288,6 +292,68 @@ namespace PakViewer
             ExportEntry(entry);
         }
 
+        private void btnExport_Click(object sender, EventArgs e)
+        {
+            if (lvFiles.SelectedIndices.Count == 0)
+            {
+                MessageBox.Show("請先選擇要匯出的檔案", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            int selectedIndex = lvFiles.SelectedIndices[0];
+            if (_filteredEntries == null || selectedIndex >= _filteredEntries.Count)
+                return;
+
+            var entry = _filteredEntries[selectedIndex];
+            ExportEntry(entry);
+        }
+
+        private void btnExportAll_Click(object sender, EventArgs e)
+        {
+            if (_filteredEntries == null || _filteredEntries.Count == 0)
+            {
+                MessageBox.Show("沒有可匯出的檔案", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (var dlg = new FolderBrowserDialog())
+            {
+                dlg.Description = "選擇匯出目錄";
+                if (dlg.ShowDialog() != DialogResult.OK)
+                    return;
+
+                string outputDir = dlg.SelectedPath;
+                int exported = 0;
+                int failed = 0;
+
+                foreach (var entry in _filteredEntries)
+                {
+                    try
+                    {
+                        var datFile = _datFileObjects.FirstOrDefault(d => d.FilePath == entry.SourceDatFile);
+                        if (datFile == null) continue;
+
+                        byte[] data = datFile.ExtractFile(entry);
+
+                        string outputPath = Path.Combine(outputDir, entry.Path.Replace('/', '\\'));
+                        string dir = Path.GetDirectoryName(outputPath);
+                        if (!Directory.Exists(dir))
+                            Directory.CreateDirectory(dir);
+
+                        File.WriteAllBytes(outputPath, data);
+                        exported++;
+                    }
+                    catch
+                    {
+                        failed++;
+                    }
+                }
+
+                MessageBox.Show($"匯出完成：成功 {exported}，失敗 {failed}",
+                    "匯出結果", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
         private void ExportEntry(DatTools.DatIndexEntry entry)
         {
             try
@@ -347,14 +413,16 @@ namespace PakViewer
         private void InitializeComponent()
         {
             this.toolbarPanel = new Panel();
+            this.lblDatInfo = new Label();
             this.lblFilter = new Label();
             this.txtFilter = new TextBox();
+            this.btnExport = new Button();
+            this.btnExportAll = new Button();
             this.lblSearch = new Label();
             this.txtSearch = new TextBox();
             this.btnSearch = new Button();
             this.btnClear = new Button();
             this.chkGalleryMode = new CheckBox();
-            this.lblDatInfo = new Label();
             this.splitContainer = new SplitContainer();
             this.lvFiles = new ListView();
             this.imageViewer = new ucImgViewer();
@@ -366,89 +434,113 @@ namespace PakViewer
             this.splitContainer.SuspendLayout();
             this.SuspendLayout();
 
-            // toolbarPanel
+            // toolbarPanel (兩行)
+            this.toolbarPanel.Controls.Add(this.lblDatInfo);
             this.toolbarPanel.Controls.Add(this.lblFilter);
             this.toolbarPanel.Controls.Add(this.txtFilter);
+            this.toolbarPanel.Controls.Add(this.btnExport);
+            this.toolbarPanel.Controls.Add(this.btnExportAll);
             this.toolbarPanel.Controls.Add(this.lblSearch);
             this.toolbarPanel.Controls.Add(this.txtSearch);
             this.toolbarPanel.Controls.Add(this.btnSearch);
             this.toolbarPanel.Controls.Add(this.btnClear);
             this.toolbarPanel.Controls.Add(this.chkGalleryMode);
-            this.toolbarPanel.Controls.Add(this.lblDatInfo);
             this.toolbarPanel.Dock = DockStyle.Top;
             this.toolbarPanel.Location = new Point(0, 0);
             this.toolbarPanel.Name = "toolbarPanel";
-            this.toolbarPanel.Size = new Size(800, 30);
+            this.toolbarPanel.Size = new Size(800, 56);
             this.toolbarPanel.TabIndex = 0;
+
+            // === Row 1 (Y = 4) ===
+
+            // lblDatInfo
+            this.lblDatInfo.AutoSize = true;
+            this.lblDatInfo.Location = new Point(5, 7);
+            this.lblDatInfo.Name = "lblDatInfo";
+            this.lblDatInfo.Size = new Size(50, 12);
+            this.lblDatInfo.Text = "DAT: -";
 
             // lblFilter
             this.lblFilter.AutoSize = true;
-            this.lblFilter.Location = new Point(5, 7);
+            this.lblFilter.Location = new Point(200, 7);
             this.lblFilter.Name = "lblFilter";
             this.lblFilter.Size = new Size(41, 12);
             this.lblFilter.Text = "篩選:";
 
             // txtFilter
-            this.txtFilter.Location = new Point(50, 4);
+            this.txtFilter.Location = new Point(245, 4);
             this.txtFilter.Name = "txtFilter";
-            this.txtFilter.Size = new Size(150, 22);
+            this.txtFilter.Size = new Size(200, 22);
             this.txtFilter.TabIndex = 1;
             this.txtFilter.TextChanged += new EventHandler(this.txtFilter_TextChanged);
 
+            // btnExport
+            this.btnExport.Location = new Point(460, 3);
+            this.btnExport.Name = "btnExport";
+            this.btnExport.Size = new Size(70, 23);
+            this.btnExport.TabIndex = 2;
+            this.btnExport.Text = "匯出選取";
+            this.btnExport.UseVisualStyleBackColor = true;
+            this.btnExport.Click += new EventHandler(this.btnExport_Click);
+
+            // btnExportAll
+            this.btnExportAll.Location = new Point(535, 3);
+            this.btnExportAll.Name = "btnExportAll";
+            this.btnExportAll.Size = new Size(70, 23);
+            this.btnExportAll.TabIndex = 3;
+            this.btnExportAll.Text = "匯出全部";
+            this.btnExportAll.UseVisualStyleBackColor = true;
+            this.btnExportAll.Click += new EventHandler(this.btnExportAll_Click);
+
+            // === Row 2 (Y = 30) ===
+
             // lblSearch
             this.lblSearch.AutoSize = true;
-            this.lblSearch.Location = new Point(220, 7);
+            this.lblSearch.Location = new Point(5, 33);
             this.lblSearch.Name = "lblSearch";
             this.lblSearch.Size = new Size(41, 12);
             this.lblSearch.Text = "搜尋:";
 
             // txtSearch
-            this.txtSearch.Location = new Point(265, 4);
+            this.txtSearch.Location = new Point(50, 30);
             this.txtSearch.Name = "txtSearch";
-            this.txtSearch.Size = new Size(150, 22);
-            this.txtSearch.TabIndex = 2;
+            this.txtSearch.Size = new Size(200, 22);
+            this.txtSearch.TabIndex = 4;
             this.txtSearch.KeyDown += new KeyEventHandler(this.txtSearch_KeyDown);
 
             // btnSearch
-            this.btnSearch.Location = new Point(420, 3);
+            this.btnSearch.Location = new Point(260, 29);
             this.btnSearch.Name = "btnSearch";
             this.btnSearch.Size = new Size(50, 23);
-            this.btnSearch.TabIndex = 3;
+            this.btnSearch.TabIndex = 5;
             this.btnSearch.Text = "搜尋";
             this.btnSearch.UseVisualStyleBackColor = true;
             this.btnSearch.Click += new EventHandler(this.btnSearch_Click);
 
             // btnClear
-            this.btnClear.Location = new Point(475, 3);
+            this.btnClear.Location = new Point(315, 29);
             this.btnClear.Name = "btnClear";
             this.btnClear.Size = new Size(50, 23);
-            this.btnClear.TabIndex = 4;
+            this.btnClear.TabIndex = 6;
             this.btnClear.Text = "清除";
             this.btnClear.UseVisualStyleBackColor = true;
             this.btnClear.Click += new EventHandler(this.btnClear_Click);
 
             // chkGalleryMode
             this.chkGalleryMode.AutoSize = true;
-            this.chkGalleryMode.Location = new Point(540, 6);
+            this.chkGalleryMode.Location = new Point(380, 32);
             this.chkGalleryMode.Name = "chkGalleryMode";
             this.chkGalleryMode.Size = new Size(72, 16);
-            this.chkGalleryMode.TabIndex = 5;
+            this.chkGalleryMode.TabIndex = 7;
             this.chkGalleryMode.Text = "相簿模式";
             this.chkGalleryMode.UseVisualStyleBackColor = true;
             this.chkGalleryMode.CheckedChanged += new EventHandler(this.chkGalleryMode_CheckedChanged);
 
-            // lblDatInfo
-            this.lblDatInfo.AutoSize = true;
-            this.lblDatInfo.Location = new Point(630, 7);
-            this.lblDatInfo.Name = "lblDatInfo";
-            this.lblDatInfo.Size = new Size(50, 12);
-            this.lblDatInfo.Text = "DAT: -";
-
             // splitContainer
             this.splitContainer.Dock = DockStyle.Fill;
-            this.splitContainer.Location = new Point(0, 30);
+            this.splitContainer.Location = new Point(0, 56);
             this.splitContainer.Name = "splitContainer";
-            this.splitContainer.Size = new Size(800, 570);
+            this.splitContainer.Size = new Size(800, 544);
             this.splitContainer.SplitterDistance = 350;
             this.splitContainer.TabIndex = 1;
 
@@ -459,7 +551,7 @@ namespace PakViewer
             this.lvFiles.HideSelection = false;
             this.lvFiles.Location = new Point(0, 0);
             this.lvFiles.Name = "lvFiles";
-            this.lvFiles.Size = new Size(350, 570);
+            this.lvFiles.Size = new Size(350, 544);
             this.lvFiles.TabIndex = 0;
             this.lvFiles.UseCompatibleStateImageBehavior = false;
             this.lvFiles.View = View.Details;
@@ -476,7 +568,7 @@ namespace PakViewer
             this.imageViewer.Dock = DockStyle.Fill;
             this.imageViewer.Location = new Point(0, 0);
             this.imageViewer.Name = "imageViewer";
-            this.imageViewer.Size = new Size(446, 570);
+            this.imageViewer.Size = new Size(446, 544);
             this.imageViewer.TabIndex = 0;
 
             // splitContainer.Panel1
