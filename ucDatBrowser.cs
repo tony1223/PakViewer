@@ -4,6 +4,8 @@ using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using PakViewer.Utility;
 
@@ -36,6 +38,10 @@ namespace PakViewer
         private const int THUMB_SIZE = 80;
         private const int THUMB_PANEL_WIDTH = 100;
         private const int THUMB_PANEL_HEIGHT = 110;
+        private const int BATCH_SIZE = 20;  // 每批載入的數量
+
+        // 背景載入
+        private CancellationTokenSource _loadingCts;
 
         // 資料
         private List<string> _datFilePaths;
@@ -167,48 +173,91 @@ namespace PakViewer
 
         private void PopulateGallery()
         {
+            // 取消之前的載入任務
+            _loadingCts?.Cancel();
+            _loadingCts = new CancellationTokenSource();
+            var token = _loadingCts.Token;
+
             ClearGallery();
 
             if (_filteredEntries == null || _filteredEntries.Count == 0)
                 return;
 
-            galleryPanel.SuspendLayout();
-
             // 只載入圖片類型的檔案
             var imageExtensions = new[] { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp" };
+            var imageEntries = _filteredEntries
+                .Where(e => imageExtensions.Contains(Path.GetExtension(e.Path).ToLower()))
+                .ToList();
 
-            foreach (var entry in _filteredEntries)
+            if (imageEntries.Count == 0)
+                return;
+
+            galleryPanel.SuspendLayout();
+
+            // 先建立所有面板 (無圖片)
+            var panels = new List<(Panel panel, PictureBox pb, DatTools.DatIndexEntry entry)>();
+            foreach (var entry in imageEntries)
             {
-                string ext = Path.GetExtension(entry.Path).ToLower();
-                if (!imageExtensions.Contains(ext))
-                    continue;
-
-                var thumbPanel = CreateThumbnailPanel(entry);
-                galleryPanel.Controls.Add(thumbPanel);
+                var (panel, pb) = CreateThumbnailPanelPlaceholder(entry);
+                galleryPanel.Controls.Add(panel);
+                panels.Add((panel, pb, entry));
             }
 
             galleryPanel.ResumeLayout(true);
+
+            // 背景載入圖片
+            Task.Run(() => LoadThumbnailsAsync(panels, token), token);
         }
 
-        private void ClearGallery()
+        private async Task LoadThumbnailsAsync(List<(Panel panel, PictureBox pb, DatTools.DatIndexEntry entry)> panels, CancellationToken token)
         {
-            foreach (Control ctrl in galleryPanel.Controls)
+            for (int i = 0; i < panels.Count; i += BATCH_SIZE)
             {
-                if (ctrl is Panel p)
+                if (token.IsCancellationRequested)
+                    return;
+
+                var batch = panels.Skip(i).Take(BATCH_SIZE).ToList();
+
+                foreach (var (panel, pb, entry) in batch)
                 {
-                    foreach (Control child in p.Controls)
+                    if (token.IsCancellationRequested)
+                        return;
+
+                    try
                     {
-                        if (child is PictureBox pb)
-                            pb.Image?.Dispose();
-                        child.Dispose();
+                        var datFile = _datFileObjects.FirstOrDefault(d => d.FilePath == entry.SourceDatFile);
+                        if (datFile == null) continue;
+
+                        byte[] data = datFile.ExtractFile(entry);
+
+                        using (var ms = new MemoryStream(data))
+                        {
+                            var img = Image.FromStream(ms);
+                            var bmp = new Bitmap(img);
+
+                            // 在 UI 執行緒更新
+                            if (!token.IsCancellationRequested && !pb.IsDisposed)
+                            {
+                                pb.Invoke((Action)(() =>
+                                {
+                                    if (!pb.IsDisposed)
+                                        pb.Image = bmp;
+                                }));
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 載入失敗，保持空白
                     }
                 }
-                ctrl.Dispose();
+
+                // 每批之間稍微暫停，讓 UI 有機會更新
+                await Task.Delay(10, token).ConfigureAwait(false);
             }
-            galleryPanel.Controls.Clear();
         }
 
-        private Panel CreateThumbnailPanel(DatTools.DatIndexEntry entry)
+        private (Panel panel, PictureBox pb) CreateThumbnailPanelPlaceholder(DatTools.DatIndexEntry entry)
         {
             var panel = new Panel
             {
@@ -218,7 +267,7 @@ namespace PakViewer
                 Tag = entry
             };
 
-            // 縮圖 PictureBox
+            // 縮圖 PictureBox (先不載入圖片)
             var pb = new PictureBox
             {
                 Width = THUMB_SIZE,
@@ -226,28 +275,9 @@ namespace PakViewer
                 Location = new Point((THUMB_PANEL_WIDTH - THUMB_SIZE) / 2, 2),
                 SizeMode = PictureBoxSizeMode.Zoom,
                 BorderStyle = BorderStyle.FixedSingle,
-                BackColor = Color.White,
+                BackColor = Color.LightGray,  // 載入中顯示灰色
                 Tag = entry
             };
-
-            // 載入縮圖
-            try
-            {
-                var datFile = _datFileObjects.FirstOrDefault(d => d.FilePath == entry.SourceDatFile);
-                if (datFile != null)
-                {
-                    byte[] data = datFile.ExtractFile(entry);
-                    using (var ms = new MemoryStream(data))
-                    {
-                        var img = Image.FromStream(ms);
-                        pb.Image = new Bitmap(img);
-                    }
-                }
-            }
-            catch
-            {
-                // 載入失敗，顯示空白
-            }
 
             // 檔名標籤
             var lbl = new Label
@@ -283,7 +313,28 @@ namespace PakViewer
             panel.Controls.Add(pb);
             panel.Controls.Add(lbl);
 
-            return panel;
+            return (panel, pb);
+        }
+
+        private void ClearGallery()
+        {
+            // 取消載入任務
+            _loadingCts?.Cancel();
+
+            foreach (Control ctrl in galleryPanel.Controls)
+            {
+                if (ctrl is Panel p)
+                {
+                    foreach (Control child in p.Controls)
+                    {
+                        if (child is PictureBox pb)
+                            pb.Image?.Dispose();
+                        child.Dispose();
+                    }
+                }
+                ctrl.Dispose();
+            }
+            galleryPanel.Controls.Clear();
         }
 
         private Panel _selectedGalleryItem = null;
