@@ -30,6 +30,7 @@ namespace PakViewer
         private ListView lvFiles;
         private FlowLayoutPanel galleryPanel;
         private ucImgViewer imageViewer;
+        private ContextMenuStrip galleryContextMenu;
 
         // Gallery 常數
         private const int THUMB_SIZE = 80;
@@ -269,6 +270,16 @@ namespace PakViewer
             lbl.Click += (s, e) => SelectGalleryItem(panel);
             panel.Click += (s, e) => SelectGalleryItem(panel);
 
+            // 右鍵選單
+            pb.ContextMenuStrip = galleryContextMenu;
+            lbl.ContextMenuStrip = galleryContextMenu;
+            panel.ContextMenuStrip = galleryContextMenu;
+
+            // 右鍵時也要選取
+            pb.MouseDown += (s, e) => { if (e.Button == MouseButtons.Right) SelectGalleryItem(panel); };
+            lbl.MouseDown += (s, e) => { if (e.Button == MouseButtons.Right) SelectGalleryItem(panel); };
+            panel.MouseDown += (s, e) => { if (e.Button == MouseButtons.Right) SelectGalleryItem(panel); };
+
             panel.Controls.Add(pb);
             panel.Controls.Add(lbl);
 
@@ -288,6 +299,30 @@ namespace PakViewer
             // 選取新的
             _selectedGalleryItem = panel;
             panel.BackColor = SystemColors.Highlight;
+        }
+
+        private void ExportSelectedGalleryItem()
+        {
+            if (_selectedGalleryItem?.Tag is DatTools.DatIndexEntry entry)
+            {
+                ExportEntry(entry);
+            }
+        }
+
+        private void CopySelectedGalleryItemToClipboard()
+        {
+            if (_selectedGalleryItem == null)
+                return;
+
+            // 找到 PictureBox 取得圖片
+            foreach (Control ctrl in _selectedGalleryItem.Controls)
+            {
+                if (ctrl is PictureBox pb && pb.Image != null)
+                {
+                    Clipboard.SetImage(pb.Image);
+                    return;
+                }
+            }
         }
 
         private void lvFiles_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
@@ -509,6 +544,7 @@ namespace PakViewer
             this.splitContainer = new SplitContainer();
             this.lvFiles = new ListView();
             this.galleryPanel = new FlowLayoutPanel();
+            this.galleryContextMenu = new ContextMenuStrip();
             this.imageViewer = new ucImgViewer();
 
             this.toolbarPanel.SuspendLayout();
@@ -620,6 +656,16 @@ namespace PakViewer
             this.galleryPanel.Size = new Size(350, 544);
             this.galleryPanel.TabIndex = 1;
             this.galleryPanel.Visible = false;
+
+            // galleryContextMenu
+            var mnuExportSelected = new ToolStripMenuItem("匯出選取(&E)");
+            mnuExportSelected.Click += (s, e) => ExportSelectedGalleryItem();
+            var mnuCopyToClipboard = new ToolStripMenuItem("複製到剪貼簿(&C)");
+            mnuCopyToClipboard.Click += (s, e) => CopySelectedGalleryItemToClipboard();
+            this.galleryContextMenu.Items.AddRange(new ToolStripItem[] {
+                mnuExportSelected,
+                mnuCopyToClipboard
+            });
 
             // imageViewer
             this.imageViewer.Dock = DockStyle.Fill;
