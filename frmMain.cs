@@ -5865,6 +5865,8 @@ namespace PakViewer
       this.mainTabControl.TabIndex = 2;
       this.mainTabControl.TabPages.Add(this.folderBrowserTab);
       this.mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
+      this.mainTabControl.SizeMode = TabSizeMode.Normal;
+      this.mainTabControl.ItemSize = new Size(100, 22);  // 確保 Tab 標題顯示完整
       this.mainTabControl.DrawItem += new DrawItemEventHandler(this.mainTabControl_DrawItem);
       this.mainTabControl.MouseClick += new MouseEventHandler(this.mainTabControl_MouseClick);
       //
@@ -5878,6 +5880,7 @@ namespace PakViewer
       this.folderBrowserTab.Text = "資料夾瀏覽";
       this.folderBrowserTab.UseVisualStyleBackColor = true;
       this.folderBrowserTab.Controls.Add((Control) this.splitContainer1);
+      this.folderBrowserTab.Controls.Add((Control) this.palToolbar);  // 工具列放在資料夾瀏覽 Tab 內
       //
       // splitContainer1
       //
@@ -6316,7 +6319,6 @@ namespace PakViewer
       this.AutoScaleMode = AutoScaleMode.Font;
       this.ClientSize = new Size(792, 616);
       this.Controls.Add((Control) this.mainTabControl);
-      this.Controls.Add((Control) this.palToolbar);
       this.Controls.Add((Control) this.statusStrip1);
       this.Controls.Add((Control) this.menuStrip1);
       this.Icon = (Icon) componentResourceManager.GetObject("$this.Icon");
