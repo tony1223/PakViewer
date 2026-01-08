@@ -20,15 +20,11 @@ namespace PakViewer
         private Panel toolbarPanel;
         // Row 1
         private Label lblDatInfo;
-        private Label lblFilter;
-        private TextBox txtFilter;
         private Button btnExport;
         private Button btnExportAll;
         // Row 2
-        private Label lblSearch;
-        private TextBox txtSearch;
-        private Button btnSearch;
-        private Button btnClear;
+        private Label lblFilter;
+        private TextBox txtFilter;
         private CheckBox chkGalleryMode;
         private SplitContainer splitContainer;
         private ListView lvFiles;
@@ -39,7 +35,6 @@ namespace PakViewer
         private List<DatTools.DatFile> _datFileObjects;
         private List<DatTools.DatIndexEntry> _allEntries;
         private List<DatTools.DatIndexEntry> _filteredEntries;
-        private int _searchIndex = -1;  // 搜尋位置
 
         #region IEditorTab Implementation
 
@@ -127,7 +122,6 @@ namespace PakViewer
                     .ToList();
             }
 
-            _searchIndex = -1;  // 重置搜尋位置
             lvFiles.VirtualListSize = _filteredEntries.Count;
             lvFiles.Invalidate();
 
@@ -138,67 +132,18 @@ namespace PakViewer
             }
         }
 
-        private void btnSearch_Click(object sender, EventArgs e)
-        {
-            DoSearch();
-        }
-
-        private void txtSearch_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Enter)
-            {
-                DoSearch();
-                e.Handled = true;
-                e.SuppressKeyPress = true;
-            }
-        }
-
-        private void DoSearch()
-        {
-            string searchText = txtSearch.Text.Trim().ToLower();
-            if (string.IsNullOrEmpty(searchText) || _filteredEntries == null || _filteredEntries.Count == 0)
-                return;
-
-            // 從下一個位置開始搜尋
-            int startIndex = _searchIndex + 1;
-            if (startIndex >= _filteredEntries.Count)
-                startIndex = 0;
-
-            for (int i = 0; i < _filteredEntries.Count; i++)
-            {
-                int idx = (startIndex + i) % _filteredEntries.Count;
-                if (_filteredEntries[idx].Path.ToLower().Contains(searchText))
-                {
-                    _searchIndex = idx;
-                    lvFiles.SelectedIndices.Clear();
-                    lvFiles.SelectedIndices.Add(idx);
-                    lvFiles.EnsureVisible(idx);
-                    lvFiles.Focus();
-                    return;
-                }
-            }
-
-            MessageBox.Show($"找不到 \"{txtSearch.Text}\"", "搜尋", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-
-        private void btnClear_Click(object sender, EventArgs e)
-        {
-            txtSearch.Text = "";
-            txtFilter.Text = "";
-            _searchIndex = -1;
-            ApplyFilter();
-        }
-
         private void chkGalleryMode_CheckedChanged(object sender, EventArgs e)
         {
             if (chkGalleryMode.Checked)
             {
-                // 相簿模式：隱藏右側預覽
+                // 相簿模式：大圖示檢視，隱藏右側預覽
+                lvFiles.View = View.LargeIcon;
                 splitContainer.Panel2Collapsed = true;
             }
             else
             {
-                // 正常模式：顯示右側預覽
+                // 正常模式：詳細檢視，顯示右側預覽
+                lvFiles.View = View.Details;
                 splitContainer.Panel2Collapsed = false;
             }
         }
@@ -414,14 +359,10 @@ namespace PakViewer
         {
             this.toolbarPanel = new Panel();
             this.lblDatInfo = new Label();
-            this.lblFilter = new Label();
-            this.txtFilter = new TextBox();
             this.btnExport = new Button();
             this.btnExportAll = new Button();
-            this.lblSearch = new Label();
-            this.txtSearch = new TextBox();
-            this.btnSearch = new Button();
-            this.btnClear = new Button();
+            this.lblFilter = new Label();
+            this.txtFilter = new TextBox();
             this.chkGalleryMode = new CheckBox();
             this.splitContainer = new SplitContainer();
             this.lvFiles = new ListView();
@@ -436,14 +377,10 @@ namespace PakViewer
 
             // toolbarPanel (兩行)
             this.toolbarPanel.Controls.Add(this.lblDatInfo);
-            this.toolbarPanel.Controls.Add(this.lblFilter);
-            this.toolbarPanel.Controls.Add(this.txtFilter);
             this.toolbarPanel.Controls.Add(this.btnExport);
             this.toolbarPanel.Controls.Add(this.btnExportAll);
-            this.toolbarPanel.Controls.Add(this.lblSearch);
-            this.toolbarPanel.Controls.Add(this.txtSearch);
-            this.toolbarPanel.Controls.Add(this.btnSearch);
-            this.toolbarPanel.Controls.Add(this.btnClear);
+            this.toolbarPanel.Controls.Add(this.lblFilter);
+            this.toolbarPanel.Controls.Add(this.txtFilter);
             this.toolbarPanel.Controls.Add(this.chkGalleryMode);
             this.toolbarPanel.Dock = DockStyle.Top;
             this.toolbarPanel.Location = new Point(0, 0);
@@ -460,78 +397,46 @@ namespace PakViewer
             this.lblDatInfo.Size = new Size(50, 12);
             this.lblDatInfo.Text = "DAT: -";
 
-            // lblFilter
-            this.lblFilter.AutoSize = true;
-            this.lblFilter.Location = new Point(200, 7);
-            this.lblFilter.Name = "lblFilter";
-            this.lblFilter.Size = new Size(41, 12);
-            this.lblFilter.Text = "篩選:";
-
-            // txtFilter
-            this.txtFilter.Location = new Point(245, 4);
-            this.txtFilter.Name = "txtFilter";
-            this.txtFilter.Size = new Size(200, 22);
-            this.txtFilter.TabIndex = 1;
-            this.txtFilter.TextChanged += new EventHandler(this.txtFilter_TextChanged);
-
             // btnExport
-            this.btnExport.Location = new Point(460, 3);
+            this.btnExport.Location = new Point(200, 3);
             this.btnExport.Name = "btnExport";
             this.btnExport.Size = new Size(70, 23);
-            this.btnExport.TabIndex = 2;
+            this.btnExport.TabIndex = 1;
             this.btnExport.Text = "匯出選取";
             this.btnExport.UseVisualStyleBackColor = true;
             this.btnExport.Click += new EventHandler(this.btnExport_Click);
 
             // btnExportAll
-            this.btnExportAll.Location = new Point(535, 3);
+            this.btnExportAll.Location = new Point(275, 3);
             this.btnExportAll.Name = "btnExportAll";
             this.btnExportAll.Size = new Size(70, 23);
-            this.btnExportAll.TabIndex = 3;
+            this.btnExportAll.TabIndex = 2;
             this.btnExportAll.Text = "匯出全部";
             this.btnExportAll.UseVisualStyleBackColor = true;
             this.btnExportAll.Click += new EventHandler(this.btnExportAll_Click);
 
             // === Row 2 (Y = 30) ===
 
-            // lblSearch
-            this.lblSearch.AutoSize = true;
-            this.lblSearch.Location = new Point(5, 33);
-            this.lblSearch.Name = "lblSearch";
-            this.lblSearch.Size = new Size(41, 12);
-            this.lblSearch.Text = "搜尋:";
+            // lblFilter
+            this.lblFilter.AutoSize = true;
+            this.lblFilter.Location = new Point(5, 33);
+            this.lblFilter.Name = "lblFilter";
+            this.lblFilter.Size = new Size(41, 12);
+            this.lblFilter.Text = "篩選:";
 
-            // txtSearch
-            this.txtSearch.Location = new Point(50, 30);
-            this.txtSearch.Name = "txtSearch";
-            this.txtSearch.Size = new Size(200, 22);
-            this.txtSearch.TabIndex = 4;
-            this.txtSearch.KeyDown += new KeyEventHandler(this.txtSearch_KeyDown);
-
-            // btnSearch
-            this.btnSearch.Location = new Point(260, 29);
-            this.btnSearch.Name = "btnSearch";
-            this.btnSearch.Size = new Size(50, 23);
-            this.btnSearch.TabIndex = 5;
-            this.btnSearch.Text = "搜尋";
-            this.btnSearch.UseVisualStyleBackColor = true;
-            this.btnSearch.Click += new EventHandler(this.btnSearch_Click);
-
-            // btnClear
-            this.btnClear.Location = new Point(315, 29);
-            this.btnClear.Name = "btnClear";
-            this.btnClear.Size = new Size(50, 23);
-            this.btnClear.TabIndex = 6;
-            this.btnClear.Text = "清除";
-            this.btnClear.UseVisualStyleBackColor = true;
-            this.btnClear.Click += new EventHandler(this.btnClear_Click);
+            // txtFilter
+            this.txtFilter.Location = new Point(50, 30);
+            this.txtFilter.Name = "txtFilter";
+            this.txtFilter.Size = new Size(250, 22);
+            this.txtFilter.TabIndex = 3;
+            this.txtFilter.TextChanged += new EventHandler(this.txtFilter_TextChanged);
 
             // chkGalleryMode
             this.chkGalleryMode.AutoSize = true;
-            this.chkGalleryMode.Location = new Point(380, 32);
+            this.chkGalleryMode.Location = new Point(320, 32);
             this.chkGalleryMode.Name = "chkGalleryMode";
             this.chkGalleryMode.Size = new Size(72, 16);
-            this.chkGalleryMode.TabIndex = 7;
+            this.chkGalleryMode.TabIndex = 4;
             this.chkGalleryMode.Text = "相簿模式";
             this.chkGalleryMode.UseVisualStyleBackColor = true;
             this.chkGalleryMode.CheckedChanged += new EventHandler(this.chkGalleryMode_CheckedChanged);
