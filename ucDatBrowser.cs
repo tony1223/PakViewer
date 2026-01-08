@@ -28,7 +28,13 @@ namespace PakViewer
         private CheckBox chkGalleryMode;
         private SplitContainer splitContainer;
         private ListView lvFiles;
+        private FlowLayoutPanel galleryPanel;
         private ucImgViewer imageViewer;
+
+        // Gallery 常數
+        private const int THUMB_SIZE = 80;
+        private const int THUMB_PANEL_WIDTH = 100;
+        private const int THUMB_PANEL_HEIGHT = 110;
 
         // 資料
         private List<string> _datFilePaths;
@@ -130,22 +136,158 @@ namespace PakViewer
             {
                 lblDatInfo.Text = $"DAT: {_datFileObjects?.Count ?? 0} 檔案, {_filteredEntries.Count}/{_allEntries.Count} 項目";
             }
+
+            // 如果在相簿模式，重新載入縮圖
+            if (chkGalleryMode.Checked)
+            {
+                PopulateGallery();
+            }
         }
 
         private void chkGalleryMode_CheckedChanged(object sender, EventArgs e)
         {
             if (chkGalleryMode.Checked)
             {
-                // 相簿模式：大圖示檢視，隱藏右側預覽
-                lvFiles.View = View.LargeIcon;
+                // 相簿模式：顯示 FlowLayoutPanel，隱藏 ListView 和右側預覽
+                lvFiles.Visible = false;
+                galleryPanel.Visible = true;
                 splitContainer.Panel2Collapsed = true;
+                PopulateGallery();
             }
             else
             {
-                // 正常模式：詳細檢視，顯示右側預覽
-                lvFiles.View = View.Details;
+                // 正常模式：顯示 ListView，隱藏 FlowLayoutPanel，顯示右側預覽
+                galleryPanel.Visible = false;
+                lvFiles.Visible = true;
                 splitContainer.Panel2Collapsed = false;
+                ClearGallery();
             }
+        }
+
+        private void PopulateGallery()
+        {
+            ClearGallery();
+
+            if (_filteredEntries == null || _filteredEntries.Count == 0)
+                return;
+
+            galleryPanel.SuspendLayout();
+
+            // 只載入圖片類型的檔案
+            var imageExtensions = new[] { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp" };
+
+            foreach (var entry in _filteredEntries)
+            {
+                string ext = Path.GetExtension(entry.Path).ToLower();
+                if (!imageExtensions.Contains(ext))
+                    continue;
+
+                var thumbPanel = CreateThumbnailPanel(entry);
+                galleryPanel.Controls.Add(thumbPanel);
+            }
+
+            galleryPanel.ResumeLayout(true);
+        }
+
+        private void ClearGallery()
+        {
+            foreach (Control ctrl in galleryPanel.Controls)
+            {
+                if (ctrl is Panel p)
+                {
+                    foreach (Control child in p.Controls)
+                    {
+                        if (child is PictureBox pb)
+                            pb.Image?.Dispose();
+                        child.Dispose();
+                    }
+                }
+                ctrl.Dispose();
+            }
+            galleryPanel.Controls.Clear();
+        }
+
+        private Panel CreateThumbnailPanel(DatTools.DatIndexEntry entry)
+        {
+            var panel = new Panel
+            {
+                Width = THUMB_PANEL_WIDTH,
+                Height = THUMB_PANEL_HEIGHT,
+                Margin = new Padding(3),
+                Tag = entry
+            };
+
+            // 縮圖 PictureBox
+            var pb = new PictureBox
+            {
+                Width = THUMB_SIZE,
+                Height = THUMB_SIZE,
+                Location = new Point((THUMB_PANEL_WIDTH - THUMB_SIZE) / 2, 2),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Color.White,
+                Tag = entry
+            };
+
+            // 載入縮圖
+            try
+            {
+                var datFile = _datFileObjects.FirstOrDefault(d => d.FilePath == entry.SourceDatFile);
+                if (datFile != null)
+                {
+                    byte[] data = datFile.ExtractFile(entry);
+                    using (var ms = new MemoryStream(data))
+                    {
+                        var img = Image.FromStream(ms);
+                        pb.Image = new Bitmap(img);
+                    }
+                }
+            }
+            catch
+            {
+                // 載入失敗，顯示空白
+            }
+
+            // 檔名標籤
+            var lbl = new Label
+            {
+                Text = Path.GetFileName(entry.Path),
+                Location = new Point(0, THUMB_SIZE + 4),
+                Size = new Size(THUMB_PANEL_WIDTH, 20),
+                TextAlign = ContentAlignment.TopCenter,
+                Font = new Font("Microsoft Sans Serif", 7f),
+                AutoEllipsis = true
+            };
+
+            // 雙擊匯出
+            pb.DoubleClick += (s, e) => ExportEntry(entry);
+            lbl.DoubleClick += (s, e) => ExportEntry(entry);
+            panel.DoubleClick += (s, e) => ExportEntry(entry);
+
+            // 點擊選取
+            pb.Click += (s, e) => SelectGalleryItem(panel);
+            lbl.Click += (s, e) => SelectGalleryItem(panel);
+            panel.Click += (s, e) => SelectGalleryItem(panel);
+
+            panel.Controls.Add(pb);
+            panel.Controls.Add(lbl);
+
+            return panel;
+        }
+
+        private Panel _selectedGalleryItem = null;
+
+        private void SelectGalleryItem(Panel panel)
+        {
+            // 取消前一個選取
+            if (_selectedGalleryItem != null)
+            {
+                _selectedGalleryItem.BackColor = SystemColors.Control;
+            }
+
+            // 選取新的
+            _selectedGalleryItem = panel;
+            panel.BackColor = SystemColors.Highlight;
         }
 
         private void lvFiles_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
@@ -366,6 +508,7 @@ namespace PakViewer
             this.chkGalleryMode = new CheckBox();
             this.splitContainer = new SplitContainer();
             this.lvFiles = new ListView();
+            this.galleryPanel = new FlowLayoutPanel();
             this.imageViewer = new ucImgViewer();
 
             this.toolbarPanel.SuspendLayout();
@@ -469,6 +612,15 @@ namespace PakViewer
             this.lvFiles.SelectedIndexChanged += new EventHandler(this.lvFiles_SelectedIndexChanged);
             this.lvFiles.DoubleClick += new EventHandler(this.lvFiles_DoubleClick);
 
+            // galleryPanel
+            this.galleryPanel.AutoScroll = true;
+            this.galleryPanel.Dock = DockStyle.Fill;
+            this.galleryPanel.Location = new Point(0, 0);
+            this.galleryPanel.Name = "galleryPanel";
+            this.galleryPanel.Size = new Size(350, 544);
+            this.galleryPanel.TabIndex = 1;
+            this.galleryPanel.Visible = false;
+
             // imageViewer
             this.imageViewer.Dock = DockStyle.Fill;
             this.imageViewer.Location = new Point(0, 0);
@@ -477,6 +629,7 @@ namespace PakViewer
             this.imageViewer.TabIndex = 0;
 
             // splitContainer.Panel1
+            this.splitContainer.Panel1.Controls.Add(this.galleryPanel);
             this.splitContainer.Panel1.Controls.Add(this.lvFiles);
 
             // splitContainer.Panel2
