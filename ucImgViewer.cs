@@ -33,6 +33,34 @@ namespace PakViewer
       }
     }
 
+    /// <summary>
+    /// 圖片點擊事件 (返回原始圖片座標)
+    /// </summary>
+    public event EventHandler<Point> ImageClick;
+
+    /// <summary>
+    /// 將螢幕座標轉換為原始圖片座標
+    /// </summary>
+    public Point? ScreenToImageCoordinate(Point screenPoint)
+    {
+      if (this.srcImage == null) return null;
+
+      // 取得 PictureBox 相對於 UserControl 的位置
+      var pbPoint = this.pictureBox1.PointToClient(this.PointToScreen(screenPoint));
+
+      // 計算縮放比例
+      float scale = this.tbScale.Value / 2f;
+
+      // 轉換為原始圖片座標
+      int imgX = (int)(pbPoint.X / scale);
+      int imgY = (int)(pbPoint.Y / scale);
+
+      if (imgX >= 0 && imgX < this.srcImage.Width && imgY >= 0 && imgY < this.srcImage.Height)
+        return new Point(imgX, imgY);
+
+      return null;
+    }
+
     public ucImgViewer()
     {
       this.InitializeComponent();
@@ -52,6 +80,24 @@ namespace PakViewer
     private void tbScale_Scroll(object sender, EventArgs e)
     {
       this.ShowImage(this.srcImage);
+    }
+
+    private void pictureBox1_Click(object sender, EventArgs e)
+    {
+      if (this.srcImage == null || this.ImageClick == null) return;
+
+      var mouseEvent = e as MouseEventArgs;
+      if (mouseEvent == null) return;
+
+      // 計算縮放比例
+      float scale = this.tbScale.Value / 2f;
+
+      // 轉換為原始圖片座標
+      int imgX = (int)(mouseEvent.X / scale);
+      int imgY = (int)(mouseEvent.Y / scale);
+
+      if (imgX >= 0 && imgX < this.srcImage.Width && imgY >= 0 && imgY < this.srcImage.Height)
+        this.ImageClick?.Invoke(this, new Point(imgX, imgY));
     }
 
     protected override void Dispose(bool disposing)
@@ -83,6 +129,7 @@ namespace PakViewer
       this.pictureBox1.SizeMode = PictureBoxSizeMode.StretchImage;
       this.pictureBox1.TabIndex = 0;
       this.pictureBox1.TabStop = false;
+      this.pictureBox1.Click += new EventHandler(this.pictureBox1_Click);
       this.AutoScaleDimensions = new SizeF(6f, 12f);
       this.AutoScaleMode = AutoScaleMode.Font;
       this.AutoScroll = true;

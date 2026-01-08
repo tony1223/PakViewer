@@ -199,6 +199,21 @@ namespace PakViewer
     private List<GalleryItem> _GalleryItems;
     private List<GalleryItem> _GalleryItemsOther;  // 用於「其他檔案」Tab
 
+    // TIL 編輯模式相關
+    private bool _IsTilEditMode = false;
+    private string _CurrentTilFilePath;
+    private byte[] _CurrentTilRawData;
+    private List<byte[]> _CurrentTilBlocks;
+    private Lin.Helper.Core.Tile.L1Til.CompressionType _CurrentTilCompression;
+    private Button btnSaveTil;
+    private const int TilCellSize = 40;  // 24 + 2 + 14
+    private const int TilColCount = 12;
+
+    // Tab 架構相關
+    private TabControl mainTabControl;
+    private TabPage folderBrowserTab;  // 資料夾瀏覽 Tab (固定)
+    private Dictionary<string, TabPage> _OpenEditorTabs;  // 已開啟的編輯器 Tabs
+
     public frmMain()
     {
       this.InitializeComponent();
@@ -1601,6 +1616,7 @@ namespace PakViewer
       this.lvOtherFiles.FullRowSelect = true;
       this.lvOtherFiles.GridLines = true;
       this.lvOtherFiles.VirtualMode = true;
+      this.lvOtherFiles.VirtualListSize = 0;  // 初始化 VirtualListSize
       this.lvOtherFiles.Columns.Add("No.", 70, HorizontalAlignment.Right);
       this.lvOtherFiles.Columns.Add("FileName", 150, HorizontalAlignment.Left);
       this.lvOtherFiles.Columns.Add("Size(KB)", 80, HorizontalAlignment.Right);
@@ -5524,6 +5540,9 @@ namespace PakViewer
       this.mnuTools_SelectAll = new ToolStripMenuItem();
       this.dlgOpenFile = new OpenFileDialog();
       this.splitContainer1 = new SplitContainer();
+      this.mainTabControl = new TabControl();
+      this.folderBrowserTab = new TabPage();
+      this._OpenEditorTabs = new Dictionary<string, TabPage>();
       this.splitContainer2 = new SplitContainer();
       this.palSearch = new Panel();
       this.label1 = new Label();
@@ -5579,6 +5598,8 @@ namespace PakViewer
       this.palToolbar.SuspendLayout();
       this.palContentSearch.SuspendLayout();
       this.menuStrip1.SuspendLayout();
+      this.mainTabControl.SuspendLayout();
+      this.folderBrowserTab.SuspendLayout();
       this.splitContainer1.Panel1.SuspendLayout();
       this.splitContainer1.Panel2.SuspendLayout();
       this.splitContainer1.SuspendLayout();
@@ -5833,9 +5854,36 @@ namespace PakViewer
       this.mnuTools_SelectAll.Text = "全選";
       this.mnuTools_SelectAll.Click += new EventHandler(this.tsmSelectAll_Click);
       this.dlgOpenFile.FileName = "openFileDialog1";
+      //
+      // mainTabControl
+      //
+      this.mainTabControl.Dock = DockStyle.Fill;
+      this.mainTabControl.Location = new Point(0, 24);
+      this.mainTabControl.Name = "mainTabControl";
+      this.mainTabControl.SelectedIndex = 0;
+      this.mainTabControl.Size = new Size(792, 520);
+      this.mainTabControl.TabIndex = 2;
+      this.mainTabControl.TabPages.Add(this.folderBrowserTab);
+      this.mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
+      this.mainTabControl.DrawItem += new DrawItemEventHandler(this.mainTabControl_DrawItem);
+      this.mainTabControl.MouseClick += new MouseEventHandler(this.mainTabControl_MouseClick);
+      //
+      // folderBrowserTab
+      //
+      this.folderBrowserTab.Location = new Point(4, 22);
+      this.folderBrowserTab.Name = "folderBrowserTab";
+      this.folderBrowserTab.Padding = new Padding(3);
+      this.folderBrowserTab.Size = new Size(784, 494);
+      this.folderBrowserTab.TabIndex = 0;
+      this.folderBrowserTab.Text = "資料夾瀏覽";
+      this.folderBrowserTab.UseVisualStyleBackColor = true;
+      this.folderBrowserTab.Controls.Add((Control) this.splitContainer1);
+      //
+      // splitContainer1
+      //
       this.splitContainer1.Dock = DockStyle.Fill;
       this.splitContainer1.FixedPanel = FixedPanel.Panel1;
-      this.splitContainer1.Location = new Point(0, 24);
+      this.splitContainer1.Location = new Point(0, 0);
       this.splitContainer1.Name = "splitContainer1";
       this.splitContainer1.Panel1.Controls.Add((Control) this.splitContainer2);
       this.splitContainer1.Panel2.Controls.Add((Control) this.TextCompViewer);
@@ -5844,9 +5892,9 @@ namespace PakViewer
       this.splitContainer1.Panel2.Controls.Add((Control) this.SprViewer);
       this.splitContainer1.Panel2.Controls.Add((Control) this.SprListViewer);
       this.splitContainer1.Panel2.Controls.Add((Control) this.palContentSearch);
-      this.splitContainer1.Size = new Size(792, 520);
+      this.splitContainer1.Size = new Size(784, 494);
       this.splitContainer1.SplitterDistance = 297;
-      this.splitContainer1.TabIndex = 2;
+      this.splitContainer1.TabIndex = 0;
       this.splitContainer2.Dock = DockStyle.Fill;
       this.splitContainer2.FixedPanel = FixedPanel.Panel1;
       this.splitContainer2.Location = new Point(0, 0);
@@ -5887,6 +5935,7 @@ namespace PakViewer
       this.lvIndexInfo.UseCompatibleStateImageBehavior = false;
       this.lvIndexInfo.View = View.Details;
       this.lvIndexInfo.VirtualMode = true;
+      this.lvIndexInfo.VirtualListSize = 0;  // 初始化 VirtualListSize 防止控件移動時出錯
       this.lvIndexInfo.CheckBoxes = true;
       this.lvIndexInfo.RetrieveVirtualItem += new RetrieveVirtualItemEventHandler(this.lvIndexInfo_RetrieveVirtualItem);
       this.lvIndexInfo.ItemCheck += new ItemCheckEventHandler(this.lvIndexInfo_ItemCheck);
@@ -6266,7 +6315,7 @@ namespace PakViewer
       this.AutoScaleDimensions = new SizeF(6f, 12f);
       this.AutoScaleMode = AutoScaleMode.Font;
       this.ClientSize = new Size(792, 616);
-      this.Controls.Add((Control) this.splitContainer1);
+      this.Controls.Add((Control) this.mainTabControl);
       this.Controls.Add((Control) this.palToolbar);
       this.Controls.Add((Control) this.statusStrip1);
       this.Controls.Add((Control) this.menuStrip1);
@@ -6277,6 +6326,8 @@ namespace PakViewer
       this.WindowState = FormWindowState.Normal;
       this.menuStrip1.ResumeLayout(false);
       this.menuStrip1.PerformLayout();
+      this.folderBrowserTab.ResumeLayout(false);
+      this.mainTabControl.ResumeLayout(false);
       this.splitContainer1.Panel1.ResumeLayout(false);
       this.splitContainer1.Panel2.ResumeLayout(false);
       this.splitContainer1.Panel2.PerformLayout();
@@ -6391,22 +6442,128 @@ namespace PakViewer
         if (dlg.ShowDialog(this) != DialogResult.OK)
           return;
 
+        OpenTilInNewTab(dlg.FileName);
+      }
+    }
+
+    /// <summary>
+    /// 在新 Tab 開啟 TIL 檔案
+    /// </summary>
+    private void OpenTilInNewTab(string filePath)
+    {
+      try
+      {
+        // 檢查是否已經開啟
+        string tabKey = $"TIL:{filePath}";
+        if (_OpenEditorTabs.ContainsKey(tabKey))
+        {
+          mainTabControl.SelectedTab = _OpenEditorTabs[tabKey];
+          return;
+        }
+
+        // 建立新的 TIL 編輯器
+        var tilEditor = new ucTilEditor();
+        tilEditor.Dock = DockStyle.Fill;
+        tilEditor.LoadFile(filePath);
+
+        // 建立新 Tab
+        var tabPage = new TabPage(Path.GetFileName(filePath));
+        tabPage.Tag = tabKey;
+        tabPage.Controls.Add(tilEditor);
+
+        // 加入 Tab 並選取
+        mainTabControl.TabPages.Add(tabPage);
+        mainTabControl.SelectedTab = tabPage;
+
+        // 記錄已開啟的 Tab
+        _OpenEditorTabs[tabKey] = tabPage;
+
+        this.tssMessage.Text = $"TIL Editor: {Path.GetFileName(filePath)} - 雙擊 bit 按鈕切換值";
+      }
+      catch (Exception ex)
+      {
+        MessageBox.Show($"無法開啟 TIL 檔案: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+      }
+    }
+
+    /// <summary>
+    /// 設定 TIL 編輯模式 UI
+    /// </summary>
+    private void SetupTilEditModeUI()
+    {
+      // 訂閱 ImageClick 事件
+      this.ImageViewer.ImageClick -= ImageViewer_TilImageClick;
+      this.ImageViewer.ImageClick += ImageViewer_TilImageClick;
+
+      // 建立儲存按鈕 (如果還沒建立)
+      if (this.btnSaveTil == null)
+      {
+        this.btnSaveTil = new Button();
+        this.btnSaveTil.Text = "Save TIL";
+        this.btnSaveTil.Size = new Size(80, 25);
+        this.btnSaveTil.Click += btnSaveTil_Click;
+        this.splitContainer2.Panel2.Controls.Add(this.btnSaveTil);
+      }
+      this.btnSaveTil.Visible = true;
+      this.btnSaveTil.BringToFront();
+      this.btnSaveTil.Location = new Point(60, 5);
+    }
+
+    /// <summary>
+    /// TIL 圖片點擊事件 - 切換 bit2
+    /// </summary>
+    private void ImageViewer_TilImageClick(object sender, Point imgPoint)
+    {
+      if (!this._IsTilEditMode || this._CurrentTilBlocks == null) return;
+
+      // 計算點擊的 block index
+      int col = imgPoint.X / TilCellSize;
+      int row = imgPoint.Y / TilCellSize;
+      int blockIndex = row * TilColCount + col;
+
+      if (blockIndex < 0 || blockIndex >= this._CurrentTilBlocks.Count) return;
+
+      var blockData = this._CurrentTilBlocks[blockIndex];
+      if (blockData == null || blockData.Length == 0) return;
+
+      // 切換 bit2 (0x04)
+      blockData[0] ^= 0x04;
+
+      // 重新渲染並更新顯示
+      var bmp = ImageConvert.RenderTilSheet(this._CurrentTilBlocks);
+      this.ImageViewer.Image = bmp;
+
+      bool hasBit2 = (blockData[0] & 0x04) != 0;
+      this.tssMessage.Text = $"Block {blockIndex}: bit2 = {(hasBit2 ? "1" : "0")} (type=0x{blockData[0]:X2})";
+    }
+
+    /// <summary>
+    /// 儲存 TIL 檔案
+    /// </summary>
+    private void btnSaveTil_Click(object sender, EventArgs e)
+    {
+      if (!this._IsTilEditMode || this._CurrentTilBlocks == null) return;
+
+      using (var dlg = new SaveFileDialog())
+      {
+        dlg.Title = "儲存 TIL 檔案";
+        dlg.Filter = "TIL 檔案 (*.til)|*.til|所有檔案 (*.*)|*.*";
+        dlg.FileName = Path.GetFileName(this._CurrentTilFilePath);
+        if (!string.IsNullOrEmpty(this._CurrentTilFilePath))
+          dlg.InitialDirectory = Path.GetDirectoryName(this._CurrentTilFilePath);
+
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+          return;
+
         try
         {
-          byte[] tilData = File.ReadAllBytes(dlg.FileName);
-          var bmp = ImageConvert.Load_TIL_Sheet(tilData);
-
-          // 切換到圖片檢視器
-          this.TextViewer.Visible = false;
-          this.SprViewer.Visible = false;
-          this.ImageViewer.Visible = true;
-          this.ImageViewer.Image = bmp;
-
-          this.tssMessage.Text = $"TIL: {Path.GetFileName(dlg.FileName)} ({tilData.Length / 1024.0:F1} KB)";
+          Lin.Helper.Core.Tile.L1Til.Save(this._CurrentTilBlocks, dlg.FileName, this._CurrentTilCompression);
+          this._CurrentTilFilePath = dlg.FileName;
+          this.tssMessage.Text = $"TIL 已儲存: {Path.GetFileName(dlg.FileName)}";
         }
         catch (Exception ex)
         {
-          MessageBox.Show($"無法開啟 TIL 檔案: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+          MessageBox.Show($"儲存失敗: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
       }
     }
@@ -6523,6 +6680,7 @@ namespace PakViewer
       this.lvDatFiles.FullRowSelect = true;
       this.lvDatFiles.GridLines = true;
       this.lvDatFiles.VirtualMode = true;
+      this.lvDatFiles.VirtualListSize = 0;  // 初始化 VirtualListSize
       this.lvDatFiles.Columns.Add("檔名", 250, HorizontalAlignment.Left);
       this.lvDatFiles.Columns.Add("大小", 80, HorizontalAlignment.Right);
       this.lvDatFiles.Columns.Add("來源 DAT", 120, HorizontalAlignment.Left);
@@ -7032,6 +7190,88 @@ namespace PakViewer
     // 結束 DAT 模式相關方法
     // ============================================================================
 
+    // ============================================================================
+    // Tab 控制相關方法
+    // ============================================================================
+
+    /// <summary>
+    /// 繪製 Tab 標題和關閉按鈕
+    /// </summary>
+    private void mainTabControl_DrawItem(object sender, DrawItemEventArgs e)
+    {
+      var tabPage = this.mainTabControl.TabPages[e.Index];
+      var tabRect = this.mainTabControl.GetTabRect(e.Index);
+
+      // 第一個 Tab (資料夾瀏覽) 不顯示關閉按鈕
+      bool showCloseButton = (e.Index > 0);
+
+      // 繪製背景
+      using (var brush = new SolidBrush(e.State == DrawItemState.Selected ? SystemColors.Control : SystemColors.ControlLightLight))
+      {
+        e.Graphics.FillRectangle(brush, tabRect);
+      }
+
+      // 繪製文字
+      var textRect = new Rectangle(tabRect.X + 4, tabRect.Y + 4, tabRect.Width - (showCloseButton ? 20 : 8), tabRect.Height - 8);
+      TextRenderer.DrawText(e.Graphics, tabPage.Text, this.Font, textRect, SystemColors.ControlText, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+      // 繪製關閉按鈕 (X)
+      if (showCloseButton)
+      {
+        var closeRect = new Rectangle(tabRect.Right - 18, tabRect.Y + 4, 14, 14);
+        using (var pen = new Pen(Color.Gray, 1.5f))
+        {
+          e.Graphics.DrawLine(pen, closeRect.Left + 3, closeRect.Top + 3, closeRect.Right - 3, closeRect.Bottom - 3);
+          e.Graphics.DrawLine(pen, closeRect.Right - 3, closeRect.Top + 3, closeRect.Left + 3, closeRect.Bottom - 3);
+        }
+      }
+    }
+
+    /// <summary>
+    /// 處理 Tab 關閉按鈕點擊
+    /// </summary>
+    private void mainTabControl_MouseClick(object sender, MouseEventArgs e)
+    {
+      for (int i = 1; i < this.mainTabControl.TabPages.Count; i++)  // 跳過第一個 Tab
+      {
+        var tabRect = this.mainTabControl.GetTabRect(i);
+        var closeRect = new Rectangle(tabRect.Right - 18, tabRect.Y + 4, 14, 14);
+
+        if (closeRect.Contains(e.Location))
+        {
+          var tabPage = this.mainTabControl.TabPages[i];
+
+          // 檢查是否有未儲存的變更
+          if (tabPage.Tag is IEditorTab editor && editor.HasUnsavedChanges)
+          {
+            var result = MessageBox.Show(
+              $"'{tabPage.Text.TrimEnd('*')}' 有未儲存的變更。要儲存嗎？",
+              "確認關閉",
+              MessageBoxButtons.YesNoCancel,
+              MessageBoxIcon.Warning);
+
+            if (result == DialogResult.Cancel)
+              return;
+            if (result == DialogResult.Yes)
+              editor.Save();
+          }
+
+          // 從 _OpenEditorTabs 移除
+          var keyToRemove = this._OpenEditorTabs.FirstOrDefault(x => x.Value == tabPage).Key;
+          if (keyToRemove != null)
+            this._OpenEditorTabs.Remove(keyToRemove);
+
+          this.mainTabControl.TabPages.Remove(tabPage);
+          tabPage.Dispose();
+          return;
+        }
+      }
+    }
+
+    // ============================================================================
+    // 結束 Tab 控制相關方法
+    // ============================================================================
+
     private enum InviewDataType
     {
       Empty,
@@ -7107,5 +7347,14 @@ namespace PakViewer
         return string.Compare(prefixA, prefixB, StringComparison.OrdinalIgnoreCase);
       }
     }
+  }
+
+  /// <summary>
+  /// 編輯器 Tab 介面
+  /// </summary>
+  public interface IEditorTab
+  {
+    bool HasUnsavedChanges { get; }
+    void Save();
   }
 }

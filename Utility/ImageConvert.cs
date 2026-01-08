@@ -1,6 +1,7 @@
 // ImageConvert - UI 適配層
 // 實際圖片轉換邏輯由 Lin.Helper.Core.Image.ImageConverter 提供
 
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -119,7 +120,24 @@ namespace PakViewer.Utility
     public static Bitmap Load_TIL_Sheet(byte[] tildata)
     {
       var blocks = Lin.Helper.Core.Tile.L1Til.Parse(tildata);
+      return RenderTilSheet(blocks);
+    }
 
+    /// <summary>
+    /// 載入 TIL 格式圖片 - 返回 sheet view 和 blocks 列表 (用於編輯模式)
+    /// </summary>
+    public static (Bitmap bitmap, List<byte[]> blocks) Load_TIL_Sheet_Editable(byte[] tildata)
+    {
+      var blocks = Lin.Helper.Core.Tile.L1Til.Parse(tildata);
+      var bmp = RenderTilSheet(blocks);
+      return (bmp, blocks);
+    }
+
+    /// <summary>
+    /// 渲染 TIL blocks 到 sheet bitmap
+    /// </summary>
+    public static Bitmap RenderTilSheet(List<byte[]> blocks)
+    {
       const int BlockSize = 24;
       const int CellPadding = 2;      // 格線寬度
       const int LabelHeight = 14;     // 編號高度
@@ -136,8 +154,10 @@ namespace PakViewer.Utility
         g.Clear(System.Drawing.Color.FromArgb(30, 30, 30));
 
         var gridPen = new Pen(System.Drawing.Color.FromArgb(60, 60, 60), 1);
+        var bit2Pen = new Pen(System.Drawing.Color.FromArgb(255, 128, 0), 2);  // 橘色框表示 bit2 已設定
         var font = new Font("Arial", 8f, FontStyle.Regular);
         var textBrush = new SolidBrush(System.Drawing.Color.FromArgb(180, 180, 180));
+        var bit2TextBrush = new SolidBrush(System.Drawing.Color.FromArgb(255, 128, 0));  // 橘色文字
 
         for (int i = 0; i < blocks.Count; i++)
         {
@@ -146,28 +166,35 @@ namespace PakViewer.Utility
           int cellX = col * CellSize;
           int cellY = row * CellSize;
 
-          // 畫格線邊框
-          g.DrawRectangle(gridPen, cellX, cellY, CellSize - 1, CellSize - 1);
+          bool hasBit2 = blocks[i] != null && blocks[i].Length > 0 && (blocks[i][0] & 0x04) != 0;
 
-          // 畫 block 編號
+          // 畫格線邊框 (bit2 設定時用橘色框)
+          if (hasBit2)
+            g.DrawRectangle(bit2Pen, cellX + 1, cellY + 1, CellSize - 3, CellSize - 3);
+          else
+            g.DrawRectangle(gridPen, cellX, cellY, CellSize - 1, CellSize - 1);
+
+          // 畫 block 編號 (bit2 設定時用橘色文字)
           string label = i.ToString();
-          g.DrawString(label, font, textBrush, cellX + 2, cellY + 1);
+          g.DrawString(label, font, hasBit2 ? bit2TextBrush : textBrush, cellX + 2, cellY + 1);
 
-          // 畫 block 圖像
+          // 畫 block 圖像 (bit2 設定時半透明)
           int blockX = cellX + CellPadding / 2;
           int blockY = cellY + LabelHeight;
-          RenderBlockToBitmap(bmp, blocks[i], blockX, blockY);
+          RenderBlockToBitmap(bmp, blocks[i], blockX, blockY, hasBit2 ? 0.5f : 1.0f);
         }
 
         gridPen.Dispose();
+        bit2Pen.Dispose();
         font.Dispose();
         textBrush.Dispose();
+        bit2TextBrush.Dispose();
       }
 
       return bmp;
     }
 
-    private static void RenderBlockToBitmap(Bitmap bmp, byte[] blockData, int destX, int destY)
+    private static void RenderBlockToBitmap(Bitmap bmp, byte[] blockData, int destX, int destY, float opacity = 1.0f)
     {
       if (blockData == null || blockData.Length < 2)
         return;
@@ -237,6 +264,9 @@ namespace PakViewer.Utility
         }
       }
 
+      // 背景色
+      int bgR = 30, bgG = 30, bgB = 30;
+
       for (int y = 0; y < 24; y++)
       {
         for (int x = 0; x < 24; x++)
@@ -246,7 +276,7 @@ namespace PakViewer.Utility
 
           if (rgb555 == 0)
           {
-            color = System.Drawing.Color.FromArgb(30, 30, 30);
+            color = System.Drawing.Color.FromArgb(bgR, bgG, bgB);
           }
           else
           {
@@ -256,6 +286,14 @@ namespace PakViewer.Utility
             int r8 = (r5 << 3) | (r5 >> 2);
             int g8 = (g5 << 3) | (g5 >> 2);
             int b8 = (b5 << 3) | (b5 >> 2);
+
+            // 套用透明度混合
+            if (opacity < 1.0f)
+            {
+              r8 = (int)(r8 * opacity + bgR * (1 - opacity));
+              g8 = (int)(g8 * opacity + bgG * (1 - opacity));
+              b8 = (int)(b8 * opacity + bgB * (1 - opacity));
+            }
             color = System.Drawing.Color.FromArgb(r8, g8, b8);
           }
 
