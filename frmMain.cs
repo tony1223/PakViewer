@@ -6405,23 +6405,48 @@ namespace PakViewer
         if (dlg.ShowDialog(this) != DialogResult.OK)
           return;
 
-        // 退出其他模式
-        if (this._IsSprListMode)
-          this.ExitSprListMode();
-        if (this._IsSpriteMode)
-          this.ExitSpriteMode();
-        if (this._IsDatMode)
-          this.ExitDatMode();
+        OpenDatInNewTab(dlg.FileNames);
+      }
+    }
 
+    /// <summary>
+    /// 在新 Tab 開啟 DAT 檔案
+    /// </summary>
+    private void OpenDatInNewTab(string[] filePaths)
+    {
+      try
+      {
         this.Cursor = Cursors.WaitCursor;
-        try
-        {
-          LoadDatFiles(dlg.FileNames);
-        }
-        finally
-        {
-          this.Cursor = Cursors.Default;
-        }
+
+        // 建立新的 DAT 瀏覽器
+        var datBrowser = new ucDatBrowser();
+        datBrowser.Dock = DockStyle.Fill;
+        datBrowser.LoadDatFiles(filePaths);
+
+        // 建立新 Tab
+        string tabTitle = datBrowser.GetTabTitle();
+        string tabKey = $"DAT:{string.Join("|", filePaths)}";
+
+        var tabPage = new TabPage(tabTitle);
+        tabPage.Tag = tabKey;
+        tabPage.Controls.Add(datBrowser);
+
+        // 加入 Tab 並選取
+        mainTabControl.TabPages.Add(tabPage);
+        mainTabControl.SelectedTab = tabPage;
+
+        // 記錄已開啟的 Tab
+        _OpenEditorTabs[tabKey] = tabPage;
+
+        this.tssMessage.Text = $"DAT Browser: {tabTitle}";
+      }
+      catch (Exception ex)
+      {
+        MessageBox.Show($"無法開啟 DAT 檔案: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+      }
+      finally
+      {
+        this.Cursor = Cursors.Default;
       }
     }
 
