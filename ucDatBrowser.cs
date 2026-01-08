@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using PakViewer.Utility;
 
@@ -172,18 +174,45 @@ namespace PakViewer
             if (_filteredEntries == null || _filteredEntries.Count == 0)
                 return;
 
-            galleryPanel.SuspendLayout();
-
             // 只載入圖片類型的檔案
             var imageExtensions = new[] { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp" };
+            var imageEntries = _filteredEntries
+                .Where(e => imageExtensions.Contains(Path.GetExtension(e.Path).ToLower()))
+                .ToList();
 
-            foreach (var entry in _filteredEntries)
+            if (imageEntries.Count == 0)
+                return;
+
+            // 平行載入所有圖片
+            var preloadedImages = new ConcurrentDictionary<string, Bitmap>();
+            Parallel.ForEach(imageEntries, entry =>
             {
-                string ext = Path.GetExtension(entry.Path).ToLower();
-                if (!imageExtensions.Contains(ext))
-                    continue;
+                try
+                {
+                    var datFile = _datFileObjects.FirstOrDefault(d => d.FilePath == entry.SourceDatFile);
+                    if (datFile != null)
+                    {
+                        byte[] data = datFile.ExtractFile(entry);
+                        using (var ms = new MemoryStream(data))
+                        {
+                            var img = Image.FromStream(ms);
+                            preloadedImages[entry.Path] = new Bitmap(img);
+                        }
+                    }
+                }
+                catch
+                {
+                    // 載入失敗，跳過
+                }
+            });
 
-                var thumbPanel = CreateThumbnailPanel(entry);
+            // 建立面板 (使用預載入的圖片)
+            galleryPanel.SuspendLayout();
+
+            foreach (var entry in imageEntries)
+            {
+                preloadedImages.TryGetValue(entry.Path, out var bitmap);
+                var thumbPanel = CreateThumbnailPanel(entry, bitmap);
                 galleryPanel.Controls.Add(thumbPanel);
             }
 
@@ -208,7 +237,7 @@ namespace PakViewer
             galleryPanel.Controls.Clear();
         }
 
-        private Panel CreateThumbnailPanel(DatTools.DatIndexEntry entry)
+        private Panel CreateThumbnailPanel(DatTools.DatIndexEntry entry, Bitmap preloadedImage = null)
         {
             var panel = new Panel
             {
@@ -227,27 +256,9 @@ namespace PakViewer
                 SizeMode = PictureBoxSizeMode.Zoom,
                 BorderStyle = BorderStyle.FixedSingle,
                 BackColor = Color.White,
-                Tag = entry
+                Tag = entry,
+                Image = preloadedImage  // 使用預載入的圖片
             };
-
-            // 載入縮圖
-            try
-            {
-                var datFile = _datFileObjects.FirstOrDefault(d => d.FilePath == entry.SourceDatFile);
-                if (datFile != null)
-                {
-                    byte[] data = datFile.ExtractFile(entry);
-                    using (var ms = new MemoryStream(data))
-                    {
-                        var img = Image.FromStream(ms);
-                        pb.Image = new Bitmap(img);
-                    }
-                }
-            }
-            catch
-            {
-                // 載入失敗，顯示空白
-            }
 
             // 檔名標籤
             var lbl = new Label
