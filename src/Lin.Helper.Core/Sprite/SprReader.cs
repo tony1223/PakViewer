@@ -179,8 +179,11 @@ namespace Lin.Helper.Core.Sprite
                     {
                         int a = blockDefs[i][b].A;
                         int bVal = blockDefs[i][b].B;
-                        int blockX = 24 * (bVal + a - a / 2);
-                        int blockY = 12 * (bVal - a / 2);
+                        // 負數 A 值需要調整以修正整數除法的捨入行為
+                        int aAdj = a;
+                        if (aAdj < 0) aAdj--;
+                        int blockX = 24 * (bVal + a - aAdj / 2);
+                        int blockY = 12 * (bVal - aAdj / 2);
 
                         minX = Math.Min(minX, blockX);
                         maxX = Math.Max(maxX, blockX + 23);
@@ -212,9 +215,10 @@ namespace Lin.Helper.Core.Sprite
                     {
                         int a = blockDefs[i][b].A;
                         int bVal = blockDefs[i][b].B;
-
-                        int blockX = 24 * (bVal + a - a / 2);
-                        int blockY = 12 * (bVal - a / 2);
+                        int aAdj = a;
+                        if (aAdj < 0) aAdj--;
+                        int blockX = 24 * (bVal + a - aAdj / 2);
+                        int blockY = 12 * (bVal - aAdj / 2);
 
                         var block = blocks[blockDefs[i][b].BlockId];
 
@@ -401,8 +405,11 @@ namespace Lin.Helper.Core.Sprite
                     {
                         int a = blockDefs[i][b].A;
                         int bVal = blockDefs[i][b].B;
-                        int blockX = 24 * (bVal + a - a / 2);
-                        int blockY = 12 * (bVal - a / 2);
+                        // 負數 A 值需要調整以修正整數除法的捨入行為
+                        int aAdj = a;
+                        if (aAdj < 0) aAdj--;
+                        int blockX = 24 * (bVal + a - aAdj / 2);
+                        int blockY = 12 * (bVal - aAdj / 2);
 
                         minX = Math.Min(minX, blockX);
                         maxX = Math.Max(maxX, blockX + 23);
@@ -432,9 +439,10 @@ namespace Lin.Helper.Core.Sprite
                     {
                         int a = blockDefs[i][b].A;
                         int bVal = blockDefs[i][b].B;
-
-                        int blockX = 24 * (bVal + a - a / 2);
-                        int blockY = 12 * (bVal - a / 2);
+                        int aAdj = a;
+                        if (aAdj < 0) aAdj--;
+                        int blockX = 24 * (bVal + a - aAdj / 2);
+                        int blockY = 12 * (bVal - aAdj / 2);
 
                         var block = blocks[blockDefs[i][b].BlockId];
 

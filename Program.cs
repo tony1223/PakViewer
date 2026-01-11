@@ -32,13 +32,6 @@ namespace PakViewer
                 return;
             }
 
-            // Test SPR mode
-            if (args.Length >= 3 && args[0] == "-test-spr")
-            {
-                TestSpr.AnalyzeSpr(args[1], args[2]);
-                return;
-            }
-
             // GUI mode - use Eto.Forms for cross-platform
             new Application(Platform.Detect).Run(new MainForm());
         }
@@ -85,6 +78,7 @@ namespace PakViewer
         private DropDown _extFilterDropDown;
         private DropDown _langFilterDropDown;
         private DropDown _sprTypeFilterDropDown;
+        private Label _sprTypeLabel;
         private CheckBox _sprListModeCheck;
         private Label _folderLabel;
         private Label _statusLabel;
@@ -535,9 +529,9 @@ namespace PakViewer
                         new TableCell(new Label { Text = "Lang:", Width = labelWidth }, false),
                         new TableCell(_langFilterDropDown, true)
                     ),
-                    // Type row
+                    // Type row (SPR List 模式專用)
                     new TableRow(
-                        new TableCell(new Label { Text = "Type:", Width = labelWidth }, false),
+                        new TableCell(_sprTypeLabel = new Label { Text = "Type:", Width = labelWidth, Visible = false }, false),
                         new TableCell(_sprTypeFilterDropDown, true)
                     ),
                     // Search row
@@ -1279,7 +1273,18 @@ namespace PakViewer
         private void OnSearchChanged(object sender, EventArgs e)
         {
             _currentFilter = _searchBox.Text ?? "";
-            RefreshFileList();
+            if (_isSprMode)
+            {
+                UpdateSprGroupDisplay();
+            }
+            else if (_isSprListMode)
+            {
+                UpdateSprListDisplay();
+            }
+            else
+            {
+                RefreshFileList();
+            }
         }
 
         private void OnExtFilterChanged(object sender, EventArgs e)
@@ -2203,6 +2208,7 @@ namespace PakViewer
 
             // Toggle visibility of mode-specific filter controls
             _sprTypeFilterDropDown.Visible = _isSprListMode;
+            _sprTypeLabel.Visible = _isSprListMode;
             _idxDropDown.Visible = !_isSprMode;  // 隱藏 IDX 下拉選單
 
             if (_isSprMode)
