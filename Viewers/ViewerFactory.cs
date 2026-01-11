@@ -12,10 +12,10 @@ namespace PakViewer.Viewers
         private static readonly List<Func<IFileViewer>> _viewerFactories = new()
         {
             () => new SpriteViewer(),
-            () => new L1ImageViewer(),  // Lineage 特有格式 (.tbt, .img)
+            () => new TilViewer(),       // TIL 地圖圖塊
+            () => new L1ImageViewer(),   // Lineage 特有格式 (.tbt, .img)
             () => new ImageViewer(),     // 標準圖片格式
             () => new TextViewer(),
-            // TilViewer will be added later
         };
 
         private static readonly HexViewer _hexViewerPrototype = new HexViewer();
