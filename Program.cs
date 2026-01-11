@@ -84,10 +84,10 @@ namespace PakViewer
         private Drawable _spriteViewer;
         private Panel _viewerPanel;
 
-        // Tab control (using DocumentControl for better Mac support)
-        private DocumentControl _mainDocControl;
-        private DocumentPage _browserPage;
-        private Dictionary<string, DocumentPage> _openTabs = new Dictionary<string, DocumentPage>();
+        // Tab control
+        private TabControl _mainTabControl;
+        private TabPage _browserPage;
+        private Dictionary<string, TabPage> _openTabs = new Dictionary<string, TabPage>();
 
         // Right panel search toolbar
         private TextBox _textSearchBox;
@@ -123,9 +123,10 @@ namespace PakViewer
 
         private void LoadLastSession()
         {
-            if (!string.IsNullOrEmpty(_settings.LastFolder) && Directory.Exists(_settings.LastFolder))
+            // 只載入有效的 client 資料夾（含 .idx 檔案的資料夾）
+            if (!string.IsNullOrEmpty(_settings.LastClientFolder) && Directory.Exists(_settings.LastClientFolder))
             {
-                _selectedFolder = _settings.LastFolder;
+                _selectedFolder = _settings.LastClientFolder;
                 _folderLabel.Text = Path.GetFileName(_selectedFolder);
 
                 // Find .idx files
@@ -206,11 +207,8 @@ namespace PakViewer
 
         private void CreateLayout()
         {
-            // Create main document control (tabbed interface)
-            _mainDocControl = new DocumentControl
-            {
-                AllowReordering = true
-            };
+            // Create main tab control
+            _mainTabControl = new TabControl();
 
             // Create browser tab content
             var mainSplitter = new Splitter
@@ -227,13 +225,12 @@ namespace PakViewer
             mainSplitter.Panel2 = CreateRightPanel();
 
             // Create browser page (non-closable)
-            _browserPage = new DocumentPage
+            _browserPage = new TabPage
             {
-                Text = "📁 Lin Client",
-                Content = mainSplitter,
-                Closable = false
+                Text = "Lin Client",
+                Content = mainSplitter
             };
-            _mainDocControl.Pages.Add(_browserPage);
+            _mainTabControl.Pages.Add(_browserPage);
 
             // Status bar
             _statusLabel = new Label { Text = "Ready" };
@@ -256,7 +253,7 @@ namespace PakViewer
             {
                 Rows =
                 {
-                    new TableRow(_mainDocControl) { ScaleHeight = true },
+                    new TableRow(_mainTabControl) { ScaleHeight = true },
                     new TableRow(statusBar)
                 }
             };
@@ -268,13 +265,6 @@ namespace PakViewer
             _folderLabel = new Label { Text = "(none)", VerticalAlignment = VerticalAlignment.Center };
             var openFolderBtn = new Button { Text = "Open...", Width = 70 };
             openFolderBtn.Click += OnOpenFolder;
-            var folderRow = new StackLayout
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 5,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                Items = { new Label { Text = "Folder:" }, _folderLabel, null, openFolderBtn }
-            };
 
             // IDX dropdown
             _idxDropDown = new DropDown();
@@ -438,39 +428,65 @@ namespace PakViewer
 
             _sprListGrid.SelectionChanged += OnSprListSelected;
 
+            // 統一標籤寬度
+            const int labelWidth = 50;
+
             var topBar = new TableLayout
             {
                 Padding = new Padding(5),
                 Spacing = new Size(5, 5),
                 Rows =
                 {
-                    new TableRow(folderRow),
+                    // Folder row
                     new TableRow(
-                        new TableCell(new Label { Text = "IDX:" }, false),
+                        new TableCell(new Label { Text = "Folder:", Width = labelWidth }, false),
+                        new TableCell(new StackLayout
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Spacing = 5,
+                            VerticalContentAlignment = VerticalAlignment.Center,
+                            Items = { _folderLabel, null, openFolderBtn }
+                        }, true)
+                    ),
+                    // IDX row
+                    new TableRow(
+                        new TableCell(new Label { Text = "IDX:", Width = labelWidth }, false),
                         new TableCell(_idxDropDown, true)
                     ),
-                    new TableRow(_sprListModeCheck),
+                    // SPR List Mode (indent to align with controls)
                     new TableRow(
-                        new TableCell(new Label { Text = "Ext:" }, false),
+                        new TableCell(new Panel { Width = labelWidth }, false),
+                        new TableCell(_sprListModeCheck, true)
+                    ),
+                    // Ext row
+                    new TableRow(
+                        new TableCell(new Label { Text = "Ext:", Width = labelWidth }, false),
                         new TableCell(_extFilterDropDown, true)
                     ),
+                    // Lang row
                     new TableRow(
-                        new TableCell(new Label { Text = "Lang:" }, false),
+                        new TableCell(new Label { Text = "Lang:", Width = labelWidth }, false),
                         new TableCell(_langFilterDropDown, true)
                     ),
+                    // Type row
                     new TableRow(
-                        new TableCell(new Label { Text = "Type:" }, false),
+                        new TableCell(new Label { Text = "Type:", Width = labelWidth }, false),
                         new TableCell(_sprTypeFilterDropDown, true)
                     ),
-                    new TableRow(_searchBox),
+                    // Search row
                     new TableRow(
-                        new TableCell(_contentSearchBox, true),
+                        new TableCell(new Label { Text = "Filter:", Width = labelWidth }, false),
+                        new TableCell(_searchBox, true)
+                    ),
+                    // Content search row
+                    new TableRow(
+                        new TableCell(new Label { Text = "Search:", Width = labelWidth }, false),
                         new TableCell(new StackLayout
                         {
                             Orientation = Orientation.Horizontal,
                             Spacing = 2,
-                            Items = { _contentSearchBtn, _clearSearchBtn }
-                        }, false)
+                            Items = { new StackLayoutItem(_contentSearchBox, true), _contentSearchBtn, _clearSearchBtn }
+                        }, true)
                     )
                 }
             };
@@ -609,8 +625,9 @@ namespace PakViewer
                 _selectedFolder = dialog.Directory;
                 _folderLabel.Text = Path.GetFileName(_selectedFolder);
 
-                // Save to settings
+                // Save to settings (這是有效的 client 資料夾)
                 _settings.LastFolder = _selectedFolder;
+                _settings.LastClientFolder = _selectedFolder;
                 _settings.Save();
 
                 // Find .idx files
@@ -660,7 +677,7 @@ namespace PakViewer
             // Check if already open
             if (_openTabs.ContainsKey(tabKey))
             {
-                _mainDocControl.SelectedPage = _openTabs[tabKey];
+                _mainTabControl.SelectedPage = _openTabs[tabKey];
                 return;
             }
 
@@ -672,24 +689,16 @@ namespace PakViewer
                 // Create browser content for this IDX
                 var browserContent = CreateIdxBrowserContent(pak, idxPath);
 
-                var docPage = new DocumentPage
+                var docPage = new TabPage
                 {
-                    Text = $"📁 {idxName}",
-                    Content = browserContent,
-                    Closable = true
+                    Text = $"{idxName}",
+                    Content = browserContent
                 };
                 docPage.Tag = tabKey;
 
-                docPage.Closed += (s, e) =>
-                {
-                    if (_openTabs.ContainsKey(tabKey))
-                        _openTabs.Remove(tabKey);
-                    pak.Dispose();
-                };
-
                 _openTabs[tabKey] = docPage;
-                _mainDocControl.Pages.Add(docPage);
-                _mainDocControl.SelectedPage = docPage;
+                _mainTabControl.Pages.Add(docPage);
+                _mainTabControl.SelectedPage = docPage;
 
                 // Save to settings
                 _settings.LastFolder = Path.GetDirectoryName(idxPath);
@@ -866,22 +875,20 @@ namespace PakViewer
                     var tabKey = $"{idxPath}:{selected.Index}";
                     if (_openTabs.ContainsKey(tabKey))
                     {
-                        _mainDocControl.SelectedPage = _openTabs[tabKey];
+                        _mainTabControl.SelectedPage = _openTabs[tabKey];
                         return;
                     }
 
-                    var docPage = new DocumentPage
+                    var docPage = new TabPage
                     {
                         Text = selected.FileName,
-                        Content = content,
-                        Closable = true
+                        Content = content
                     };
                     docPage.Tag = tabKey;
-                    docPage.Closed += (s2, e2) => { if (_openTabs.ContainsKey(tabKey)) _openTabs.Remove(tabKey); };
 
                     _openTabs[tabKey] = docPage;
-                    _mainDocControl.Pages.Add(docPage);
-                    _mainDocControl.SelectedPage = docPage;
+                    _mainTabControl.Pages.Add(docPage);
+                    _mainTabControl.SelectedPage = docPage;
                 }
                 catch { }
             };
@@ -933,7 +940,7 @@ namespace PakViewer
 
             if (_openTabs.ContainsKey(tabKey))
             {
-                _mainDocControl.SelectedPage = _openTabs[tabKey];
+                _mainTabControl.SelectedPage = _openTabs[tabKey];
                 return;
             }
 
@@ -947,23 +954,16 @@ namespace PakViewer
                 var datName = Path.GetFileName(datPath);
                 var browserContent = CreateDatBrowserContent(datFile);
 
-                var docPage = new DocumentPage
+                var docPage = new TabPage
                 {
-                    Text = $"📦 {datName}",
-                    Content = browserContent,
-                    Closable = true
+                    Text = $"{datName}",
+                    Content = browserContent
                 };
                 docPage.Tag = tabKey;
 
-                docPage.Closed += (s, e) =>
-                {
-                    if (_openTabs.ContainsKey(tabKey))
-                        _openTabs.Remove(tabKey);
-                };
-
                 _openTabs[tabKey] = docPage;
-                _mainDocControl.Pages.Add(docPage);
-                _mainDocControl.SelectedPage = docPage;
+                _mainTabControl.Pages.Add(docPage);
+                _mainTabControl.SelectedPage = docPage;
 
                 _settings.LastFolder = Path.GetDirectoryName(datPath);
                 _settings.Save();
@@ -1181,8 +1181,9 @@ namespace PakViewer
                 _selectedFolder = Path.GetDirectoryName(idxPath);
                 _folderLabel.Text = Path.GetFileName(_selectedFolder);
 
-                // Save to settings
+                // Save to settings (這是有效的 client 資料夾)
                 _settings.LastFolder = _selectedFolder;
+                _settings.LastClientFolder = _selectedFolder;
                 _settings.LastIdxFile = Path.GetFileName(idxPath);
                 _settings.Save();
 
@@ -1695,7 +1696,7 @@ namespace PakViewer
             // Check if already open
             if (_openTabs.ContainsKey(tabKey))
             {
-                _mainDocControl.SelectedPage = _openTabs[tabKey];
+                _mainTabControl.SelectedPage = _openTabs[tabKey];
                 return;
             }
 
@@ -1708,25 +1709,17 @@ namespace PakViewer
                 Control content = CreateTabContent(ext, data, item.FileName);
                 if (content == null) return;
 
-                // Create closable document page
-                var docPage = new DocumentPage
+                // Create tab page
+                var docPage = new TabPage
                 {
                     Text = item.FileName,
-                    Content = content,
-                    Closable = true
+                    Content = content
                 };
                 docPage.Tag = tabKey;
 
-                // Handle close event
-                docPage.Closed += (s, e) =>
-                {
-                    if (_openTabs.ContainsKey(tabKey))
-                        _openTabs.Remove(tabKey);
-                };
-
                 _openTabs[tabKey] = docPage;
-                _mainDocControl.Pages.Add(docPage);
-                _mainDocControl.SelectedPage = docPage;
+                _mainTabControl.Pages.Add(docPage);
+                _mainTabControl.SelectedPage = docPage;
 
                 _statusLabel.Text = $"Opened: {item.FileName} in new tab";
             }
@@ -1907,7 +1900,7 @@ namespace PakViewer
             };
         }
 
-        private void CloseTab(DocumentPage page)
+        private void CloseTab(TabPage page)
         {
             if (page == _browserPage) return; // Don't close browser page
 
@@ -1916,12 +1909,12 @@ namespace PakViewer
             {
                 _openTabs.Remove(key);
             }
-            _mainDocControl.Pages.Remove(page);
+            _mainTabControl.Pages.Remove(page);
         }
 
-        private void CloseOtherTabs(DocumentPage keepPage)
+        private void CloseOtherTabs(TabPage keepPage)
         {
-            var toClose = _mainDocControl.Pages.Where(p => p != _browserPage && p != keepPage).ToList();
+            var toClose = _mainTabControl.Pages.Where(p => p != _browserPage && p != keepPage).ToList();
             foreach (var page in toClose)
             {
                 CloseTab(page);
@@ -1930,7 +1923,7 @@ namespace PakViewer
 
         private void CloseAllTabs()
         {
-            var toClose = _mainDocControl.Pages.Where(p => p != _browserPage).ToList();
+            var toClose = _mainTabControl.Pages.Where(p => p != _browserPage).ToList();
             foreach (var page in toClose)
             {
                 CloseTab(page);
@@ -2313,7 +2306,8 @@ namespace PakViewer
     /// </summary>
     public class AppSettings
     {
-        public string LastFolder { get; set; }
+        public string LastFolder { get; set; }           // 檔案對話框預設路徑
+        public string LastClientFolder { get; set; }     // 有效的 client 資料夾（含 .idx 檔案）
         public string LastIdxFile { get; set; }
         public string LastSprListFile { get; set; }
 
