@@ -34,6 +34,7 @@ namespace PakViewer.Viewers
         private UITimer _animTimer;
         private int _animFrameIndex = 0;
         private bool _isPlaying = false;
+        private Button _playBtn;
 
         private const int THUMB_SIZE = 48;
         private const int THUMB_SPACING = 4;
@@ -56,15 +57,12 @@ namespace PakViewer.Viewers
 
         private void BuildUI()
         {
-            var mainLayout = new DynamicLayout { Spacing = new Eto.Drawing.Size(5, 5), Padding = 5 };
-
             // 標題
             _infoLabel = new Label
             {
                 Text = $"Sprite #{_group.SpriteId} ({_group.PartsCount} parts)",
                 Font = new Font(SystemFont.Bold, 12)
             };
-            mainLayout.AddRow(_infoLabel);
 
             // Parts 和 Frames 列表
             _layout = new DynamicLayout { Spacing = new Eto.Drawing.Size(5, 10) };
@@ -77,16 +75,11 @@ namespace PakViewer.Viewers
             _scrollable = new Scrollable
             {
                 Content = _layout,
-                ExpandContentWidth = true
+                ExpandContentWidth = true,
+                ExpandContentHeight = false
             };
 
-            mainLayout.AddRow(new TableLayout
-            {
-                Rows = { new TableRow(_scrollable) { ScaleHeight = true } }
-            });
-
             // 預覽區域
-            var previewPanel = new GroupBox { Text = "預覽" };
             _previewDrawable = new Drawable
             {
                 Size = new Eto.Drawing.Size(200, 200),
@@ -94,18 +87,33 @@ namespace PakViewer.Viewers
             };
             _previewDrawable.Paint += OnPreviewPaint;
 
-            var playBtn = new Button { Text = "▶ 播放" };
-            playBtn.Click += (s, e) => ToggleAnimation();
+            _playBtn = new Button { Text = "▶ 播放" };
+            _playBtn.Click += (s, e) => ToggleAnimation();
 
-            previewPanel.Content = new StackLayout
+            var previewPanel = new StackLayout
             {
                 Orientation = Orientation.Vertical,
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 Spacing = 5,
-                Items = { _previewDrawable, playBtn }
+                Padding = 5,
+                Items = { _previewDrawable, _playBtn }
             };
 
-            mainLayout.AddRow(previewPanel);
+            // 使用 Splitter 分割上下區域
+            var splitter = new Splitter
+            {
+                Orientation = Orientation.Vertical,
+                Position = 400,
+                Panel1 = _scrollable,
+                Panel2 = previewPanel
+            };
+
+            var mainLayout = new DynamicLayout { Spacing = new Eto.Drawing.Size(5, 5), Padding = 5 };
+            mainLayout.AddRow(_infoLabel);
+            mainLayout.AddRow(new TableLayout
+            {
+                Rows = { new TableRow(splitter) { ScaleHeight = true } }
+            });
 
             _control = mainLayout;
 
@@ -126,11 +134,30 @@ namespace PakViewer.Viewers
             catch { }
 
             int frameCount = frames?.Length ?? 0;
+            var capturedFrames = frames; // 捕獲供閉包使用
 
-            var partLabel = new Label
+            // 可點擊的標籤
+            var partLabel = new LinkButton
             {
-                Text = $"▼ {part.FileName} ({frameCount} frames)",
+                Text = $"▶ {part.FileName} ({frameCount} frames)",
                 Font = new Font(SystemFont.Bold, 10)
+            };
+            partLabel.Click += (s, e) =>
+            {
+                // 點擊標籤直接播放該 part 的動畫
+                _selectedPart = part;
+                _currentFrames = capturedFrames;
+                _selectedFrameIndex = 0;
+                _previewDrawable.Invalidate();
+
+                // 自動開始播放
+                if (capturedFrames != null && capturedFrames.Length > 0)
+                {
+                    _isPlaying = true;
+                    _animFrameIndex = 0;
+                    _animTimer.Start();
+                    if (_playBtn != null) _playBtn.Text = "⏸ 暫停";
+                }
             };
 
             // 使用 StackLayout 模擬 WrapPanel
@@ -180,9 +207,14 @@ namespace PakViewer.Viewers
 
                 frameBtn.MouseDown += (s, e) =>
                 {
+                    // 停止目前動畫
+                    _animTimer.Stop();
+                    _isPlaying = false;
+                    if (_playBtn != null) _playBtn.Text = "▶ 播放";
+
                     _selectedPart = part;
                     _selectedFrameIndex = frameIndex;
-                    _currentFrames = frames;  // 使用已載入的 frames
+                    _currentFrames = capturedFrames;
                     _previewDrawable.Invalidate();
                 };
 
@@ -286,10 +318,12 @@ namespace PakViewer.Viewers
             {
                 _animFrameIndex = 0;
                 _animTimer.Start();
+                if (_playBtn != null) _playBtn.Text = "⏸ 暫停";
             }
             else
             {
                 _animTimer.Stop();
+                if (_playBtn != null) _playBtn.Text = "▶ 播放";
             }
         }
 

@@ -32,6 +32,13 @@ namespace PakViewer
                 return;
             }
 
+            // Test SPR mode
+            if (args.Length >= 3 && args[0] == "-test-spr")
+            {
+                TestSpr.AnalyzeSpr(args[1], args[2]);
+                return;
+            }
+
             // GUI mode - use Eto.Forms for cross-platform
             new Application(Platform.Detect).Run(new MainForm());
         }
