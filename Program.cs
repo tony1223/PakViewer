@@ -60,6 +60,13 @@ namespace PakViewer
         private int? _sprListTypeFilter = null;
         private Dictionary<int, PakFile> _spritePakFiles;  // SpriteId -> PakFile mapping
 
+        // SPR Mode (新增)
+        private bool _isSprMode = false;
+        private Dictionary<int, SprGroup> _sprGroups;
+        private CheckBox _sprModeCheck;
+        private GridView _sprGroupGrid;
+        private RadioButtonList _sprViewModeRadio;  // 列表/相簿切換
+
         // UI Controls
         private GridView _fileGrid;
         private GridView _sprListGrid;
@@ -272,6 +279,22 @@ namespace PakViewer
             _sprListModeCheck = new CheckBox { Text = "SPR List Mode" };
             _sprListModeCheck.CheckedChanged += OnSprListModeChanged;
 
+            // SPR Mode checkbox (新增)
+            _sprModeCheck = new CheckBox { Text = "SPR 模式" };
+            _sprModeCheck.CheckedChanged += OnSprModeChanged;
+
+            // SPR view mode radio (列表/相簿)
+            _sprViewModeRadio = new RadioButtonList
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = new Size(10, 0),
+                Visible = false
+            };
+            _sprViewModeRadio.Items.Add("列表");
+            _sprViewModeRadio.Items.Add("相簿");
+            _sprViewModeRadio.SelectedIndex = 0;
+            _sprViewModeRadio.SelectedIndexChanged += OnSprViewModeChanged;
+
             // Search box (filename)
             _searchBox = new TextBox { PlaceholderText = "Search..." };
             _searchBox.TextChanged += OnSearchChanged;
@@ -432,6 +455,29 @@ namespace PakViewer
 
             _sprListGrid.SelectionChanged += OnSprListSelected;
 
+            // SPR Group Grid (新增 - SPR 模式用)
+            _sprGroupGrid = new GridView
+            {
+                AllowMultipleSelection = false,
+                ShowHeader = true
+            };
+
+            _sprGroupGrid.Columns.Add(new GridColumn
+            {
+                HeaderText = "ID",
+                DataCell = new TextBoxCell { Binding = Binding.Property<SprGroupItem, string>(r => r.Id.ToString()) },
+                Width = 60
+            });
+
+            _sprGroupGrid.Columns.Add(new GridColumn
+            {
+                HeaderText = "Parts",
+                DataCell = new TextBoxCell { Binding = Binding.Property<SprGroupItem, string>(r => r.Parts.ToString()) },
+                Width = 50
+            });
+
+            _sprGroupGrid.SelectionChanged += OnSprGroupSelected;
+
             // 統一標籤寬度
             const int labelWidth = 50;
 
@@ -461,6 +507,16 @@ namespace PakViewer
                     new TableRow(
                         new TableCell(new Panel { Width = labelWidth }, false),
                         new TableCell(_sprListModeCheck, true)
+                    ),
+                    // SPR Mode (新增)
+                    new TableRow(
+                        new TableCell(new Panel { Width = labelWidth }, false),
+                        new TableCell(new StackLayout
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Spacing = 15,
+                            Items = { _sprModeCheck, _sprViewModeRadio }
+                        }, true)
                     ),
                     // Ext row
                     new TableRow(
@@ -1898,7 +1954,208 @@ namespace PakViewer
                 }
             }
 
+            // 互斥：開啟 SPR List Mode 時關閉 SPR 模式
+            if (_isSprListMode && _isSprMode)
+            {
+                _sprModeCheck.Checked = false;
+                _isSprMode = false;
+            }
+
             UpdateModeDisplay();
+        }
+
+        private void OnSprModeChanged(object sender, EventArgs e)
+        {
+            _isSprMode = _sprModeCheck.Checked ?? false;
+
+            if (_isSprMode)
+            {
+                // 互斥：開啟 SPR 模式時關閉 SPR List Mode
+                if (_isSprListMode)
+                {
+                    _sprListModeCheck.Checked = false;
+                    _isSprListMode = false;
+                }
+
+                // 掃描 sprite*.idx 並建立群組
+                if (string.IsNullOrEmpty(_selectedFolder))
+                {
+                    MessageBox.Show("請先選擇資料夾", "提示");
+                    _sprModeCheck.Checked = false;
+                    _isSprMode = false;
+                    return;
+                }
+
+                LoadSprGroups(_selectedFolder);
+            }
+
+            _sprViewModeRadio.Visible = _isSprMode;
+            UpdateModeDisplay();
+        }
+
+        private void OnSprViewModeChanged(object sender, EventArgs e)
+        {
+            var isGalleryMode = _sprViewModeRadio.SelectedIndex == 1;
+
+            if (isGalleryMode)
+            {
+                // 切換到相簿模式
+                ShowSprGalleryViewer();
+            }
+            else
+            {
+                // 切換到列表模式 - 清除右側預覽
+                _currentViewer?.Dispose();
+                _currentViewer = null;
+                _viewerPanel.Content = null;
+            }
+        }
+
+        private void OnSprGroupSelected(object sender, EventArgs e)
+        {
+            var selected = _sprGroupGrid.SelectedItem as SprGroupItem;
+            if (selected == null) return;
+
+            // 顯示 SprGroupViewer
+            ShowSprGroupViewer(selected.Group);
+        }
+
+        private void LoadSprGroups(string folder)
+        {
+            _sprGroups = new Dictionary<int, SprGroup>();
+            _statusLabel.Text = "正在掃描 SPR 檔案...";
+
+            // 在背景執行緒載入
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                var groups = new Dictionary<int, SprGroup>();
+                var spriteIdxFiles = Directory.GetFiles(folder, "sprite*.idx", SearchOption.TopDirectoryOnly);
+
+                foreach (var idxFile in spriteIdxFiles)
+                {
+                    try
+                    {
+                        var pak = new PakFile(idxFile);
+                        for (int fileIndex = 0; fileIndex < pak.Files.Count; fileIndex++)
+                        {
+                            var file = pak.Files[fileIndex];
+                            var name = Path.GetFileNameWithoutExtension(file.FileName);
+                            if (string.IsNullOrEmpty(name)) continue;
+
+                            // 只處理 .spr 檔案
+                            if (!file.FileName.EndsWith(".spr", StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            int spriteId;
+                            int partIndex = 0;
+
+                            // 解析檔名格式: "123.spr" 或 "123-0.spr"
+                            if (name.Contains('-'))
+                            {
+                                var parts = name.Split('-');
+                                if (parts.Length >= 2 &&
+                                    int.TryParse(parts[0], out spriteId) &&
+                                    int.TryParse(parts[1], out partIndex))
+                                {
+                                    // 格式: xxx-xxx.spr
+                                }
+                                else
+                                {
+                                    continue;
+                                }
+                            }
+                            else if (int.TryParse(name, out spriteId))
+                            {
+                                // 格式: xxx.spr
+                                partIndex = 0;
+                            }
+                            else
+                            {
+                                continue;
+                            }
+
+                            // 取得或建立群組
+                            if (!groups.TryGetValue(spriteId, out var group))
+                            {
+                                group = new SprGroup { SpriteId = spriteId };
+                                groups[spriteId] = group;
+                            }
+
+                            // 檢查是否已有此 part
+                            if (!group.Parts.Any(p => p.PartIndex == partIndex))
+                            {
+                                // 不在這裡載入 frame 數量，延遲到需要時再載入
+                                group.Parts.Add(new SprPart
+                                {
+                                    FileName = file.FileName,
+                                    PartIndex = partIndex,
+                                    FrameCount = 0,  // 延遲載入
+                                    SourcePak = pak,
+                                    FileIndex = fileIndex
+                                });
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // 排序 Parts
+                foreach (var group in groups.Values)
+                {
+                    group.Parts.Sort((a, b) => a.PartIndex.CompareTo(b.PartIndex));
+                }
+
+                // 回到 UI 執行緒更新
+                Application.Instance.Invoke(() =>
+                {
+                    _sprGroups = groups;
+                    _statusLabel.Text = $"載入 {_sprGroups.Count} 個 SPR 群組";
+                    UpdateSprGroupDisplay();
+                });
+            });
+        }
+
+        private void UpdateSprGroupDisplay()
+        {
+            if (_sprGroups == null) return;
+
+            var filter = _currentFilter?.ToLowerInvariant() ?? "";
+            var items = _sprGroups.Values
+                .Where(g => string.IsNullOrEmpty(filter) || g.SpriteId.ToString().Contains(filter))
+                .OrderBy(g => g.SpriteId)
+                .Select(g => new SprGroupItem
+                {
+                    Id = g.SpriteId,
+                    Parts = g.PartsCount,
+                    Frames = g.TotalFrames,
+                    Group = g
+                })
+                .ToList();
+
+            _sprGroupGrid.DataStore = items;
+            _recordCountLabel.Text = $"{items.Count} 筆";
+        }
+
+        private void ShowSprGroupViewer(SprGroup group)
+        {
+            _currentViewer?.Dispose();
+
+            var viewer = new Viewers.SprGroupViewer();
+            viewer.LoadGroup(group);
+            _currentViewer = viewer;
+            _viewerPanel.Content = viewer.GetControl();
+        }
+
+        private void ShowSprGalleryViewer()
+        {
+            _currentViewer?.Dispose();
+
+            if (_sprGroups == null || _sprGroups.Count == 0) return;
+
+            var viewer = new Viewers.SprGalleryViewer();
+            viewer.LoadGroups(_sprGroups.Values.OrderBy(g => g.SpriteId).ToList());
+            _currentViewer = viewer;
+            _viewerPanel.Content = viewer.GetControl();
         }
 
         private void OnSprTypeFilterChanged(object sender, EventArgs e)
@@ -1923,13 +2180,29 @@ namespace PakViewer
 
         private void UpdateModeDisplay()
         {
-            // Swap grid content
-            _leftListPanel.Content = _isSprListMode ? _sprListGrid : _fileGrid;
+            // Swap grid content based on mode
+            if (_isSprMode)
+            {
+                _leftListPanel.Content = _sprGroupGrid;
+            }
+            else if (_isSprListMode)
+            {
+                _leftListPanel.Content = _sprListGrid;
+            }
+            else
+            {
+                _leftListPanel.Content = _fileGrid;
+            }
 
             // Toggle visibility of mode-specific filter controls
             _sprTypeFilterDropDown.Visible = _isSprListMode;
+            _idxDropDown.Visible = !_isSprMode;  // 隱藏 IDX 下拉選單
 
-            if (_isSprListMode)
+            if (_isSprMode)
+            {
+                UpdateSprGroupDisplay();
+            }
+            else if (_isSprListMode)
             {
                 UpdateSprListDisplay();
             }
