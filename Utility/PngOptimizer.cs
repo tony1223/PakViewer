@@ -1,62 +1,20 @@
 using System;
-using System.Diagnostics;
 using System.IO;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Png;
 
 namespace PakViewer.Utility
 {
     /// <summary>
-    /// PNG 無損壓縮工具（使用嵌入的 oxipng.exe）
+    /// PNG 無損壓縮工具（使用 SixLabors.ImageSharp，跨平台支援）
     /// </summary>
     public static class PngOptimizer
     {
-        private static string _oxipngPath;
-        private static readonly object _lock = new object();
-
-        /// <summary>
-        /// 取得 oxipng.exe 路徑（首次使用時從嵌入資源解壓）
-        /// </summary>
-        public static string GetOxipngPath()
-        {
-            if (_oxipngPath != null && File.Exists(_oxipngPath))
-                return _oxipngPath;
-
-            lock (_lock)
-            {
-                if (_oxipngPath != null && File.Exists(_oxipngPath))
-                    return _oxipngPath;
-
-                var appData = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "PakViewer");
-                Directory.CreateDirectory(appData);
-
-                _oxipngPath = Path.Combine(appData, "oxipng.exe");
-
-                if (!File.Exists(_oxipngPath))
-                {
-                    // 從嵌入資源解壓
-                    using (var stream = typeof(PngOptimizer).Assembly
-                        .GetManifestResourceStream("PakViewer.Tools.oxipng.exe"))
-                    {
-                        if (stream == null)
-                            throw new InvalidOperationException("找不到嵌入的 oxipng.exe 資源");
-
-                        using (var file = File.Create(_oxipngPath))
-                        {
-                            stream.CopyTo(file);
-                        }
-                    }
-                }
-
-                return _oxipngPath;
-            }
-        }
-
         /// <summary>
         /// 壓縮單個 PNG 檔案（直接修改原檔）
         /// </summary>
         /// <param name="pngPath">PNG 檔案路徑</param>
-        /// <param name="level">壓縮等級 (1-6, 預設 4)</param>
+        /// <param name="level">壓縮等級 (1-6, 預設 4) - 對應 ImageSharp CompressionLevel</param>
         /// <returns>(是否成功, 節省的位元組數)</returns>
         public static (bool success, long savedBytes, string error) Optimize(string pngPath, int level = 4)
         {
@@ -66,36 +24,36 @@ namespace PakViewer.Utility
             try
             {
                 var originalSize = new FileInfo(pngPath).Length;
+                var originalData = File.ReadAllBytes(pngPath);
 
-                var psi = new ProcessStartInfo
+                // 使用 ImageSharp 重新編碼 PNG
+                using (var image = Image.Load(originalData))
                 {
-                    FileName = GetOxipngPath(),
-                    Arguments = $"-o {level} --strip safe \"{pngPath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true,
-                    RedirectStandardOutput = true
-                };
-
-                using (var proc = Process.Start(psi))
-                {
-                    proc.WaitForExit(60000); // 60 秒超時
-
-                    if (!proc.HasExited)
+                    var encoder = new PngEncoder
                     {
-                        proc.Kill();
-                        return (false, 0, "壓縮超時");
-                    }
+                        CompressionLevel = MapCompressionLevel(level),
+                        FilterMethod = PngFilterMethod.Adaptive,
+                        ColorType = PngColorType.RgbWithAlpha
+                    };
 
-                    if (proc.ExitCode != 0)
+                    using (var ms = new MemoryStream())
                     {
-                        var error = proc.StandardError.ReadToEnd();
-                        return (false, 0, $"壓縮失敗: {error}");
+                        image.SaveAsPng(ms, encoder);
+                        var optimizedData = ms.ToArray();
+
+                        // 只在壓縮後比原檔小時才寫入
+                        if (optimizedData.Length < originalSize)
+                        {
+                            File.WriteAllBytes(pngPath, optimizedData);
+                            return (true, originalSize - optimizedData.Length, null);
+                        }
+                        else
+                        {
+                            // 壓縮後反而變大，保持原檔
+                            return (true, 0, null);
+                        }
                     }
                 }
-
-                var newSize = new FileInfo(pngPath).Length;
-                return (true, originalSize - newSize, null);
             }
             catch (Exception ex)
             {
@@ -111,25 +69,40 @@ namespace PakViewer.Utility
         /// <returns>(壓縮後的資料, 節省的位元組數, 錯誤訊息)</returns>
         public static (byte[] data, long savedBytes, string error) OptimizeData(byte[] pngData, int level = 4)
         {
-            // 建立暫存檔
-            var tempFile = Path.Combine(Path.GetTempPath(), $"pakviewer_png_{Guid.NewGuid():N}.png");
-
             try
             {
-                File.WriteAllBytes(tempFile, pngData);
+                var originalSize = pngData.Length;
 
-                var (success, savedBytes, error) = Optimize(tempFile, level);
+                using (var image = Image.Load(pngData))
+                {
+                    var encoder = new PngEncoder
+                    {
+                        CompressionLevel = MapCompressionLevel(level),
+                        FilterMethod = PngFilterMethod.Adaptive,
+                        ColorType = PngColorType.RgbWithAlpha
+                    };
 
-                if (!success)
-                    return (pngData, 0, error);
+                    using (var ms = new MemoryStream())
+                    {
+                        image.SaveAsPng(ms, encoder);
+                        var optimizedData = ms.ToArray();
 
-                var optimizedData = File.ReadAllBytes(tempFile);
-                return (optimizedData, savedBytes, null);
+                        // 只在壓縮後比原檔小時才使用新資料
+                        if (optimizedData.Length < originalSize)
+                        {
+                            return (optimizedData, originalSize - optimizedData.Length, null);
+                        }
+                        else
+                        {
+                            // 壓縮後反而變大，回傳原資料
+                            return (pngData, 0, null);
+                        }
+                    }
+                }
             }
-            finally
+            catch (Exception ex)
             {
-                if (File.Exists(tempFile))
-                    File.Delete(tempFile);
+                return (pngData, 0, ex.Message);
             }
         }
 
@@ -167,6 +140,25 @@ namespace PakViewer.Utility
             }
 
             return (successCount, totalSaved, errors);
+        }
+
+        /// <summary>
+        /// 將 1-6 等級對應到 ImageSharp 的 PngCompressionLevel
+        /// </summary>
+        private static PngCompressionLevel MapCompressionLevel(int level)
+        {
+            // ImageSharp's PngCompressionLevel ranges from Level0 (no compression) to Level9 (max compression)
+            // Map our 1-6 scale: 1 -> Level3, 2 -> Level4, 3 -> Level5, 4 -> Level6, 5 -> Level7, 6 -> Level9
+            return level switch
+            {
+                1 => PngCompressionLevel.Level3,
+                2 => PngCompressionLevel.Level4,
+                3 => PngCompressionLevel.Level5,
+                4 => PngCompressionLevel.Level6,
+                5 => PngCompressionLevel.Level7,
+                6 => PngCompressionLevel.Level9,
+                _ => PngCompressionLevel.Level6
+            };
         }
     }
 }
