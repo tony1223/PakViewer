@@ -77,12 +77,9 @@ namespace PakViewer
         private Label _recordCountLabel;
         private Panel _leftListPanel;
 
-        // Viewers
-        private ImageView _imageViewer;
-        private Scrollable _imageScrollable;
-        private RichTextArea _textViewer;
-        private Drawable _spriteViewer;
+        // Viewers (模組化架構)
         private Panel _viewerPanel;
+        private Viewers.IFileViewer _currentViewer;
 
         // Tab control
         private TabControl _mainTabControl;
@@ -94,13 +91,6 @@ namespace PakViewer
         private Button _textSearchNextBtn;
         private Button _textSearchPrevBtn;
         private Label _textSearchResultLabel;
-        private int _textSearchIndex = -1;
-        private List<int> _textSearchMatches;
-
-        // Sprite animation
-        private SprFrame[] _currentFrames;
-        private int _currentFrameIndex;
-        private UITimer _animationTimer;
 
         // Settings
         private AppSettings _settings;
@@ -115,7 +105,6 @@ namespace PakViewer
 
             CreateMenu();
             CreateLayout();
-            CreateAnimationTimer();
 
             // Load last session
             LoadLastSession();
@@ -535,40 +524,7 @@ namespace PakViewer
                 }
             };
 
-            _viewerPanel = new Panel();
-
-            // Image viewer (centered)
-            _imageViewer = new ImageView();
-            _imageScrollable = new Scrollable
-            {
-                Content = new TableLayout
-                {
-                    BackgroundColor = Colors.DarkGray,
-                    Rows =
-                    {
-                        new TableRow { ScaleHeight = true },
-                        new TableRow(new TableCell(null, true), new TableCell(_imageViewer, false), new TableCell(null, true)),
-                        new TableRow { ScaleHeight = true }
-                    }
-                }
-            };
-
-            // Text viewer
-            _textViewer = new RichTextArea
-            {
-                ReadOnly = true,
-                Font = new Font("Menlo, Monaco, Consolas, monospace", 12)
-            };
-
-            // Sprite viewer (custom drawable)
-            _spriteViewer = new Drawable
-            {
-                BackgroundColor = Colors.DarkRed
-            };
-            _spriteViewer.Paint += OnPaintSprite;
-
-            // Start with empty panel
-            _viewerPanel.Content = new Panel { BackgroundColor = Colors.DarkGray };
+            _viewerPanel = new Panel { BackgroundColor = Colors.DarkGray };
 
             // Wrap viewer panel with search toolbar
             return new TableLayout
@@ -581,28 +537,51 @@ namespace PakViewer
             };
         }
 
-        private void ShowViewerControl(Control viewer)
+        /// <summary>
+        /// 使用 ViewerFactory 顯示檔案預覽
+        /// </summary>
+        private void ShowFilePreview(string ext, byte[] data, string fileName)
         {
-            // Set the viewer as the panel content (replaces previous)
-            _viewerPanel.Content = viewer;
+            // 釋放舊的 viewer
+            _currentViewer?.Dispose();
+            _currentViewer = null;
 
-            // Reset search when switching viewers
-            _textSearchMatches = null;
-            _textSearchIndex = -1;
+            // 使用 ViewerFactory 建立新的 viewer
+            _currentViewer = Viewers.ViewerFactory.CreateViewerSmart(ext, data);
+            _currentViewer.LoadData(data, fileName);
+
+            // 顯示 viewer 控件
+            _viewerPanel.Content = _currentViewer.GetControl();
+
+            // 重置搜尋狀態
             _textSearchResultLabel.Text = "";
         }
 
-        private void CreateAnimationTimer()
+        // 使用 ViewerFactory 的方法
+        private static bool IsTextContent(byte[] data) => Viewers.ViewerFactory.IsTextContent(data);
+        private static bool IsPngContent(byte[] data) => Viewers.ViewerFactory.IsPngContent(data);
+
+        private static Encoding DetectEncoding(byte[] data, string fileName)
         {
-            _animationTimer = new UITimer { Interval = 0.15 };
-            _animationTimer.Elapsed += (s, e) =>
-            {
-                if (_currentFrames != null && _currentFrames.Length > 0)
-                {
-                    _currentFrameIndex = (_currentFrameIndex + 1) % _currentFrames.Length;
-                    _spriteViewer.Invalidate();
-                }
-            };
+            // Register code pages if not already done
+            var lowerName = fileName?.ToLower() ?? "";
+            if (lowerName.Contains("-c") || lowerName.Contains("_c"))
+                return Encoding.GetEncoding("big5");
+            if (lowerName.Contains("-j") || lowerName.Contains("_j"))
+                return Encoding.GetEncoding("shift_jis");
+            if (lowerName.Contains("-k") || lowerName.Contains("_k"))
+                return Encoding.GetEncoding("euc-kr");
+            if (lowerName.Contains("-h") || lowerName.Contains("_h"))
+                return Encoding.GetEncoding("gb2312");
+
+            // Check BOM
+            if (data.Length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF)
+                return Encoding.UTF8;
+            if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xFE)
+                return Encoding.Unicode;
+
+            // Default to Big5 for Lineage files
+            return Encoding.GetEncoding("big5");
         }
 
         #region Event Handlers
@@ -1372,282 +1351,13 @@ namespace PakViewer
                 var data = _currentPak.Extract(selected.Index);
                 var ext = Path.GetExtension(selected.FileName).ToLowerInvariant();
 
-                ShowViewer(ext, data, selected.FileName);
+                ShowFilePreview(ext, data, selected.FileName);
                 _statusLabel.Text = $"Selected: {selected.FileName} ({selected.SizeText})";
             }
             catch (Exception ex)
             {
                 _statusLabel.Text = $"Error: {ex.Message}";
             }
-        }
-
-        private void ShowViewer(string ext, byte[] data, string fileName)
-        {
-            // Stop animation timer
-            _animationTimer.Stop();
-
-            switch (ext)
-            {
-                case ".spr":
-                    ShowSprite(data);
-                    break;
-
-                case ".png":
-                case ".bmp":
-                case ".jpg":
-                case ".jpeg":
-                case ".gif":
-                    ShowImage(data);
-                    break;
-
-                case ".tbt":
-                    ShowTbt(data);
-                    break;
-
-                case ".img":
-                    ShowImg(data);
-                    break;
-
-                case ".txt":
-                case ".html":
-                case ".htm":
-                case ".xml":
-                case ".s":
-                case ".tbl":
-                    ShowText(data, fileName);
-                    break;
-
-                default:
-                    // Try to detect content type
-                    if (IsTextContent(data))
-                        ShowText(data, fileName);
-                    else if (IsPngContent(data))
-                        ShowImage(data);
-                    else
-                        ShowHex(data);
-                    break;
-            }
-        }
-
-        private void ShowSprite(byte[] data)
-        {
-            try
-            {
-                _currentFrames = SprReader.Load(data);
-                _currentFrameIndex = 0;
-
-                if (_currentFrames != null && _currentFrames.Length > 0)
-                {
-                    ShowViewerControl(_spriteViewer);
-                    _spriteViewer.Invalidate();
-
-                    if (_currentFrames.Length > 1)
-                    {
-                        _animationTimer.Start();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _statusLabel.Text = $"SPR Error: {ex.Message}";
-            }
-        }
-
-        private void OnPaintSprite(object sender, PaintEventArgs e)
-        {
-            if (_currentFrames == null || _currentFrames.Length == 0)
-                return;
-
-            var frame = _currentFrames[_currentFrameIndex];
-            if (frame.Image == null)
-                return;
-
-            // Convert ImageSharp image to Eto.Bitmap
-            using var ms = new MemoryStream();
-            frame.Image.Save(ms, new PngEncoder());
-            ms.Position = 0;
-
-            using var bitmap = new Bitmap(ms);
-
-            // Calculate centered position
-            var scale = 2.0f;
-            var x = (_spriteViewer.Width - frame.Width * scale) / 2;
-            var y = (_spriteViewer.Height - frame.Height * scale) / 2;
-
-            e.Graphics.DrawImage(bitmap, (float)x, (float)y, frame.Width * scale, frame.Height * scale);
-
-            // Draw info
-            var info = $"Frame {_currentFrameIndex + 1}/{_currentFrames.Length}  Size: {frame.Width}x{frame.Height}";
-            e.Graphics.DrawText(new Font(SystemFont.Default), Colors.White, 10, 10, info);
-        }
-
-        private void ShowImage(byte[] data)
-        {
-            try
-            {
-                using var ms = new MemoryStream(data);
-                _imageViewer.Image = new Bitmap(ms);
-                ShowViewerControl(_imageScrollable);
-            }
-            catch
-            {
-                ShowHex(data);
-            }
-        }
-
-        private void ShowTbt(byte[] data)
-        {
-            try
-            {
-                var image = Lin.Helper.Core.Image.ImageConverter.LoadTbt(data);
-                if (image != null)
-                {
-                    using var ms = new MemoryStream();
-                    image.Save(ms, new PngEncoder());
-                    ms.Position = 0;
-                    _imageViewer.Image = new Bitmap(ms);
-                    ShowViewerControl(_imageScrollable);
-                    image.Dispose();
-                }
-                else
-                {
-                    ShowHex(data);
-                }
-            }
-            catch
-            {
-                ShowHex(data);
-            }
-        }
-
-        private void ShowImg(byte[] data)
-        {
-            try
-            {
-                var image = Lin.Helper.Core.Image.ImageConverter.LoadImg(data);
-                if (image != null)
-                {
-                    using var ms = new MemoryStream();
-                    image.Save(ms, new PngEncoder());
-                    ms.Position = 0;
-                    _imageViewer.Image = new Bitmap(ms);
-                    ShowViewerControl(_imageScrollable);
-                    image.Dispose();
-                }
-                else
-                {
-                    ShowHex(data);
-                }
-            }
-            catch
-            {
-                ShowHex(data);
-            }
-        }
-
-        private void ShowText(byte[] data, string fileName)
-        {
-            try
-            {
-                // Try different encodings
-                Encoding encoding = DetectEncoding(data, fileName);
-                string text = encoding.GetString(data);
-
-                _textViewer.Text = text;
-                ShowViewerControl(_textViewer);
-            }
-            catch
-            {
-                ShowHex(data);
-            }
-        }
-
-        private Encoding DetectEncoding(byte[] data, string fileName)
-        {
-            var lowerName = fileName.ToLowerInvariant();
-
-            // Check for BOM
-            if (data.Length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF)
-                return Encoding.UTF8;
-            if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xFE)
-                return Encoding.Unicode;
-            if (data.Length >= 2 && data[0] == 0xFE && data[1] == 0xFF)
-                return Encoding.BigEndianUnicode;
-
-            // Detect by filename suffix
-            if (lowerName.Contains("-c") || lowerName.Contains("_c."))
-                return Encoding.GetEncoding("big5");
-            if (lowerName.Contains("-j") || lowerName.Contains("_j."))
-                return Encoding.GetEncoding("shift_jis");
-            if (lowerName.Contains("-k") || lowerName.Contains("_k."))
-                return Encoding.GetEncoding("euc-kr");
-
-            // Default to UTF-8
-            return Encoding.UTF8;
-        }
-
-        private void ShowHex(byte[] data)
-        {
-            var sb = new StringBuilder();
-            int bytesPerLine = 16;
-            int lines = Math.Min(data.Length / bytesPerLine + 1, 500);
-
-            for (int i = 0; i < lines; i++)
-            {
-                int offset = i * bytesPerLine;
-                sb.Append($"{offset:X8}  ");
-
-                for (int j = 0; j < bytesPerLine; j++)
-                {
-                    if (offset + j < data.Length)
-                        sb.Append($"{data[offset + j]:X2} ");
-                    else
-                        sb.Append("   ");
-
-                    if (j == 7) sb.Append(" ");
-                }
-
-                sb.Append(" |");
-                for (int j = 0; j < bytesPerLine && offset + j < data.Length; j++)
-                {
-                    byte b = data[offset + j];
-                    sb.Append(b >= 32 && b < 127 ? (char)b : '.');
-                }
-                sb.AppendLine("|");
-            }
-
-            if (data.Length > lines * bytesPerLine)
-            {
-                sb.AppendLine($"... ({data.Length - lines * bytesPerLine} more bytes)");
-            }
-
-            _textViewer.Text = sb.ToString();
-            ShowViewerControl(_textViewer);
-        }
-
-        private bool IsTextContent(byte[] data)
-        {
-            if (data.Length == 0) return false;
-
-            // Check first 1000 bytes for non-text characters
-            int checkLength = Math.Min(data.Length, 1000);
-            int nonPrintable = 0;
-
-            for (int i = 0; i < checkLength; i++)
-            {
-                byte b = data[i];
-                if (b < 9 || (b > 13 && b < 32) || b == 127)
-                    nonPrintable++;
-            }
-
-            return nonPrintable < checkLength * 0.1; // Less than 10% non-printable
-        }
-
-        private bool IsPngContent(byte[] data)
-        {
-            return data.Length >= 8 &&
-                   data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 &&
-                   data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A;
         }
 
         private void OnExportSelected(object sender, EventArgs e)
@@ -1986,85 +1696,26 @@ namespace PakViewer
 
         #region Text Search
 
+        // 文字搜尋功能已整合到 TextViewer 類別中
+        // 這裡的搜尋列保留供未來擴充使用
+
         private void OnTextSearchKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Keys.Enter)
             {
-                DoTextSearch();
+                _textSearchResultLabel.Text = "Use viewer's built-in search";
                 e.Handled = true;
-            }
-        }
-
-        private void DoTextSearch()
-        {
-            var keyword = _textSearchBox.Text?.Trim();
-            if (string.IsNullOrEmpty(keyword) || string.IsNullOrEmpty(_textViewer.Text))
-            {
-                _textSearchMatches = null;
-                _textSearchIndex = -1;
-                _textSearchResultLabel.Text = "";
-                return;
-            }
-
-            // Find all matches
-            _textSearchMatches = new List<int>();
-            var text = _textViewer.Text;
-            int index = 0;
-            while ((index = text.IndexOf(keyword, index, StringComparison.OrdinalIgnoreCase)) >= 0)
-            {
-                _textSearchMatches.Add(index);
-                index += keyword.Length;
-            }
-
-            if (_textSearchMatches.Count > 0)
-            {
-                _textSearchIndex = 0;
-                HighlightTextMatch();
-            }
-            else
-            {
-                _textSearchIndex = -1;
-                _textSearchResultLabel.Text = "Not found";
             }
         }
 
         private void OnTextSearchNext(object sender, EventArgs e)
         {
-            if (_textSearchMatches == null || _textSearchMatches.Count == 0)
-            {
-                DoTextSearch();
-                return;
-            }
-
-            _textSearchIndex = (_textSearchIndex + 1) % _textSearchMatches.Count;
-            HighlightTextMatch();
+            _textSearchResultLabel.Text = "Use viewer's built-in search";
         }
 
         private void OnTextSearchPrev(object sender, EventArgs e)
         {
-            if (_textSearchMatches == null || _textSearchMatches.Count == 0)
-            {
-                DoTextSearch();
-                return;
-            }
-
-            _textSearchIndex = (_textSearchIndex - 1 + _textSearchMatches.Count) % _textSearchMatches.Count;
-            HighlightTextMatch();
-        }
-
-        private void HighlightTextMatch()
-        {
-            if (_textSearchMatches == null || _textSearchIndex < 0 || _textSearchIndex >= _textSearchMatches.Count)
-                return;
-
-            var pos = _textSearchMatches[_textSearchIndex];
-            var keyword = _textSearchBox.Text;
-
-            // Select the match in RichTextArea
-            _textViewer.Selection = new Range<int>(pos, pos + keyword.Length);
-            _textViewer.Focus();
-
-            _textSearchResultLabel.Text = $"{_textSearchIndex + 1}/{_textSearchMatches.Count}";
+            _textSearchResultLabel.Text = "Use viewer's built-in search";
         }
 
         #endregion
@@ -2282,7 +1933,7 @@ namespace PakViewer
                     if (fileIndex >= 0)
                     {
                         var data = pak.Extract(fileIndex);
-                        ShowSprite(data);
+                        ShowFilePreview(".spr", data, fileName);
                     }
                 }
 
@@ -2300,7 +1951,7 @@ namespace PakViewer
 
         protected override void OnClosed(EventArgs e)
         {
-            _animationTimer?.Stop();
+            _currentViewer?.Dispose();
             _currentPak?.Dispose();
             base.OnClosed(e);
         }
