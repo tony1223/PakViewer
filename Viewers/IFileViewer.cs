@@ -1,12 +1,26 @@
+using System;
 using Eto.Forms;
 
 namespace PakViewer.Viewers
 {
     /// <summary>
+    /// 儲存請求事件參數
+    /// </summary>
+    public class SaveRequestedEventArgs : EventArgs
+    {
+        public byte[] Data { get; }
+        public SaveRequestedEventArgs(byte[] data) => Data = data;
+    }
+
+    /// <summary>
     /// 檔案預覽器介面
     /// </summary>
     public interface IFileViewer : System.IDisposable
     {
+        /// <summary>
+        /// 當使用者點擊儲存時觸發，由主程式處理實際儲存邏輯
+        /// </summary>
+        event EventHandler<SaveRequestedEventArgs> SaveRequested;
         /// <summary>
         /// 支援的副檔名（小寫，含點號，如 ".spr"）
         /// </summary>

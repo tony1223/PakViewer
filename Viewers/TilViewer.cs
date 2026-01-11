@@ -468,19 +468,29 @@ namespace PakViewer.Viewers
         {
             if (!_hasChanges) return;
 
+            // 顯示儲存中狀態
+            _saveButton.Text = "儲存中...";
+            _saveButton.Enabled = false;
+            Application.Instance.RunIteration();  // 強制更新 UI
+
             try
             {
                 var newData = L1Til.BuildTil(_blocks);
+
+                // 觸發儲存事件，讓主程式處理實際的 PAK 更新
+                OnSaveRequested(newData);
+
                 _data = newData;
                 _hasChanges = false;
-                _saveButton.Enabled = false;
                 _infoLabel.Text = $"Blocks: {_blocks.Count}  (已儲存)";
-
-                MessageBox.Show("變更已套用。請使用 Export 功能儲存檔案。", "儲存成功");
+                _saveButton.Text = "儲存變更";
+                // 儲存成功後按鈕保持禁用 (沒有變更)
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"儲存失敗: {ex.Message}", "錯誤", MessageBoxType.Error);
+                _saveButton.Enabled = true;
+                _saveButton.Text = "儲存變更";
             }
         }
 

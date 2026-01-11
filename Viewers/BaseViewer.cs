@@ -1,3 +1,4 @@
+using System;
 using Eto.Forms;
 
 namespace PakViewer.Viewers
@@ -11,6 +12,13 @@ namespace PakViewer.Viewers
         protected byte[] _data;
         protected string _fileName;
         protected bool _hasChanges;
+
+        public event EventHandler<SaveRequestedEventArgs> SaveRequested;
+
+        protected void OnSaveRequested(byte[] data)
+        {
+            SaveRequested?.Invoke(this, new SaveRequestedEventArgs(data));
+        }
 
         public abstract string[] SupportedExtensions { get; }
 

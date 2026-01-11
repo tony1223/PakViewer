@@ -67,6 +67,15 @@ namespace PakViewer
         private GridView _sprGroupGrid;
         private RadioButtonList _sprViewModeRadio;  // 列表/相簿切換
 
+        // All IDX mode
+        private bool _isAllIdxMode = false;
+        private Dictionary<string, PakFile> _allPakFiles;  // IdxName -> PakFile mapping
+
+        // 當前預覽檔案的來源（用於儲存功能）
+        private PakFile _currentViewerPak;
+        private int _currentViewerIndex;
+        private string _currentViewerFileName;
+
         // UI Controls
         private GridView _fileGrid;
         private GridView _sprListGrid;
@@ -130,6 +139,8 @@ namespace PakViewer
                 var idxFiles = Directory.GetFiles(_selectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
 
                 _idxDropDown.Items.Clear();
+                if (idxFiles.Length > 1)
+                    _idxDropDown.Items.Add("全部");  // Add "All" option when multiple IDX files
                 foreach (var file in idxFiles.OrderBy(f => f))
                 {
                     _idxDropDown.Items.Add(Path.GetFileName(file));
@@ -365,6 +376,13 @@ namespace PakViewer
                 HeaderText = "Size",
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.SizeText) },
                 Width = 80
+            });
+
+            _fileGrid.Columns.Add(new GridColumn
+            {
+                HeaderText = "IDX",
+                DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.IdxName ?? "") },
+                Width = 100
             });
 
             _fileGrid.SelectionChanged += OnFileSelected;
@@ -622,11 +640,90 @@ namespace PakViewer
             _currentViewer = Viewers.ViewerFactory.CreateViewerSmart(ext, data);
             _currentViewer.LoadData(data, fileName);
 
+            // 訂閱儲存事件
+            _currentViewer.SaveRequested += OnViewerSaveRequested;
+
             // 顯示 viewer 控件
             _viewerPanel.Content = _currentViewer.GetControl();
 
             // 重置搜尋狀態
             _textSearchResultLabel.Text = "";
+        }
+
+        /// <summary>
+        /// 處理 Viewer 的儲存請求，將資料寫回 PAK
+        /// </summary>
+        private void OnViewerSaveRequested(object sender, Viewers.SaveRequestedEventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine($"OnViewerSaveRequested called: pak={_currentViewerPak?.IdxPath}, file={_currentViewerFileName}");
+
+            if (_currentViewerPak == null || string.IsNullOrEmpty(_currentViewerFileName))
+            {
+                MessageBox.Show(this, "無法儲存：找不到來源 PAK 檔案\n\n請確保是從檔案列表選取的檔案。", "錯誤", MessageBoxType.Error);
+                return;
+            }
+
+            try
+            {
+                // 替換 PAK 中的檔案內容
+                _currentViewerPak.Replace(_currentViewerFileName, e.Data);
+                _currentViewerPak.Save();
+
+                _statusLabel.Text = $"已儲存: {_currentViewerFileName}";
+                ShowToast("儲存成功", _currentViewerFileName);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"儲存失敗: {ex.Message}", "錯誤", MessageBoxType.Error);
+            }
+        }
+
+        /// <summary>
+        /// 顯示 Toast 通知（右下角，自動消失）
+        /// </summary>
+        private void ShowToast(string title, string message, int durationMs = 3000)
+        {
+            var toast = new Form
+            {
+                Title = "",
+                ShowInTaskbar = false,
+                Minimizable = false,
+                Maximizable = false,
+                Resizable = false,
+                WindowStyle = WindowStyle.None,
+                BackgroundColor = Colors.DarkSlateGray,
+                Size = new Size(280, 70)
+            };
+
+            var layout = new StackLayout
+            {
+                Padding = 10,
+                Spacing = 5,
+                Items =
+                {
+                    new Label { Text = title, TextColor = Colors.LightGreen, Font = new Font(SystemFont.Bold, 12) },
+                    new Label { Text = message, TextColor = Colors.White, Font = new Font(SystemFont.Default, 10) }
+                }
+            };
+            toast.Content = layout;
+
+            // 定位到主視窗右下角
+            var mainBounds = this.Bounds;
+            toast.Location = new Point(
+                mainBounds.Right - toast.Width - 20,
+                mainBounds.Bottom - toast.Height - 40
+            );
+
+            toast.Show();
+
+            // 自動關閉
+            var timer = new UITimer { Interval = durationMs / 1000.0 };
+            timer.Elapsed += (s, ev) =>
+            {
+                timer.Stop();
+                toast.Close();
+            };
+            timer.Start();
         }
 
         // 使用 ViewerFactory 的方法
@@ -685,6 +782,8 @@ namespace PakViewer
                 var idxFiles = Directory.GetFiles(_selectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
 
                 _idxDropDown.Items.Clear();
+                if (idxFiles.Length > 1)
+                    _idxDropDown.Items.Add("全部");  // Add "All" option when multiple IDX files
                 foreach (var file in idxFiles.OrderBy(f => f))
                 {
                     _idxDropDown.Items.Add(Path.GetFileName(file));
@@ -962,8 +1061,43 @@ namespace PakViewer
             if (_idxDropDown.SelectedIndex < 0 || string.IsNullOrEmpty(_selectedFolder))
                 return;
 
-            var idxFile = Path.Combine(_selectedFolder, _idxDropDown.SelectedValue.ToString());
-            LoadIdxFile(idxFile);
+            var selected = _idxDropDown.SelectedValue.ToString();
+            if (selected == "全部")
+            {
+                LoadAllIdxFiles();
+            }
+            else
+            {
+                _isAllIdxMode = false;
+                _allPakFiles = null;
+                var idxFile = Path.Combine(_selectedFolder, selected);
+                LoadIdxFile(idxFile);
+            }
+        }
+
+        private void LoadAllIdxFiles()
+        {
+            if (string.IsNullOrEmpty(_selectedFolder)) return;
+
+            _isAllIdxMode = true;
+            _allPakFiles = new Dictionary<string, PakFile>();
+
+            var idxFiles = Directory.GetFiles(_selectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
+            foreach (var idxFile in idxFiles.OrderBy(f => f))
+            {
+                try
+                {
+                    var idxName = Path.GetFileName(idxFile);
+                    var pak = new PakFile(idxFile);
+                    _allPakFiles[idxName] = pak;
+                }
+                catch { }
+            }
+
+            // Set first PAK as current (for fallback)
+            _currentPak = _allPakFiles.Values.FirstOrDefault();
+            UpdateExtensionFilter();
+            RefreshFileList();
         }
 
         private void OnOpenDatFile(object sender, EventArgs e)
@@ -1254,12 +1388,28 @@ namespace PakViewer
 
         private void UpdateExtensionFilter()
         {
-            var extensions = _currentPak.Files
-                .Select(f => Path.GetExtension(f.FileName).ToLowerInvariant())
-                .Where(ext => !string.IsNullOrEmpty(ext))
-                .Distinct()
-                .OrderBy(ext => ext)
-                .ToList();
+            IEnumerable<string> extensions;
+            if (_isAllIdxMode && _allPakFiles != null)
+            {
+                extensions = _allPakFiles.Values
+                    .SelectMany(pak => pak.Files)
+                    .Select(f => Path.GetExtension(f.FileName).ToLowerInvariant())
+                    .Where(ext => !string.IsNullOrEmpty(ext))
+                    .Distinct()
+                    .OrderBy(ext => ext);
+            }
+            else if (_currentPak != null)
+            {
+                extensions = _currentPak.Files
+                    .Select(f => Path.GetExtension(f.FileName).ToLowerInvariant())
+                    .Where(ext => !string.IsNullOrEmpty(ext))
+                    .Distinct()
+                    .OrderBy(ext => ext);
+            }
+            else
+            {
+                extensions = Enumerable.Empty<string>();
+            }
 
             _extFilterDropDown.Items.Clear();
             _extFilterDropDown.Items.Add("All");
@@ -1315,7 +1465,16 @@ namespace PakViewer
         private void OnContentSearch(object sender, EventArgs e)
         {
             var keyword = _contentSearchBox.Text?.Trim();
-            if (string.IsNullOrEmpty(keyword) || _currentPak == null)
+            if (string.IsNullOrEmpty(keyword))
+                return;
+
+            if (_isAllIdxMode)
+            {
+                MessageBox.Show(this, "Content search is not supported in 'All IDX' mode.\nPlease select a specific IDX file.", "Content Search", MessageBoxType.Information);
+                return;
+            }
+
+            if (_currentPak == null)
                 return;
 
             _contentSearchKeyword = keyword;
@@ -1367,75 +1526,108 @@ namespace PakViewer
 
         private void RefreshFileList()
         {
-            if (_currentPak == null) return;
-
             var items = new List<FileItem>();
             _filteredIndexes = new List<int>();
+            int totalCount = 0;
 
-            for (int i = 0; i < _currentPak.Count; i++)
+            // Get PAK files to iterate
+            IEnumerable<KeyValuePair<string, PakFile>> pakSources;
+            if (_isAllIdxMode && _allPakFiles != null)
             {
-                var file = _currentPak.Files[i];
-                var fileName = file.FileName;
-                var lowerName = fileName.ToLowerInvariant();
+                pakSources = _allPakFiles;
+            }
+            else if (_currentPak != null)
+            {
+                var currentIdxName = _idxDropDown.SelectedValue?.ToString() ?? "";
+                pakSources = new[] { new KeyValuePair<string, PakFile>(currentIdxName, _currentPak) };
+            }
+            else
+            {
+                return;
+            }
 
-                // Apply extension filter
-                if (_currentExtFilter != "All")
+            foreach (var pakEntry in pakSources)
+            {
+                var idxName = pakEntry.Key;
+                var pak = pakEntry.Value;
+                totalCount += pak.Count;
+
+                for (int i = 0; i < pak.Count; i++)
                 {
-                    var ext = Path.GetExtension(fileName).ToLowerInvariant();
-                    if (ext != _currentExtFilter)
-                        continue;
+                    var file = pak.Files[i];
+                    var fileName = file.FileName;
+                    var lowerName = fileName.ToLowerInvariant();
+
+                    // Apply extension filter
+                    if (_currentExtFilter != "All")
+                    {
+                        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+                        if (ext != _currentExtFilter)
+                            continue;
+                    }
+
+                    // Apply language filter
+                    if (_currentLangFilter != "All")
+                    {
+                        bool hasLangSuffix = lowerName.Contains(_currentLangFilter + ".") ||
+                                             lowerName.Contains(_currentLangFilter + "_") ||
+                                             lowerName.EndsWith(_currentLangFilter);
+                        if (!hasLangSuffix)
+                            continue;
+                    }
+
+                    // Apply filename search filter
+                    if (!string.IsNullOrEmpty(_currentFilter))
+                    {
+                        if (!fileName.Contains(_currentFilter, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                    }
+
+                    // Apply content search filter (only for single PAK mode)
+                    if (!_isAllIdxMode && _contentSearchResults != null && _contentSearchResults.Count > 0)
+                    {
+                        if (!_contentSearchResults.Contains(i))
+                            continue;
+                    }
+
+                    _filteredIndexes.Add(i);
+                    items.Add(new FileItem
+                    {
+                        Index = i,
+                        FileName = fileName,
+                        FileSize = file.FileSize,
+                        Offset = file.Offset,
+                        IdxName = _isAllIdxMode ? idxName : null,
+                        SourcePak = pak
+                    });
                 }
-
-                // Apply language filter
-                if (_currentLangFilter != "All")
-                {
-                    bool hasLangSuffix = lowerName.Contains(_currentLangFilter + ".") ||
-                                         lowerName.Contains(_currentLangFilter + "_") ||
-                                         lowerName.EndsWith(_currentLangFilter);
-                    if (!hasLangSuffix)
-                        continue;
-                }
-
-                // Apply filename search filter
-                if (!string.IsNullOrEmpty(_currentFilter))
-                {
-                    if (!fileName.Contains(_currentFilter, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                }
-
-                // Apply content search filter
-                if (_contentSearchResults != null && _contentSearchResults.Count > 0)
-                {
-                    if (!_contentSearchResults.Contains(i))
-                        continue;
-                }
-
-                _filteredIndexes.Add(i);
-                items.Add(new FileItem
-                {
-                    Index = i,
-                    FileName = fileName,
-                    FileSize = file.FileSize,
-                    Offset = file.Offset
-                });
             }
 
             _fileGrid.DataStore = items;
-            _recordCountLabel.Text = $"Records: {_filteredIndexes.Count} / {_currentPak.Count}";
+            _recordCountLabel.Text = $"Records: {items.Count} / {totalCount}";
         }
 
         private void OnFileSelected(object sender, EventArgs e)
         {
             var selected = _fileGrid.SelectedItem as FileItem;
-            if (selected == null || _currentPak == null) return;
+            if (selected == null) return;
+
+            var pak = selected.SourcePak ?? _currentPak;
+            if (pak == null) return;
 
             try
             {
-                var data = _currentPak.Extract(selected.Index);
+                var data = pak.Extract(selected.Index);
                 var ext = Path.GetExtension(selected.FileName).ToLowerInvariant();
 
+                // 記錄當前預覽的檔案來源（用於儲存功能）
+                _currentViewerPak = pak;
+                _currentViewerIndex = selected.Index;
+                _currentViewerFileName = selected.FileName;
+
                 ShowFilePreview(ext, data, selected.FileName);
-                _statusLabel.Text = $"Selected: {selected.FileName} ({selected.SizeText})";
+                var idxInfo = selected.IdxName != null ? $" [{selected.IdxName}]" : "";
+                _statusLabel.Text = $"Selected: {selected.FileName} ({selected.SizeText}){idxInfo}";
             }
             catch (Exception ex)
             {
@@ -1445,7 +1637,7 @@ namespace PakViewer
 
         private void OnExportSelected(object sender, EventArgs e)
         {
-            if (_currentPak == null || _fileGrid.SelectedRows.Count() == 0)
+            if (_fileGrid.SelectedRows.Count() == 0)
             {
                 MessageBox.Show(this, "No files selected", "Export", MessageBoxType.Information);
                 return;
@@ -1453,26 +1645,39 @@ namespace PakViewer
 
             // Export to same folder as idx file
             var outputFolder = _selectedFolder;
+            if (string.IsNullOrEmpty(outputFolder))
+            {
+                MessageBox.Show(this, "No folder selected. Please use 'Export To...' instead.", "Export", MessageBoxType.Information);
+                return;
+            }
+
             int exported = 0;
+            int failed = 0;
             foreach (var row in _fileGrid.SelectedRows)
             {
                 var item = (FileItem)_fileGrid.DataStore.ElementAt(row);
+                var pak = item.SourcePak ?? _currentPak;
+                if (pak == null) { failed++; continue; }
                 try
                 {
-                    var data = _currentPak.Extract(item.Index);
+                    var data = pak.Extract(item.Index);
                     var outputPath = Path.Combine(outputFolder, item.FileName);
                     File.WriteAllBytes(outputPath, data);
                     exported++;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    failed++;
+                    System.Diagnostics.Debug.WriteLine($"Export failed: {item.FileName} - {ex.Message}");
+                }
             }
 
-            _statusLabel.Text = $"Exported {exported} files to {outputFolder}";
+            _statusLabel.Text = $"Exported {exported} files to {outputFolder}" + (failed > 0 ? $" ({failed} failed)" : "");
         }
 
         private void OnExportSelectedTo(object sender, EventArgs e)
         {
-            if (_currentPak == null || _fileGrid.SelectedRows.Count() == 0)
+            if (_fileGrid.SelectedRows.Count() == 0)
             {
                 MessageBox.Show(this, "No files selected", "Export", MessageBoxType.Information);
                 return;
@@ -1485,9 +1690,12 @@ namespace PakViewer
             foreach (var row in _fileGrid.SelectedRows)
             {
                 var item = (FileItem)_fileGrid.DataStore.ElementAt(row);
+                var pak = item.SourcePak ?? _currentPak;
+                if (pak == null) continue;
+
                 try
                 {
-                    var data = _currentPak.Extract(item.Index);
+                    var data = pak.Extract(item.Index);
                     var outputPath = Path.Combine(dialog.Directory, item.FileName);
                     File.WriteAllBytes(outputPath, data);
                     exported++;
@@ -1500,6 +1708,12 @@ namespace PakViewer
 
         private void OnDeleteSelected(object sender, EventArgs e)
         {
+            if (_isAllIdxMode)
+            {
+                MessageBox.Show(this, "Delete is not supported in 'All IDX' mode.\nPlease select a specific IDX file.", "Delete", MessageBoxType.Information);
+                return;
+            }
+
             if (_currentPak == null || _fileGrid.SelectedRows.Count() == 0)
             {
                 MessageBox.Show(this, "No files selected", "Delete", MessageBoxType.Information);
@@ -1584,9 +1798,10 @@ namespace PakViewer
 
         private void OpenFileInNewTab(FileItem item)
         {
-            if (_currentPak == null) return;
+            var pak = item.SourcePak ?? _currentPak;
+            if (pak == null) return;
 
-            var tabKey = $"{_currentPak.IdxPath}:{item.Index}";
+            var tabKey = $"{pak.IdxPath}:{item.Index}";
 
             // Check if already open
             if (_openTabs.ContainsKey(tabKey))
@@ -1597,7 +1812,7 @@ namespace PakViewer
 
             try
             {
-                var data = _currentPak.Extract(item.Index);
+                var data = pak.Extract(item.Index);
                 var ext = Path.GetExtension(item.FileName).ToLowerInvariant();
 
                 // Create tab content based on file type
@@ -1793,6 +2008,11 @@ namespace PakViewer
         {
             if (e.Buttons == MouseButtons.Alternate) // Right-click
             {
+                // 只處理點擊在 tab 標籤區域（大約頂部 30 像素）
+                // 避免與 file grid 的右鍵選單衝突
+                if (e.Location.Y > 30)
+                    return;
+
                 var menu = new ContextMenu();
 
                 var closeItem = new ButtonMenuItem { Text = "Close Tab" };
@@ -1879,7 +2099,16 @@ namespace PakViewer
 
         private void OnExportAll(object sender, EventArgs e)
         {
-            if (_currentPak == null)
+            IEnumerable<KeyValuePair<string, PakFile>> pakSources;
+            if (_isAllIdxMode && _allPakFiles != null)
+            {
+                pakSources = _allPakFiles;
+            }
+            else if (_currentPak != null)
+            {
+                pakSources = new[] { new KeyValuePair<string, PakFile>(Path.GetFileName(_currentPak.IdxPath), _currentPak) };
+            }
+            else
             {
                 MessageBox.Show(this, "No PAK file loaded", "Export", MessageBoxType.Information);
                 return;
@@ -1889,21 +2118,29 @@ namespace PakViewer
             if (dialog.ShowDialog(this) != DialogResult.Ok) return;
 
             int exported = 0;
-            for (int i = 0; i < _currentPak.Count; i++)
-            {
-                try
-                {
-                    var file = _currentPak.Files[i];
-                    var data = _currentPak.Extract(i);
-                    var outputPath = Path.Combine(dialog.Directory, file.FileName);
-                    File.WriteAllBytes(outputPath, data);
-                    exported++;
-                }
-                catch { }
+            int total = pakSources.Sum(kv => kv.Value.Count);
+            int processed = 0;
 
-                if (i % 100 == 0)
+            foreach (var kv in pakSources)
+            {
+                var pak = kv.Value;
+                for (int i = 0; i < pak.Count; i++)
                 {
-                    _statusLabel.Text = $"Exporting... {i}/{_currentPak.Count}";
+                    try
+                    {
+                        var file = pak.Files[i];
+                        var data = pak.Extract(i);
+                        var outputPath = Path.Combine(dialog.Directory, file.FileName);
+                        File.WriteAllBytes(outputPath, data);
+                        exported++;
+                    }
+                    catch { }
+
+                    processed++;
+                    if (processed % 100 == 0)
+                    {
+                        _statusLabel.Text = $"Exporting... {processed}/{total}";
+                    }
                 }
             }
 
@@ -2341,6 +2578,8 @@ namespace PakViewer
         public string FileName { get; set; }
         public int FileSize { get; set; }
         public int Offset { get; set; }
+        public string IdxName { get; set; }  // 來源 IDX 檔名
+        public PakFile SourcePak { get; set; }  // 來源 PAK 檔案
 
         public string SizeText => FileSize >= 1024
             ? $"{FileSize / 1024.0:F1} KB"
