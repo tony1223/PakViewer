@@ -1731,34 +1731,28 @@ namespace PakViewer
 
         private Control CreateTabContent(string ext, byte[] data, string fileName)
         {
-            switch (ext)
+            // 使用模組化的 ViewerFactory
+            var viewer = Viewers.ViewerFactory.CreateViewerSmart(ext, data);
+            viewer.LoadData(data, fileName);
+
+            // 如果 viewer 支援搜尋，加上搜尋工具列
+            if (viewer.CanSearch)
             {
-                case ".spr":
-                    return CreateSpriteTabContent(data);
-
-                case ".png":
-                case ".bmp":
-                case ".jpg":
-                case ".jpeg":
-                case ".gif":
-                    return CreateImageTabContent(data);
-
-                case ".txt":
-                case ".html":
-                case ".htm":
-                case ".xml":
-                case ".s":
-                case ".tbl":
-                    return CreateTextTabContent(data, fileName);
-
-                default:
-                    if (IsTextContent(data))
-                        return CreateTextTabContent(data, fileName);
-                    else if (IsPngContent(data))
-                        return CreateImageTabContent(data);
-                    else
-                        return CreateHexTabContent(data);
+                var toolbar = viewer.GetSearchToolbar();
+                if (toolbar != null)
+                {
+                    return new TableLayout
+                    {
+                        Rows =
+                        {
+                            new TableRow(toolbar),
+                            new TableRow(viewer.GetControl()) { ScaleHeight = true }
+                        }
+                    };
+                }
             }
+
+            return viewer.GetControl();
         }
 
         private Control CreateSpriteTabContent(byte[] data)
