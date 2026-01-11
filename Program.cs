@@ -1400,6 +1400,14 @@ namespace PakViewer
                     ShowImage(data);
                     break;
 
+                case ".tbt":
+                    ShowTbt(data);
+                    break;
+
+                case ".img":
+                    ShowImg(data);
+                    break;
+
                 case ".txt":
                 case ".html":
                 case ".htm":
@@ -1480,6 +1488,56 @@ namespace PakViewer
                 using var ms = new MemoryStream(data);
                 _imageViewer.Image = new Bitmap(ms);
                 ShowViewerControl(_imageScrollable);
+            }
+            catch
+            {
+                ShowHex(data);
+            }
+        }
+
+        private void ShowTbt(byte[] data)
+        {
+            try
+            {
+                var image = Lin.Helper.Core.Image.ImageConverter.LoadTbt(data);
+                if (image != null)
+                {
+                    using var ms = new MemoryStream();
+                    image.Save(ms, new PngEncoder());
+                    ms.Position = 0;
+                    _imageViewer.Image = new Bitmap(ms);
+                    ShowViewerControl(_imageScrollable);
+                    image.Dispose();
+                }
+                else
+                {
+                    ShowHex(data);
+                }
+            }
+            catch
+            {
+                ShowHex(data);
+            }
+        }
+
+        private void ShowImg(byte[] data)
+        {
+            try
+            {
+                var image = Lin.Helper.Core.Image.ImageConverter.LoadImg(data);
+                if (image != null)
+                {
+                    using var ms = new MemoryStream();
+                    image.Save(ms, new PngEncoder());
+                    ms.Position = 0;
+                    _imageViewer.Image = new Bitmap(ms);
+                    ShowViewerControl(_imageScrollable);
+                    image.Dispose();
+                }
+                else
+                {
+                    ShowHex(data);
+                }
             }
             catch
             {
