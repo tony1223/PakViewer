@@ -33,7 +33,7 @@ namespace PakViewer.Viewers
 
             _frameIndex = 0;
 
-            _drawable = new Drawable { BackgroundColor = Colors.DarkRed };
+            _drawable = new Drawable { BackgroundColor = Colors.Black };
             _drawable.Paint += OnPaint;
 
             _timer = new UITimer { Interval = 0.15 };
@@ -66,6 +66,11 @@ namespace PakViewer.Viewers
             var scale = 2.0f;
             var x = (_drawable.Width - frame.Width * scale) / 2;
             var y = (_drawable.Height - frame.Height * scale) / 2;
+
+            // 繪製紅色背景框 (精靈圖的範圍)
+            e.Graphics.FillRectangle(Colors.DarkRed, (float)x, (float)y, frame.Width * scale, frame.Height * scale);
+
+            // 繪製精靈圖
             e.Graphics.DrawImage(bitmap, (float)x, (float)y, frame.Width * scale, frame.Height * scale);
 
             var info = $"Frame {_frameIndex + 1}/{_frames.Length}  Size: {frame.Width}x{frame.Height}";
