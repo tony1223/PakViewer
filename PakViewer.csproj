@@ -17,6 +17,10 @@
     <GenerateAssemblyVersionAttribute>true</GenerateAssemblyVersionAttribute>
     <GenerateAssemblyFileVersionAttribute>true</GenerateAssemblyFileVersionAttribute>
     <GenerateAssemblyInformationalVersionAttribute>true</GenerateAssemblyInformationalVersionAttribute>
+    <!-- 抑制 NuGet 警告 -->
+    <!-- NU1510: System.Text.Encoding.CodePages 是必要的 (用於文字編碼偵測) -->
+    <!-- NU1701: Extended.Wpf.Toolkit 是 Eto.Platform.Wpf 的傳遞依賴 -->
+    <NoWarn>$(NoWarn);NU1510;NU1701</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

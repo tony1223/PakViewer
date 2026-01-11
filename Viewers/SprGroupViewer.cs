@@ -26,6 +26,7 @@ namespace PakViewer.Viewers
 
         // Frame 快取
         private ConcurrentDictionary<string, Bitmap> _frameBitmaps = new();
+        private ConcurrentDictionary<string, SprFrame[]> _partFramesCache = new();
         private Lin.Helper.Core.Sprite.SprFrame[] _currentFrames;
         private int _selectedFrameIndex = -1;
         private SprPart _selectedPart;
@@ -124,151 +125,147 @@ namespace PakViewer.Viewers
 
         private void AddPartSection(SprPart part)
         {
-            // 直接載入這個 part 的 frames
-            SprFrame[] frames = null;
-            try
-            {
-                var data = part.SourcePak.Extract(part.FileName);
-                frames = SprReader.Load(data);
-            }
-            catch { }
-
-            int frameCount = frames?.Length ?? 0;
-            var capturedFrames = frames; // 捕獲供閉包使用
-
-            // 可點擊的標籤
+            // 延遲載入 - 不在這裡載入 frames
             var partLabel = new LinkButton
             {
-                Text = $"▶ {part.FileName} ({frameCount} frames)",
+                Text = $"▶ {part.FileName}",
                 Font = new Font(SystemFont.Bold, 10)
             };
-            partLabel.Click += (s, e) =>
-            {
-                // 點擊標籤直接播放該 part 的動畫
-                _selectedPart = part;
-                _currentFrames = capturedFrames;
-                _selectedFrameIndex = 0;
-                _previewDrawable.Invalidate();
 
-                // 自動開始播放
-                if (capturedFrames != null && capturedFrames.Length > 0)
-                {
-                    _isPlaying = true;
-                    _animFrameIndex = 0;
-                    _animTimer.Start();
-                    if (_playBtn != null) _playBtn.Text = "⏸ 暫停";
-                }
-            };
-
-            // 使用 StackLayout 模擬 WrapPanel
+            // 縮圖面板 (初始隱藏，點擊後展開)
             var framesPanel = new StackLayout
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = THUMB_SPACING
+                Spacing = THUMB_SPACING,
+                Visible = false
             };
 
-            // 為每個 frame 建立縮圖按鈕
-            for (int i = 0; i < frameCount; i++)
+            bool isExpanded = false;
+
+            partLabel.Click += (s, e) =>
             {
-                var frameIndex = i;
-                var frameKey = $"{part.FileName}_{i}";
-                var frame = frames[i];
-
-                // 預先轉換 bitmap
-                if (frame.Image != null && !_frameBitmaps.ContainsKey(frameKey))
+                if (!isExpanded)
                 {
-                    var bmp = ConvertToBitmap(frame.Image);
-                    if (bmp != null)
-                        _frameBitmaps[frameKey] = bmp;
-                }
-
-                var frameBtn = new Drawable
-                {
-                    Size = new Eto.Drawing.Size(THUMB_SIZE, THUMB_SIZE),
-                    BackgroundColor = Colors.DarkGray
-                };
-
-                frameBtn.Paint += (s, e) =>
-                {
-                    if (_frameBitmaps.TryGetValue(frameKey, out var bmp))
+                    // 第一次展開：載入 frames 並建立縮圖
+                    var frames = LoadPartFramesInternal(part);
+                    if (frames != null)
                     {
-                        // 縮放繪製
-                        float scale = Math.Min((float)THUMB_SIZE / bmp.Width, (float)THUMB_SIZE / bmp.Height);
-                        float w = bmp.Width * scale;
-                        float h = bmp.Height * scale;
-                        float x = (THUMB_SIZE - w) / 2;
-                        float y = (THUMB_SIZE - h) / 2;
-                        e.Graphics.DrawImage(bmp, x, y, w, h);
+                        _partFramesCache[part.FileName] = frames;
+
+                        // 更新標題顯示 frame 數量
+                        partLabel.Text = $"▼ {part.FileName} ({frames.Length} frames)";
+
+                        // 載入縮圖
+                        LoadFrameBitmaps(part, frames);
+
+                        // 建立縮圖按鈕
+                        for (int i = 0; i < frames.Length; i++)
+                        {
+                            var frameIndex = i;
+                            var frameKey = $"{part.FileName}_{i}";
+
+                            var frameBtn = new Drawable
+                            {
+                                Size = new Eto.Drawing.Size(THUMB_SIZE, THUMB_SIZE),
+                                BackgroundColor = Colors.DarkGray
+                            };
+
+                            frameBtn.Paint += (sender, pe) =>
+                            {
+                                if (_frameBitmaps.TryGetValue(frameKey, out var bmp))
+                                {
+                                    float scale = Math.Min((float)THUMB_SIZE / bmp.Width, (float)THUMB_SIZE / bmp.Height);
+                                    float w = bmp.Width * scale;
+                                    float h = bmp.Height * scale;
+                                    float x = (THUMB_SIZE - w) / 2;
+                                    float y = (THUMB_SIZE - h) / 2;
+                                    pe.Graphics.DrawImage(bmp, x, y, w, h);
+                                }
+                                pe.Graphics.DrawText(new Font(SystemFont.Default, 7), Colors.White, 2, THUMB_SIZE - 12, frameIndex.ToString());
+                            };
+
+                            frameBtn.MouseDown += (sender, me) =>
+                            {
+                                // 停止目前動畫
+                                _animTimer.Stop();
+                                _isPlaying = false;
+                                if (_playBtn != null) _playBtn.Text = "▶ 播放";
+
+                                _selectedPart = part;
+                                _selectedFrameIndex = frameIndex;
+                                _currentFrames = frames;
+
+                                _previewDrawable.Invalidate();
+                            };
+
+                            framesPanel.Items.Add(frameBtn);
+                        }
+
+                        // 設定當前選擇並開始播放
+                        _selectedPart = part;
+                        _currentFrames = frames;
+                        _selectedFrameIndex = 0;
+                        _animFrameIndex = 0;
+                        _isPlaying = true;
+                        _animTimer.Start();
+                        if (_playBtn != null) _playBtn.Text = "⏸ 暫停";
+                        _previewDrawable.Invalidate();
                     }
 
-                    // Frame 編號
-                    e.Graphics.DrawText(new Font(SystemFont.Default, 7), Colors.White, 2, THUMB_SIZE - 12, frameIndex.ToString());
-                };
-
-                frameBtn.MouseDown += (s, e) =>
+                    framesPanel.Visible = true;
+                    isExpanded = true;
+                }
+                else
                 {
-                    // 停止目前動畫
-                    _animTimer.Stop();
-                    _isPlaying = false;
-                    if (_playBtn != null) _playBtn.Text = "▶ 播放";
+                    // 切換展開/收合
+                    framesPanel.Visible = !framesPanel.Visible;
+                    partLabel.Text = framesPanel.Visible
+                        ? $"▼ {part.FileName} ({_partFramesCache.GetValueOrDefault(part.FileName)?.Length ?? 0} frames)"
+                        : $"▶ {part.FileName} ({_partFramesCache.GetValueOrDefault(part.FileName)?.Length ?? 0} frames)";
 
-                    _selectedPart = part;
-                    _selectedFrameIndex = frameIndex;
-                    _currentFrames = capturedFrames;
-                    _previewDrawable.Invalidate();
-                };
-
-                framesPanel.Items.Add(frameBtn);
-            }
+                    // 如果展開且有 frames，播放動畫
+                    if (framesPanel.Visible && _partFramesCache.TryGetValue(part.FileName, out var frames))
+                    {
+                        _selectedPart = part;
+                        _currentFrames = frames;
+                        _selectedFrameIndex = 0;
+                        _animFrameIndex = 0;
+                        _isPlaying = true;
+                        _animTimer.Start();
+                        if (_playBtn != null) _playBtn.Text = "⏸ 暫停";
+                        _previewDrawable.Invalidate();
+                    }
+                }
+            };
 
             _layout.AddRow(partLabel);
             _layout.AddRow(framesPanel);
         }
 
-        private void LoadFrameThumbnails()
-        {
-            Task.Run(() =>
-            {
-                foreach (var part in _group.Parts)
-                {
-                    try
-                    {
-                        var data = part.SourcePak.Extract(part.FileName);
-                        var frames = SprReader.Load(data);
-                        if (frames == null) continue;
-
-                        for (int i = 0; i < frames.Length; i++)
-                        {
-                            var frame = frames[i];
-                            if (frame.Image == null) continue;
-
-                            var frameKey = $"{part.FileName}_{i}";
-                            var bmp = ConvertToBitmap(frame.Image);
-                            if (bmp != null)
-                            {
-                                _frameBitmaps[frameKey] = bmp;
-                            }
-                        }
-
-                        Application.Instance.Invoke(() => _layout?.Invalidate());
-                    }
-                    catch { }
-                }
-
-                Application.Instance.Invoke(() => _scrollable?.Invalidate());
-            });
-        }
-
-        private void LoadPartFrames(SprPart part)
+        private SprFrame[] LoadPartFramesInternal(SprPart part)
         {
             try
             {
                 var data = part.SourcePak.Extract(part.FileName);
-                _currentFrames = SprReader.Load(data);
+                return SprReader.Load(data);
             }
             catch
             {
-                _currentFrames = null;
+                return null;
+            }
+        }
+
+        private void LoadFrameBitmaps(SprPart part, SprFrame[] frames)
+        {
+            for (int i = 0; i < frames.Length; i++)
+            {
+                var frameKey = $"{part.FileName}_{i}";
+                if (!_frameBitmaps.ContainsKey(frameKey) && frames[i].Image != null)
+                {
+                    var bmp = ConvertToBitmap(frames[i].Image);
+                    if (bmp != null)
+                        _frameBitmaps[frameKey] = bmp;
+                }
             }
         }
 
@@ -364,6 +361,7 @@ namespace PakViewer.Viewers
             foreach (var bmp in _frameBitmaps.Values)
                 bmp?.Dispose();
             _frameBitmaps.Clear();
+            _partFramesCache.Clear();
 
             _currentFrames = null;
             base.Dispose();

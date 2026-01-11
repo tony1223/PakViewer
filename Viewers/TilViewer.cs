@@ -28,7 +28,6 @@ namespace PakViewer.Viewers
 
         // 編輯狀態
         private int _selectedBlock = -1;
-        private int _editingBlockIndex = -1;
         private Dialog _editDialog;
 
         // 常數
