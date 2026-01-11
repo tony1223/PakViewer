@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using Eto;
 using Eto.Forms;
 using Eto.Drawing;
@@ -13,6 +14,7 @@ using SixLabors.ImageSharp.Formats.Png;
 using ImageSharpImage = SixLabors.ImageSharp.Image;
 using System.Text.Json;
 using PakViewer.Utility;
+using PakViewer.Localization;
 
 namespace PakViewer
 {
@@ -114,11 +116,17 @@ namespace PakViewer
 
         public MainForm()
         {
-            Title = "PakViewer (Cross-Platform)";
+            _settings = AppSettings.Load();
+
+            // Apply saved language before creating UI
+            if (!string.IsNullOrEmpty(_settings.Language))
+            {
+                I18n.SetLanguage(_settings.Language);
+            }
+
+            Title = I18n.T("AppTitle");
             ClientSize = new Size(1200, 800);
             MinimumSize = new Size(800, 600);
-
-            _settings = AppSettings.Load();
 
             CreateMenu();
             CreateLayout();
@@ -171,52 +179,98 @@ namespace PakViewer
             var menu = new MenuBar();
 
             // File menu
-            var fileMenu = new SubMenuItem { Text = "&File" };
+            var fileMenu = new SubMenuItem { Text = I18n.T("Menu.File") };
 
-            var openFolderCmd = new Command { MenuText = "Open &Folder...", Shortcut = Keys.Control | Keys.O };
+            var openFolderCmd = new Command { MenuText = I18n.T("Menu.File.OpenFolder"), Shortcut = Keys.Control | Keys.O };
             openFolderCmd.Executed += OnOpenFolder;
             fileMenu.Items.Add(openFolderCmd);
 
-            var openIdxCmd = new Command { MenuText = "Open &IDX File...", Shortcut = Keys.Control | Keys.I };
+            var openIdxCmd = new Command { MenuText = I18n.T("Menu.File.OpenIdx"), Shortcut = Keys.Control | Keys.I };
             openIdxCmd.Executed += OnOpenIdxFile;
             fileMenu.Items.Add(openIdxCmd);
 
-            var openSprListCmd = new Command { MenuText = "Open &SPR List (list.spr)...", Shortcut = Keys.Control | Keys.L };
+            var openSprListCmd = new Command { MenuText = I18n.T("Menu.File.OpenSprList"), Shortcut = Keys.Control | Keys.L };
             openSprListCmd.Executed += OnOpenSprList;
             fileMenu.Items.Add(openSprListCmd);
 
-            var openDatCmd = new Command { MenuText = "Open Lineage &M DAT...", Shortcut = Keys.Control | Keys.M };
+            var openDatCmd = new Command { MenuText = I18n.T("Menu.File.OpenDat"), Shortcut = Keys.Control | Keys.M };
             openDatCmd.Executed += OnOpenDatFile;
             fileMenu.Items.Add(openDatCmd);
 
             fileMenu.Items.Add(new SeparatorMenuItem());
 
-            var quitCmd = new Command { MenuText = "&Quit", Shortcut = Keys.Control | Keys.Q };
+            var quitCmd = new Command { MenuText = I18n.T("Menu.File.Quit"), Shortcut = Keys.Control | Keys.Q };
             quitCmd.Executed += (s, e) => Application.Instance.Quit();
             fileMenu.Items.Add(quitCmd);
 
             menu.Items.Add(fileMenu);
 
-            // Tools menu
-            var toolsMenu = new SubMenuItem { Text = "&Tools" };
+            // Edit menu (for language)
+            var editMenu = new SubMenuItem { Text = I18n.T("Menu.Edit") };
 
-            var exportCmd = new Command { MenuText = "&Export Selected..." };
+            var languageMenu = new SubMenuItem { Text = I18n.T("Menu.Edit.Language") };
+            foreach (var lang in I18n.AvailableLanguages)
+            {
+                var langItem = new RadioMenuItem { Text = I18n.LanguageNames[lang] };
+                langItem.Checked = (lang == I18n.CurrentLanguage);
+                var langCode = lang;  // Capture for closure
+                langItem.Click += (s, e) => OnLanguageChanged(langCode);
+                languageMenu.Items.Add(langItem);
+            }
+            editMenu.Items.Add(languageMenu);
+
+            menu.Items.Add(editMenu);
+
+            // Tools menu
+            var toolsMenu = new SubMenuItem { Text = I18n.T("Menu.Tools") };
+
+            var exportCmd = new Command { MenuText = I18n.T("Menu.Tools.ExportSelected") };
             exportCmd.Executed += OnExportSelected;
             toolsMenu.Items.Add(exportCmd);
 
-            var exportAllCmd = new Command { MenuText = "Export &All..." };
+            var exportAllCmd = new Command { MenuText = I18n.T("Menu.Tools.ExportAll") };
             exportAllCmd.Executed += OnExportAll;
             toolsMenu.Items.Add(exportAllCmd);
 
             toolsMenu.Items.Add(new SeparatorMenuItem());
 
-            var deleteCmd = new Command { MenuText = "&Delete Selected" };
+            var deleteCmd = new Command { MenuText = I18n.T("Menu.Tools.DeleteSelected") };
             deleteCmd.Executed += OnDeleteSelected;
             toolsMenu.Items.Add(deleteCmd);
 
             menu.Items.Add(toolsMenu);
 
             Menu = menu;
+        }
+
+        private void OnLanguageChanged(string langCode)
+        {
+            I18n.SetLanguage(langCode);
+
+            // Save language preference
+            _settings.Language = langCode;
+            _settings.Save();
+
+            // Recreate menu and refresh UI
+            CreateMenu();
+            ApplyLanguage();
+        }
+
+        private void ApplyLanguage()
+        {
+            // Update window title
+            Title = I18n.T("AppTitle");
+
+            // Update status
+            _statusLabel.Text = I18n.T("Status.Ready");
+
+            // Update browser tab title
+            if (_browserPage != null)
+                _browserPage.Text = "Lin Client";  // Keep as is or localize if needed
+
+            // Refresh record count
+            if (_filteredIndexes != null)
+                _recordCountLabel.Text = I18n.T("Status.Records", _filteredIndexes.Count, _currentPak?.Files.Count ?? 0);
         }
 
         private void CreateLayout()
@@ -250,8 +304,8 @@ namespace PakViewer
             _mainTabControl.Pages.Add(_browserPage);
 
             // Status bar
-            _statusLabel = new Label { Text = "Ready" };
-            _recordCountLabel = new Label { Text = "Records: 0" };
+            _statusLabel = new Label { Text = I18n.T("Status.Ready") };
+            _recordCountLabel = new Label { Text = I18n.T("Status.Records", 0, 0) };
 
             var statusBar = new TableLayout
             {
@@ -280,7 +334,7 @@ namespace PakViewer
         {
             // Folder label with Open button
             _folderLabel = new Label { Text = "(none)", VerticalAlignment = VerticalAlignment.Center };
-            var openFolderBtn = new Button { Text = "Open...", Width = 70 };
+            var openFolderBtn = new Button { Text = I18n.T("Button.Open"), Width = 70 };
             openFolderBtn.Click += OnOpenFolder;
 
             // IDX dropdown
@@ -288,11 +342,11 @@ namespace PakViewer
             _idxDropDown.SelectedIndexChanged += OnIdxChanged;
 
             // SPR List mode checkbox
-            _sprListModeCheck = new CheckBox { Text = "SPR List Mode" };
+            _sprListModeCheck = new CheckBox { Text = I18n.T("Check.SprListMode") };
             _sprListModeCheck.CheckedChanged += OnSprListModeChanged;
 
             // SPR Mode checkbox (新增)
-            _sprModeCheck = new CheckBox { Text = "SPR 模式" };
+            _sprModeCheck = new CheckBox { Text = I18n.T("Check.SprMode") };
             _sprModeCheck.CheckedChanged += OnSprModeChanged;
 
             // SPR view mode radio (列表/相簿)
@@ -302,24 +356,24 @@ namespace PakViewer
                 Spacing = new Size(10, 0),
                 Visible = false
             };
-            _sprViewModeRadio.Items.Add("列表");
-            _sprViewModeRadio.Items.Add("相簿");
+            _sprViewModeRadio.Items.Add(I18n.T("View.List"));
+            _sprViewModeRadio.Items.Add(I18n.T("View.Gallery"));
             _sprViewModeRadio.SelectedIndex = 0;
             _sprViewModeRadio.SelectedIndexChanged += OnSprViewModeChanged;
 
             // Search box (filename)
-            _searchBox = new TextBox { PlaceholderText = "Search..." };
+            _searchBox = new TextBox { PlaceholderText = I18n.T("Label.Search") };
             _searchBox.TextChanged += OnSearchChanged;
 
             // Extension filter
             _extFilterDropDown = new DropDown();
-            _extFilterDropDown.Items.Add("All");
+            _extFilterDropDown.Items.Add(I18n.T("Filter.All"));
             _extFilterDropDown.SelectedIndex = 0;
             _extFilterDropDown.SelectedIndexChanged += OnExtFilterChanged;
 
             // Language filter
             _langFilterDropDown = new DropDown();
-            _langFilterDropDown.Items.Add("All");
+            _langFilterDropDown.Items.Add(I18n.T("Filter.All"));
             _langFilterDropDown.Items.Add("-c (繁中)");
             _langFilterDropDown.Items.Add("-h (港)");
             _langFilterDropDown.Items.Add("-j (日)");
@@ -329,25 +383,25 @@ namespace PakViewer
 
             // SPR Type filter (for SPR List mode)
             _sprTypeFilterDropDown = new DropDown { Visible = false };
-            _sprTypeFilterDropDown.Items.Add("All Types");
-            _sprTypeFilterDropDown.Items.Add("0 - 影子/法術");
-            _sprTypeFilterDropDown.Items.Add("1 - 裝飾品");
-            _sprTypeFilterDropDown.Items.Add("5 - 玩家/NPC");
-            _sprTypeFilterDropDown.Items.Add("6 - 可對話NPC");
-            _sprTypeFilterDropDown.Items.Add("7 - 寶箱/開關");
-            _sprTypeFilterDropDown.Items.Add("8 - 門");
-            _sprTypeFilterDropDown.Items.Add("9 - 物品");
-            _sprTypeFilterDropDown.Items.Add("10 - 怪物");
-            _sprTypeFilterDropDown.Items.Add("11 - 城牆/城門");
-            _sprTypeFilterDropDown.Items.Add("12 - 新NPC");
+            _sprTypeFilterDropDown.Items.Add(I18n.T("Filter.AllTypes"));
+            _sprTypeFilterDropDown.Items.Add($"0 - {I18n.T("SprType.0")}");
+            _sprTypeFilterDropDown.Items.Add($"1 - {I18n.T("SprType.1")}");
+            _sprTypeFilterDropDown.Items.Add($"5 - {I18n.T("SprType.5")}");
+            _sprTypeFilterDropDown.Items.Add($"6 - {I18n.T("SprType.6")}");
+            _sprTypeFilterDropDown.Items.Add($"7 - {I18n.T("SprType.7")}");
+            _sprTypeFilterDropDown.Items.Add($"8 - {I18n.T("SprType.8")}");
+            _sprTypeFilterDropDown.Items.Add($"9 - {I18n.T("SprType.9")}");
+            _sprTypeFilterDropDown.Items.Add($"10 - {I18n.T("SprType.10")}");
+            _sprTypeFilterDropDown.Items.Add($"11 - {I18n.T("SprType.11")}");
+            _sprTypeFilterDropDown.Items.Add($"12 - {I18n.T("SprType.12")}");
             _sprTypeFilterDropDown.SelectedIndex = 0;
             _sprTypeFilterDropDown.SelectedIndexChanged += OnSprTypeFilterChanged;
 
             // Content search
-            _contentSearchBox = new TextBox { PlaceholderText = "Content search..." };
-            _contentSearchBtn = new Button { Text = "Search" };
+            _contentSearchBox = new TextBox { PlaceholderText = I18n.T("Label.Search") };
+            _contentSearchBtn = new Button { Text = I18n.T("Button.Search") };
             _contentSearchBtn.Click += OnContentSearch;
-            _clearSearchBtn = new Button { Text = "Clear" };
+            _clearSearchBtn = new Button { Text = I18n.T("Button.Clear") };
             _clearSearchBtn.Click += OnClearContentSearch;
 
             // File grid (normal mode)
@@ -359,28 +413,28 @@ namespace PakViewer
 
             _fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "No.",
+                HeaderText = I18n.T("Grid.No"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.Index.ToString()) },
                 Width = 60
             });
 
             _fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "FileName",
+                HeaderText = I18n.T("Grid.FileName"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.FileName) },
                 Width = 180
             });
 
             _fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "Size",
+                HeaderText = I18n.T("Grid.Size"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.SizeText) },
                 Width = 80
             });
 
             _fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "IDX",
+                HeaderText = I18n.T("Grid.IDX"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.IdxName ?? "") },
                 Width = 100
             });
@@ -391,39 +445,39 @@ namespace PakViewer
             // Context menu for file grid
             var fileContextMenu = new ContextMenu();
 
-            var openInTabMenuItem = new ButtonMenuItem { Text = "Open in New Tab" };
+            var openInTabMenuItem = new ButtonMenuItem { Text = I18n.T("Context.OpenInNewTab") };
             openInTabMenuItem.Click += OnOpenInNewTab;
             fileContextMenu.Items.Add(openInTabMenuItem);
 
             fileContextMenu.Items.Add(new SeparatorMenuItem());
 
-            var exportMenuItem = new ButtonMenuItem { Text = "Export Selected..." };
+            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
             exportMenuItem.Click += OnExportSelected;
             fileContextMenu.Items.Add(exportMenuItem);
 
-            var exportToMenuItem = new ButtonMenuItem { Text = "Export To..." };
+            var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             exportToMenuItem.Click += OnExportSelectedTo;
             fileContextMenu.Items.Add(exportToMenuItem);
 
             fileContextMenu.Items.Add(new SeparatorMenuItem());
 
-            var deleteMenuItem = new ButtonMenuItem { Text = "Delete Selected" };
+            var deleteMenuItem = new ButtonMenuItem { Text = I18n.T("Context.DeleteSelected") };
             deleteMenuItem.Click += OnDeleteSelected;
             fileContextMenu.Items.Add(deleteMenuItem);
 
             fileContextMenu.Items.Add(new SeparatorMenuItem());
 
-            var copyFileNameMenuItem = new ButtonMenuItem { Text = "Copy Filename" };
+            var copyFileNameMenuItem = new ButtonMenuItem { Text = I18n.T("Context.CopyFilename") };
             copyFileNameMenuItem.Click += OnCopyFileName;
             fileContextMenu.Items.Add(copyFileNameMenuItem);
 
             fileContextMenu.Items.Add(new SeparatorMenuItem());
 
-            var selectAllMenuItem = new ButtonMenuItem { Text = "Select All" };
+            var selectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.SelectAll") };
             selectAllMenuItem.Click += OnSelectAll;
             fileContextMenu.Items.Add(selectAllMenuItem);
 
-            var unselectAllMenuItem = new ButtonMenuItem { Text = "Unselect All" };
+            var unselectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.UnselectAll") };
             unselectAllMenuItem.Click += OnUnselectAll;
             fileContextMenu.Items.Add(unselectAllMenuItem);
 
@@ -433,41 +487,40 @@ namespace PakViewer
             _sprListGrid = new GridView
             {
                 AllowMultipleSelection = true,
-                ShowHeader = true,
-                Visible = false
+                ShowHeader = true
             };
 
             _sprListGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "ID",
+                HeaderText = I18n.T("Grid.ID"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.Id.ToString()) },
                 Width = 50
             });
 
             _sprListGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "名稱",
+                HeaderText = I18n.T("Grid.Name"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.Name) },
                 Width = 120
             });
 
             _sprListGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "圖檔",
+                HeaderText = I18n.T("Grid.SpriteId"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.SpriteId.ToString()) },
                 Width = 50
             });
 
             _sprListGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "圖數",
+                HeaderText = I18n.T("Grid.ImageCount"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.ImageCount.ToString()) },
                 Width = 40
             });
 
             _sprListGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "類型",
+                HeaderText = I18n.T("Grid.Type"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.TypeName) },
                 Width = 80
             });
@@ -2152,7 +2205,7 @@ namespace PakViewer
 
         #region SPR List Mode
 
-        private void OnOpenSprList(object sender, EventArgs e)
+        private async void OnOpenSprList(object sender, EventArgs e)
         {
             using var dialog = new OpenFileDialog
             {
@@ -2166,12 +2219,22 @@ namespace PakViewer
             if (dialog.ShowDialog(this) != DialogResult.Ok)
                 return;
 
+            var filePath = dialog.FileName;
+            var fileName = Path.GetFileName(filePath);
+            _statusLabel.Text = $"載入中: {fileName}...";
+
             try
             {
-                _sprListFile = Lin.Helper.Core.Sprite.SprListParser.LoadFromFile(dialog.FileName);
+                // 非同步載入和解析
+                var data = await Task.Run(() => File.ReadAllBytes(filePath));
+                _sprListFile = await Task.Run(() => Lin.Helper.Core.Sprite.SprListParser.LoadFromBytes(data));
                 _filteredSprListEntries = _sprListFile.Entries;
                 _isSprListMode = true;
                 _sprListModeCheck.Checked = true;
+
+                // 重置類型篩選器為「全部」
+                _sprTypeFilterDropDown.SelectedIndex = 0;
+                _sprListTypeFilter = null;
 
                 // Load sprite*.idx files for sprite data
                 if (!string.IsNullOrEmpty(_selectedFolder))
@@ -2179,13 +2242,46 @@ namespace PakViewer
                     LoadSpriteIdxFiles(_selectedFolder);
                 }
 
-                UpdateSprListDisplay();
-                _statusLabel.Text = $"Loaded SPR List: {Path.GetFileName(dialog.FileName)} ({_sprListFile.Entries.Count} entries)";
+                // 建立 SprListViewer 並顯示
+                ShowSprListViewer();
+                UpdateModeDisplay();
+
+                _statusLabel.Text = $"Loaded SPR List: {fileName} ({_sprListFile.Entries.Count} entries)";
             }
             catch (Exception ex)
             {
+                _statusLabel.Text = "載入失敗";
                 MessageBox.Show(this, $"Error loading SPR List: {ex.Message}", "Error", MessageBoxType.Error);
             }
+        }
+
+        private void ShowSprListViewer()
+        {
+            // 釋放舊的 viewer
+            _currentViewer?.Dispose();
+            _currentViewer = null;
+
+            // 建立簡化的 SprListViewer - 只顯示動作面板
+            var viewer = new Viewers.SprListViewer();
+
+            // 設定 sprite 資料提供者
+            viewer.SetSpriteDataProvider(spriteId =>
+            {
+                if (_spritePakFiles != null && _spritePakFiles.TryGetValue(spriteId, out var pak))
+                {
+                    var sprFileName = $"{spriteId}.spr";
+                    var fileIndex = pak.Files.ToList().FindIndex(f =>
+                        f.FileName.Equals(sprFileName, StringComparison.OrdinalIgnoreCase));
+                    if (fileIndex >= 0)
+                    {
+                        return pak.Extract(fileIndex);
+                    }
+                }
+                return null;
+            });
+
+            _currentViewer = viewer;
+            _viewerPanel.Content = viewer.GetControl();
         }
 
         private void OnSprListModeChanged(object sender, EventArgs e)
@@ -2535,28 +2631,25 @@ namespace PakViewer
             var selected = _sprListGrid.SelectedItem as SprListItem;
             if (selected == null) return;
 
-            // Try to load and display the sprite
-            try
-            {
-                if (_spritePakFiles != null && _spritePakFiles.TryGetValue(selected.SpriteId, out var pak))
-                {
-                    var fileName = $"{selected.SpriteId}.spr";
-                    var fileIndex = pak.Files.ToList().FindIndex(f => f.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase));
-                    if (fileIndex >= 0)
-                    {
-                        var data = pak.Extract(fileIndex);
-                        ShowFilePreview(".spr", data, fileName);
-                    }
-                }
+            var entry = selected.Entry;
 
-                // Show entry info in status
-                var entry = selected.Entry;
-                _statusLabel.Text = $"#{entry.Id} {entry.Name} - {entry.TypeName} ({entry.Actions.Count} actions, {entry.ImageCount} images)";
-            }
-            catch (Exception ex)
+            // 使用 SprListViewer 顯示選中條目的動作
+            if (_currentViewer is Viewers.SprListViewer sprListViewer)
             {
-                _statusLabel.Text = $"Error loading sprite: {ex.Message}";
+                sprListViewer.ShowEntry(entry);
             }
+            else
+            {
+                // 如果沒有 SprListViewer，建立一個
+                ShowSprListViewer();
+                if (_currentViewer is Viewers.SprListViewer newViewer)
+                {
+                    newViewer.ShowEntry(entry);
+                }
+            }
+
+            // Show entry info in status
+            _statusLabel.Text = $"#{entry.Id} {entry.Name} - {entry.TypeName} ({entry.Actions.Count} actions, {entry.ImageCount} images)";
         }
 
         #endregion
@@ -2627,6 +2720,7 @@ namespace PakViewer
         public string LastClientFolder { get; set; }     // 有效的 client 資料夾（含 .idx 檔案）
         public string LastIdxFile { get; set; }
         public string LastSprListFile { get; set; }
+        public string Language { get; set; } = "zh-TW"; // 預設語言
 
         private static string SettingsPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
