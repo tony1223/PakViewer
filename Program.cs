@@ -189,6 +189,12 @@ namespace PakViewer
             exportAllCmd.Executed += OnExportAll;
             toolsMenu.Items.Add(exportAllCmd);
 
+            toolsMenu.Items.Add(new SeparatorMenuItem());
+
+            var deleteCmd = new Command { MenuText = "&Delete Selected" };
+            deleteCmd.Executed += OnDeleteSelected;
+            toolsMenu.Items.Add(deleteCmd);
+
             menu.Items.Add(toolsMenu);
 
             Menu = menu;
@@ -198,6 +204,9 @@ namespace PakViewer
         {
             // Create main tab control
             _mainTabControl = new TabControl();
+
+            // Tab right-click menu
+            _mainTabControl.MouseDown += OnTabMouseDown;
 
             // Create browser tab content
             var mainSplitter = new Splitter
@@ -353,6 +362,12 @@ namespace PakViewer
             var exportToMenuItem = new ButtonMenuItem { Text = "Export To..." };
             exportToMenuItem.Click += OnExportSelectedTo;
             fileContextMenu.Items.Add(exportToMenuItem);
+
+            fileContextMenu.Items.Add(new SeparatorMenuItem());
+
+            var deleteMenuItem = new ButtonMenuItem { Text = "Delete Selected" };
+            deleteMenuItem.Click += OnDeleteSelected;
+            fileContextMenu.Items.Add(deleteMenuItem);
 
             fileContextMenu.Items.Add(new SeparatorMenuItem());
 
@@ -1415,6 +1430,50 @@ namespace PakViewer
             MessageBox.Show(this, $"Exported {exported} files", "Export Complete", MessageBoxType.Information);
         }
 
+        private void OnDeleteSelected(object sender, EventArgs e)
+        {
+            if (_currentPak == null || _fileGrid.SelectedRows.Count() == 0)
+            {
+                MessageBox.Show(this, "No files selected", "Delete", MessageBoxType.Information);
+                return;
+            }
+
+            var count = _fileGrid.SelectedRows.Count();
+            var result = MessageBox.Show(this,
+                $"Are you sure you want to delete {count} file(s)?\n\nThis will modify the PAK file.",
+                "Confirm Delete",
+                MessageBoxButtons.YesNo,
+                MessageBoxType.Warning);
+
+            if (result != DialogResult.Yes) return;
+
+            try
+            {
+                // 收集要刪除的檔案 (從大到小排序，避免 index 變動問題)
+                var itemsToDelete = _fileGrid.SelectedRows
+                    .Select(row => (FileItem)_fileGrid.DataStore.ElementAt(row))
+                    .OrderByDescending(item => item.Index)
+                    .ToList();
+
+                foreach (var item in itemsToDelete)
+                {
+                    _currentPak.Delete(item.Index);
+                }
+
+                // 儲存變更
+                _currentPak.Save();
+
+                // 重新載入檔案列表
+                RefreshFileList();
+
+                _statusLabel.Text = $"Deleted {count} file(s)";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Error deleting files: {ex.Message}", "Delete Error", MessageBoxType.Error);
+            }
+        }
+
         private void OnCopyFileName(object sender, EventArgs e)
         {
             var selected = _fileGrid.SelectedItem as FileItem;
@@ -1660,6 +1719,36 @@ namespace PakViewer
                 Text = sb.ToString(),
                 Font = new Font("Menlo, Monaco, Consolas, monospace", 12)
             };
+        }
+
+        private void OnTabMouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Buttons == MouseButtons.Alternate) // Right-click
+            {
+                var menu = new ContextMenu();
+
+                var closeItem = new ButtonMenuItem { Text = "Close Tab" };
+                closeItem.Click += (s, ev) =>
+                {
+                    if (_mainTabControl.SelectedPage != null && _mainTabControl.SelectedPage != _browserPage)
+                        CloseTab(_mainTabControl.SelectedPage);
+                };
+                menu.Items.Add(closeItem);
+
+                var closeOthersItem = new ButtonMenuItem { Text = "Close Other Tabs" };
+                closeOthersItem.Click += (s, ev) =>
+                {
+                    if (_mainTabControl.SelectedPage != null)
+                        CloseOtherTabs(_mainTabControl.SelectedPage);
+                };
+                menu.Items.Add(closeOthersItem);
+
+                var closeAllItem = new ButtonMenuItem { Text = "Close All Tabs" };
+                closeAllItem.Click += (s, ev) => CloseAllTabs();
+                menu.Items.Add(closeAllItem);
+
+                menu.Show(_mainTabControl);
+            }
         }
 
         private void CloseTab(TabPage page)
