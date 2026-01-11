@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifiers>osx-x64;osx-arm64;win-x64;linux-x64</RuntimeIdentifiers>
     <RootNamespace>PakViewer</RootNamespace>
     <AssemblyName>PakViewer</AssemblyName>
     <Nullable>disable</Nullable>
@@ -21,39 +21,56 @@
   <ItemGroup>
     <Compile Remove="Backup\**" />
     <Compile Remove="src\**" />
+    <!-- Exclude Windows Forms UI files for cross-platform build -->
+    <Compile Remove="frmMain.cs" />
+    <Compile Remove="frmMain.Designer.cs" />
+    <Compile Remove="frmPngOptimizeProgress.cs" />
+    <Compile Remove="frmPngOptimizeProgress.Designer.cs" />
+    <Compile Remove="ucImgViewer.cs" />
+    <Compile Remove="ucImgViewer.Designer.cs" />
+    <Compile Remove="ucSprViewer.cs" />
+    <Compile Remove="ucSprViewer.Designer.cs" />
+    <Compile Remove="ucSprActionViewer.cs" />
+    <Compile Remove="ucSprActionViewer.Designer.cs" />
+    <Compile Remove="ucSprDetailViewer.cs" />
+    <Compile Remove="ucSprDetailViewer.Designer.cs" />
+    <Compile Remove="ucSprListViewer.cs" />
+    <Compile Remove="ucSprListViewer.Designer.cs" />
+    <Compile Remove="ucGalleryViewer.cs" />
+    <Compile Remove="ucGalleryViewer.Designer.cs" />
+    <Compile Remove="ucTextCompare.cs" />
+    <Compile Remove="ucTextCompare.Designer.cs" />
+    <Compile Remove="Properties\Resources.cs" />
+    <Compile Remove="Properties\Settings.cs" />
+    <!-- Exclude Windows Forms UI adapters -->
+    <Compile Remove="Utility\ImageConvert.cs" />
+    <Compile Remove="Utility\L1PakTools.cs" />
+    <Compile Remove="Utility\L1Spr.cs" />
+    <Compile Remove="PakReader.cs" />
     <EmbeddedResource Remove="Backup\**" />
     <EmbeddedResource Remove="src\**" />
+    <EmbeddedResource Remove="*.resx" />
+    <EmbeddedResource Remove="Properties\*.resx" />
+    <EmbeddedResource Remove="frmMain.resx" />
+    <EmbeddedResource Remove="ucImgViewer.resx" />
+    <EmbeddedResource Remove="ucSprViewer.resx" />
+    <EmbeddedResource Remove="ucTextCompare.resx" />
     <None Remove="Backup\**" />
     <None Remove="src\**" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.0" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="Eto.Forms" Version="2.9.0" />
+    <PackageReference Include="Eto.Platform.Mac64" Version="2.9.0" Condition="$([MSBuild]::IsOSPlatform('OSX'))" />
+    <PackageReference Include="Eto.Platform.Wpf" Version="2.9.0" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+    <PackageReference Include="Eto.Platform.Gtk" Version="2.9.0" Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="src\Lin.Helper.Core\Lin.Helper.Core.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="Tools\oxipng.exe">
-      <LogicalName>PakViewer.Tools.oxipng.exe</LogicalName>
-    </EmbeddedResource>
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Update="frmMain.resx">
-      <DependentUpon>frmMain.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Update="ucImgViewer.resx">
-      <DependentUpon>ucImgViewer.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Update="ucSprViewer.resx">
-      <DependentUpon>ucSprViewer.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Update="ucTextCompare.resx">
-      <DependentUpon>ucTextCompare.cs</DependentUpon>
-    </EmbeddedResource>
-  </ItemGroup>
 
 </Project>

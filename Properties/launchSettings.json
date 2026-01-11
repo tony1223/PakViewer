@@ -1,0 +1,16 @@
+{
+  "profiles": {
+    "PakViewer (Mac)": {
+      "commandName": "Project",
+      "workingDirectory": "$(ProjectDir)",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    },
+    "PakViewer (Mac App Bundle)": {
+      "commandName": "Executable",
+      "executablePath": "$(ProjectDir)/bin/Debug/net10.0/PakViewer.app/Contents/MacOS/PakViewer",
+      "workingDirectory": "$(ProjectDir)"
+    }
+  }
+}
