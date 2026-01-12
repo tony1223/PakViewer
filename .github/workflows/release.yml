@@ -50,11 +50,11 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore PakViewer.csproj -r win-x64
 
     - name: Build and Publish
       run: |
-        dotnet publish PakViewer.csproj -f net10.0-windows --configuration Release --runtime win-x64 --self-contained true -o publish /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
+        dotnet publish PakViewer.csproj -f net10.0-windows --configuration Release --runtime win-x64 --self-contained true --no-restore -o publish /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
 
     - name: Create ZIP archive
       shell: pwsh
@@ -107,11 +107,11 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore PakViewer.csproj -r linux-x64
 
     - name: Build and Publish
       run: |
-        dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime linux-x64 --self-contained true -o publish /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
+        dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime linux-x64 --self-contained true --no-restore -o publish /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
 
     - name: Create ZIP archive
       run: |
@@ -165,7 +165,9 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
     - name: Restore dependencies
-      run: dotnet restore
+      run: |
+        dotnet restore PakViewer.csproj -r osx-x64
+        dotnet restore PakViewer.csproj -r osx-arm64
 
     - name: Build x64
       run: |
