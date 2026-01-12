@@ -56,18 +56,24 @@ namespace PakViewer
         private HashSet<int> _contentSearchResults;
 
         // SPR List Mode
-        private bool _isSprListMode = false;
         private SprListFile _sprListFile;
         private List<SprListEntry> _filteredSprListEntries;
         private int? _sprListTypeFilter = null;
         private Dictionary<int, PakFile> _spritePakFiles;  // SpriteId -> PakFile mapping
 
-        // SPR Mode (新增)
-        private bool _isSprMode = false;
+        // 模式控制 (Radio: 一般/SPR/SPR List)
+        private const int MODE_NORMAL = 0;
+        private const int MODE_SPR = 1;
+        private const int MODE_SPR_LIST = 2;
+        private RadioButtonList _viewModeRadio;
+        private int _previousModeIndex = 0;
+
+        // SPR Mode
         private Dictionary<int, SprGroup> _sprGroups;
-        private CheckBox _sprModeCheck;
         private GridView _sprGroupGrid;
-        private RadioButtonList _sprViewModeRadio;  // 列表/相簿切換
+        private CheckBox _sprModeListSprCheck;      // list.spr 是否已設定
+        private Label _sprModeListSprLabel;         // list.spr 路徑顯示
+        private string _originalIdxText;            // 儲存原本的 IDX 選項
 
         // All IDX mode
         private bool _isAllIdxMode = false;
@@ -90,7 +96,6 @@ namespace PakViewer
         private DropDown _langFilterDropDown;
         private DropDown _sprTypeFilterDropDown;
         private Label _sprTypeLabel;
-        private CheckBox _sprListModeCheck;
         private Label _folderLabel;
         private Label _statusLabel;
         private Label _recordCountLabel;
@@ -337,25 +342,32 @@ namespace PakViewer
             _idxDropDown = new DropDown();
             _idxDropDown.SelectedIndexChanged += OnIdxChanged;
 
-            // SPR List mode checkbox
-            _sprListModeCheck = new CheckBox { Text = I18n.T("Check.SprListMode") };
-            _sprListModeCheck.CheckedChanged += OnSprListModeChanged;
-
-            // SPR Mode checkbox (新增)
-            _sprModeCheck = new CheckBox { Text = I18n.T("Check.SprMode") };
-            _sprModeCheck.CheckedChanged += OnSprModeChanged;
-
-            // SPR view mode radio (列表/相簿)
-            _sprViewModeRadio = new RadioButtonList
+            // 模式選擇 Radio (一般/SPR/SPR List)
+            _viewModeRadio = new RadioButtonList
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = new Size(10, 0),
-                Visible = false
+                Spacing = new Size(15, 0)
             };
-            _sprViewModeRadio.Items.Add(I18n.T("View.List"));
-            _sprViewModeRadio.Items.Add(I18n.T("View.Gallery"));
-            _sprViewModeRadio.SelectedIndex = 0;
-            _sprViewModeRadio.SelectedIndexChanged += OnSprViewModeChanged;
+            _viewModeRadio.Items.Add(I18n.T("Mode.Normal"));
+            _viewModeRadio.Items.Add(I18n.T("Mode.SPR"));
+            _viewModeRadio.Items.Add(I18n.T("Mode.SPRList"));
+            _viewModeRadio.SelectedIndex = MODE_NORMAL;
+            _viewModeRadio.SelectedIndexChanged += OnViewModeChanged;
+
+            // list.spr 路徑選擇器
+            _sprModeListSprCheck = new CheckBox { Text = "", Enabled = false };
+            _sprModeListSprLabel = new Label { Text = I18n.T("SprMode.NotSet"), TextColor = Eto.Drawing.Colors.Gray };
+            var sprModeListSprBtn = new Button { Text = "...", Width = 30 };
+            sprModeListSprBtn.Click += OnSprModeListSprBrowse;
+
+            // 載入已儲存的 list.spr 路徑
+            if (!string.IsNullOrEmpty(_settings.SprModeListSprPath) && File.Exists(_settings.SprModeListSprPath))
+            {
+                _sprModeListSprCheck.Checked = true;
+                _sprModeListSprLabel.Text = Path.GetFileName(_settings.SprModeListSprPath);
+                _sprModeListSprLabel.TextColor = Eto.Drawing.Colors.Black;
+                _sprModeListSprLabel.ToolTip = _settings.SprModeListSprPath;
+            }
 
             // Search box (filename)
             _searchBox = new TextBox { PlaceholderText = I18n.T("Label.Search") };
@@ -571,19 +583,20 @@ namespace PakViewer
                         new TableCell(new Label { Text = I18n.T("Label.IDX"), Width = labelWidth }, false),
                         new TableCell(_idxDropDown, true)
                     ),
-                    // SPR List Mode (indent to align with controls)
+                    // 模式選擇 (一般/SPR/SPR List)
                     new TableRow(
-                        new TableCell(new Panel { Width = labelWidth }, false),
-                        new TableCell(_sprListModeCheck, true)
+                        new TableCell(new Label { Text = I18n.T("Label.Mode"), Width = labelWidth }, false),
+                        new TableCell(_viewModeRadio, true)
                     ),
-                    // SPR Mode (新增)
+                    // list.spr 路徑
                     new TableRow(
-                        new TableCell(new Panel { Width = labelWidth }, false),
+                        new TableCell(new Label { Text = "list.spr:", Width = labelWidth }, false),
                         new TableCell(new StackLayout
                         {
                             Orientation = Orientation.Horizontal,
-                            Spacing = 15,
-                            Items = { _sprModeCheck, _sprViewModeRadio }
+                            Spacing = 5,
+                            VerticalContentAlignment = VerticalAlignment.Center,
+                            Items = { _sprModeListSprCheck, _sprModeListSprLabel, null, sprModeListSprBtn }
                         }, true)
                     ),
                     // Ext row
@@ -1110,6 +1123,10 @@ namespace PakViewer
             if (_idxDropDown.SelectedIndex < 0 || string.IsNullOrEmpty(_selectedFolder))
                 return;
 
+            // 在 SPR 或 SPR List 模式時，IDX 是鎖定的，不處理
+            if (_viewModeRadio.SelectedIndex != MODE_NORMAL)
+                return;
+
             var selected = _idxDropDown.SelectedValue.ToString();
             if (selected == "全部")
             {
@@ -1472,11 +1489,12 @@ namespace PakViewer
         private void OnSearchChanged(object sender, EventArgs e)
         {
             _currentFilter = _searchBox.Text ?? "";
-            if (_isSprMode)
+            var mode = _viewModeRadio.SelectedIndex;
+            if (mode == MODE_SPR)
             {
                 UpdateSprGroupDisplay();
             }
-            else if (_isSprListMode)
+            else if (mode == MODE_SPR_LIST)
             {
                 UpdateSprListDisplay();
             }
@@ -2225,8 +2243,7 @@ namespace PakViewer
                 var data = await Task.Run(() => File.ReadAllBytes(filePath));
                 _sprListFile = await Task.Run(() => Lin.Helper.Core.Sprite.SprListParser.LoadFromBytes(data));
                 _filteredSprListEntries = _sprListFile.Entries;
-                _isSprListMode = true;
-                _sprListModeCheck.Checked = true;
+                _viewModeRadio.SelectedIndex = MODE_SPR_LIST;
 
                 // 重置類型篩選器為「全部」
                 _sprTypeFilterDropDown.SelectedIndex = 0;
@@ -2241,6 +2258,14 @@ namespace PakViewer
                 // 建立 SprListViewer 並顯示
                 ShowSprListViewer();
                 UpdateModeDisplay();
+
+                // 更新 list.spr 路徑設定和 UI（與 SPR 模式共用）
+                _settings.SprModeListSprPath = filePath;
+                _settings.Save();
+                _sprModeListSprCheck.Checked = true;
+                _sprModeListSprLabel.Text = fileName;
+                _sprModeListSprLabel.TextColor = Eto.Drawing.Colors.Black;
+                _sprModeListSprLabel.ToolTip = filePath;
 
                 _statusLabel.Text = $"Loaded SPR List: {fileName} ({_sprListFile.Entries.Count} entries)";
             }
@@ -2280,76 +2305,169 @@ namespace PakViewer
             _viewerPanel.Content = viewer.GetControl();
         }
 
-        private void OnSprListModeChanged(object sender, EventArgs e)
+        private void OnViewModeChanged(object sender, EventArgs e)
         {
-            _isSprListMode = _sprListModeCheck.Checked ?? false;
+            var newMode = _viewModeRadio.SelectedIndex;
 
-            if (_isSprListMode && _sprListFile == null)
+            switch (newMode)
             {
-                // Prompt to load SPR List file
-                OnOpenSprList(sender, e);
-                if (_sprListFile == null)
-                {
-                    _sprListModeCheck.Checked = false;
-                    _isSprListMode = false;
-                }
+                case MODE_NORMAL:
+                    // 恢復 IDX 下拉選單
+                    RestoreIdxDropDown();
+                    _leftListPanel.Content = _fileGrid;
+                    RefreshFileList();
+                    break;
+
+                case MODE_SPR:
+                    // 檢查資料夾
+                    if (string.IsNullOrEmpty(_selectedFolder))
+                    {
+                        MessageBox.Show(I18n.T("Error.SelectFolderFirst"), I18n.T("Dialog.Info"));
+                        _viewModeRadio.SelectedIndex = _previousModeIndex;
+                        return;
+                    }
+                    SetSpriteIdxMode(true);
+                    LoadSprGroups(_selectedFolder);
+                    _leftListPanel.Content = _sprGroupGrid;
+                    break;
+
+                case MODE_SPR_LIST:
+                    // 檢查 list.spr
+                    if (string.IsNullOrEmpty(_settings.SprModeListSprPath) || !File.Exists(_settings.SprModeListSprPath))
+                    {
+                        OnSprModeListSprBrowse(sender, e);
+                        if (string.IsNullOrEmpty(_settings.SprModeListSprPath))
+                        {
+                            // 使用者取消，恢復之前模式
+                            _viewModeRadio.SelectedIndex = _previousModeIndex;
+                            return;
+                        }
+                    }
+                    SetSpriteIdxMode(true);
+                    LoadListSprFile();
+                    ShowSprListViewer();
+                    _leftListPanel.Content = _sprListGrid;
+                    break;
             }
 
-            // 互斥：開啟 SPR List Mode 時關閉 SPR 模式
-            if (_isSprListMode && _isSprMode)
-            {
-                _sprModeCheck.Checked = false;
-                _isSprMode = false;
-            }
-
+            _previousModeIndex = newMode;
             UpdateModeDisplay();
         }
 
-        private void OnSprModeChanged(object sender, EventArgs e)
+        private void SetSpriteIdxMode(bool enabled)
         {
-            _isSprMode = _sprModeCheck.Checked ?? false;
-
-            if (_isSprMode)
+            if (enabled)
             {
-                // 互斥：開啟 SPR 模式時關閉 SPR List Mode
-                if (_isSprListMode)
-                {
-                    _sprListModeCheck.Checked = false;
-                    _isSprListMode = false;
-                }
+                // 儲存原本選項
+                if (_idxDropDown.SelectedIndex >= 0)
+                    _originalIdxText = _idxDropDown.SelectedValue?.ToString();
 
-                // 掃描 sprite*.idx 並建立群組
-                if (string.IsNullOrEmpty(_selectedFolder))
-                {
-                    MessageBox.Show("請先選擇資料夾", "提示");
-                    _sprModeCheck.Checked = false;
-                    _isSprMode = false;
-                    return;
-                }
+                // 切換為 sprite 模式
+                _idxDropDown.Items.Clear();
+                _idxDropDown.Items.Add(I18n.T("SprMode.AllSprite"));
+                _idxDropDown.SelectedIndex = 0;
+                _idxDropDown.Enabled = false;
 
-                LoadSprGroups(_selectedFolder);
-            }
-
-            _sprViewModeRadio.Visible = _isSprMode;
-            UpdateModeDisplay();
-        }
-
-        private void OnSprViewModeChanged(object sender, EventArgs e)
-        {
-            var isGalleryMode = _sprViewModeRadio.SelectedIndex == 1;
-
-            if (isGalleryMode)
-            {
-                // 切換到相簿模式
-                ShowSprGalleryViewer();
+                // 載入 sprite*.idx
+                if (!string.IsNullOrEmpty(_selectedFolder))
+                    LoadSpriteIdxFiles(_selectedFolder);
             }
             else
             {
-                // 切換到列表模式 - 清除右側預覽
-                _currentViewer?.Dispose();
-                _currentViewer = null;
-                _viewerPanel.Content = null;
+                RestoreIdxDropDown();
             }
+        }
+
+        private void LoadListSprFile()
+        {
+            if (string.IsNullOrEmpty(_settings.SprModeListSprPath)) return;
+
+            try
+            {
+                var data = File.ReadAllBytes(_settings.SprModeListSprPath);
+                _sprListFile = Lin.Helper.Core.Sprite.SprListParser.LoadFromBytes(data);
+                _statusLabel.Text = $"已載入 list.spr: {_sprListFile.Entries.Count} 條目";
+            }
+            catch (Exception ex)
+            {
+                _statusLabel.Text = $"載入 list.spr 失敗: {ex.Message}";
+                _sprListFile = null;
+            }
+        }
+
+        private void OnSprModeListSprBrowse(object sender, EventArgs e)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = I18n.T("Dialog.OpenFile"),
+                Filters = { new FileFilter("SPR List (*.txt)", ".txt", ".spr"), new FileFilter("All Files", ".*") }
+            };
+
+            if (!string.IsNullOrEmpty(_settings.LastFolder))
+                dialog.Directory = new Uri(_settings.LastFolder);
+            else if (!string.IsNullOrEmpty(_selectedFolder))
+                dialog.Directory = new Uri(_selectedFolder);
+
+            if (dialog.ShowDialog(this) == DialogResult.Ok)
+            {
+                var filePath = dialog.FileName;
+                _settings.SprModeListSprPath = filePath;
+                _settings.Save();
+
+                _sprModeListSprCheck.Checked = true;
+                _sprModeListSprLabel.Text = Path.GetFileName(filePath);
+                _sprModeListSprLabel.TextColor = Eto.Drawing.Colors.Black;
+                _sprModeListSprLabel.ToolTip = filePath;
+
+                // 載入 list.spr 檔案
+                try
+                {
+                    var data = File.ReadAllBytes(filePath);
+                    _sprListFile = Lin.Helper.Core.Sprite.SprListParser.LoadFromBytes(data);
+                    _statusLabel.Text = $"已載入 list.spr: {_sprListFile.Entries.Count} 條目";
+
+                    // 如果在 SPR List 模式，刷新顯示
+                    if (_viewModeRadio.SelectedIndex == MODE_SPR_LIST)
+                    {
+                        SetSpriteIdxMode(true);
+                        ShowSprListViewer();
+                        _leftListPanel.Content = _sprListGrid;
+                        UpdateModeDisplay();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _statusLabel.Text = $"載入失敗: {ex.Message}";
+                    _sprListFile = null;
+                }
+            }
+        }
+
+        private void RestoreIdxDropDown()
+        {
+            if (string.IsNullOrEmpty(_selectedFolder)) return;
+
+            _idxDropDown.Items.Clear();
+            var idxFiles = Directory.GetFiles(_selectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
+            if (idxFiles.Length > 1)
+                _idxDropDown.Items.Add("全部");
+            foreach (var file in idxFiles.OrderBy(f => f))
+            {
+                _idxDropDown.Items.Add(Path.GetFileName(file));
+            }
+
+            if (_idxDropDown.Items.Count > 0)
+            {
+                // 嘗試恢復原本選項
+                int selectIndex = -1;
+                if (!string.IsNullOrEmpty(_originalIdxText))
+                {
+                    selectIndex = _idxDropDown.Items.ToList().FindIndex(i => i.Text == _originalIdxText);
+                }
+                _idxDropDown.SelectedIndex = selectIndex >= 0 ? selectIndex : 0;
+            }
+
+            _idxDropDown.Enabled = true;
         }
 
         private void OnSprGroupSelected(object sender, EventArgs e)
@@ -2521,36 +2639,26 @@ namespace PakViewer
 
         private void UpdateModeDisplay()
         {
-            // Swap grid content based on mode
-            if (_isSprMode)
-            {
-                _leftListPanel.Content = _sprGroupGrid;
-            }
-            else if (_isSprListMode)
-            {
-                _leftListPanel.Content = _sprListGrid;
-            }
-            else
-            {
-                _leftListPanel.Content = _fileGrid;
-            }
+            var mode = _viewModeRadio.SelectedIndex;
 
             // Toggle visibility of mode-specific filter controls
-            _sprTypeFilterDropDown.Visible = _isSprListMode;
-            _sprTypeLabel.Visible = _isSprListMode;
-            _idxDropDown.Visible = !_isSprMode;  // 隱藏 IDX 下拉選單
+            // 只在 SPR List 模式顯示類型篩選器
+            var showTypeFilter = (mode == MODE_SPR_LIST);
+            _sprTypeFilterDropDown.Visible = showTypeFilter;
+            _sprTypeLabel.Visible = showTypeFilter;
 
-            if (_isSprMode)
+            // 根據模式更新顯示
+            switch (mode)
             {
-                UpdateSprGroupDisplay();
-            }
-            else if (_isSprListMode)
-            {
-                UpdateSprListDisplay();
-            }
-            else
-            {
-                RefreshFileList();
+                case MODE_SPR_LIST:
+                    UpdateSprListDisplay();
+                    break;
+                case MODE_SPR:
+                    UpdateSprGroupDisplay();
+                    break;
+                default:
+                    RefreshFileList();
+                    break;
             }
         }
 
@@ -2716,6 +2824,7 @@ namespace PakViewer
         public string LastClientFolder { get; set; }     // 有效的 client 資料夾（含 .idx 檔案）
         public string LastIdxFile { get; set; }
         public string LastSprListFile { get; set; }
+        public string SprModeListSprPath { get; set; }  // SPR 模式用的 list.spr 路徑
         public string Language { get; set; } = "zh-TW"; // 預設語言
 
         private static string SettingsPath => Path.Combine(

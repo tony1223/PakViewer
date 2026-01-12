@@ -507,9 +507,12 @@ namespace PakViewer.Viewers
                     }
                 }
 
-                // 顯示舊版格式: SpriteId-ActualIndex #Direction
-                _previewInfoLabel.Text = $"{_selectedEntry?.SpriteId}-{actualIndex} #{_currentDirection}\n" +
-                                         $"{frame.ImageId}.{frame.FrameIndex} :{frame.Duration}";
+                // 顯示 SPR 檔名、格數和方向資訊
+                var sprFileName = $"{_selectedEntry?.SpriteId}.spr";
+                var directionText = _playingAction.IsDirectional ? $"#Dir:{_currentDirection}" : "";
+                _previewInfoLabel.Text = $"{I18n.T("Viewer.File")}: {sprFileName}\n" +
+                                         $"{I18n.T("Viewer.Frame")}: {_playingFrameIndex + 1}/{_playingAction.Frames.Count} {directionText}\n" +
+                                         $"{I18n.T("Viewer.SprFrame")}: {actualIndex}/{_currentSprFrames.Length}";
             }
             else
             {

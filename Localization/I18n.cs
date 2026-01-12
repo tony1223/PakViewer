@@ -120,6 +120,12 @@ namespace PakViewer.Localization
             { "Label.Filter", "篩選:" },
             { "Label.Search", "搜尋:" },
             { "Label.Find", "尋找:" },
+            { "Label.Mode", "模式:" },
+
+            // Mode
+            { "Mode.Normal", "一般" },
+            { "Mode.SPR", "SPR" },
+            { "Mode.SPRList", "SPR List" },
 
             // Buttons
             { "Button.Open", "開啟..." },
@@ -163,6 +169,11 @@ namespace PakViewer.Localization
             { "Check.SprListMode", "SPR List 模式" },
             { "Check.SprMode", "SPR 模式" },
 
+            // SPR Mode
+            { "SprMode.NotSet", "(未設定)" },
+            { "SprMode.AllSprIdx", "[全部SPR (sprite.idx sprite00-15.idx)]" },
+            { "SprMode.AllSprite", "[全部 sprite]" },
+
             // View modes
             { "View.List", "列表" },
             { "View.Gallery", "相簿" },
@@ -204,6 +215,8 @@ namespace PakViewer.Localization
             { "Viewer.Directional", "有向" },
             { "Viewer.NonDirectional", "無向" },
             { "Viewer.TotalDuration", "總時長" },
+            { "Viewer.File", "檔案" },
+            { "Viewer.SprFrame", "SPR幀" },
 
             // TIL Viewer
             { "Til.Block", "Block {0}" },
@@ -302,6 +315,12 @@ namespace PakViewer.Localization
             { "Label.Filter", "フィルタ:" },
             { "Label.Search", "検索:" },
             { "Label.Find", "検索:" },
+            { "Label.Mode", "モード:" },
+
+            // Mode
+            { "Mode.Normal", "通常" },
+            { "Mode.SPR", "SPR" },
+            { "Mode.SPRList", "SPR List" },
 
             // Buttons
             { "Button.Open", "開く..." },
@@ -345,6 +364,11 @@ namespace PakViewer.Localization
             { "Check.SprListMode", "SPR List モード" },
             { "Check.SprMode", "SPR モード" },
 
+            // SPR Mode
+            { "SprMode.NotSet", "(未設定)" },
+            { "SprMode.AllSprIdx", "[全SPR (sprite.idx sprite00-15.idx)]" },
+            { "SprMode.AllSprite", "[全スプライト]" },
+
             // View modes
             { "View.List", "リスト" },
             { "View.Gallery", "ギャラリー" },
@@ -386,6 +410,8 @@ namespace PakViewer.Localization
             { "Viewer.Directional", "方向あり" },
             { "Viewer.NonDirectional", "方向なし" },
             { "Viewer.TotalDuration", "合計時間" },
+            { "Viewer.File", "ファイル" },
+            { "Viewer.SprFrame", "SPRフレーム" },
 
             // TIL Viewer
             { "Til.Block", "ブロック {0}" },
@@ -484,6 +510,12 @@ namespace PakViewer.Localization
             { "Label.Filter", "Filter:" },
             { "Label.Search", "Search:" },
             { "Label.Find", "Find:" },
+            { "Label.Mode", "Mode:" },
+
+            // Mode
+            { "Mode.Normal", "Normal" },
+            { "Mode.SPR", "SPR" },
+            { "Mode.SPRList", "SPR List" },
 
             // Buttons
             { "Button.Open", "Open..." },
@@ -527,6 +559,11 @@ namespace PakViewer.Localization
             { "Check.SprListMode", "SPR List Mode" },
             { "Check.SprMode", "SPR Mode" },
 
+            // SPR Mode
+            { "SprMode.NotSet", "(Not set)" },
+            { "SprMode.AllSprIdx", "[All SPR (sprite.idx sprite00-15.idx)]" },
+            { "SprMode.AllSprite", "[All Sprites]" },
+
             // View modes
             { "View.List", "List" },
             { "View.Gallery", "Gallery" },
@@ -568,6 +605,8 @@ namespace PakViewer.Localization
             { "Viewer.Directional", "Directional" },
             { "Viewer.NonDirectional", "Non-directional" },
             { "Viewer.TotalDuration", "Total Duration" },
+            { "Viewer.File", "File" },
+            { "Viewer.SprFrame", "SPR Frame" },
 
             // TIL Viewer
             { "Til.Block", "Block {0}" },
@@ -666,6 +705,12 @@ namespace PakViewer.Localization
             { "Label.Filter", "필터:" },
             { "Label.Search", "검색:" },
             { "Label.Find", "찾기:" },
+            { "Label.Mode", "모드:" },
+
+            // Mode
+            { "Mode.Normal", "일반" },
+            { "Mode.SPR", "SPR" },
+            { "Mode.SPRList", "SPR List" },
 
             // Buttons
             { "Button.Open", "열기..." },
@@ -709,6 +754,10 @@ namespace PakViewer.Localization
             { "Check.SprListMode", "SPR List 모드" },
             { "Check.SprMode", "SPR 모드" },
 
+            // SPR Mode
+            { "SprMode.NotSet", "(설정 안됨)" },
+            { "SprMode.AllSprIdx", "[모든 SPR (sprite.idx sprite00-15.idx)]" },
+
             // View modes
             { "View.List", "목록" },
             { "View.Gallery", "갤러리" },
@@ -750,6 +799,8 @@ namespace PakViewer.Localization
             { "Viewer.Directional", "방향성" },
             { "Viewer.NonDirectional", "무방향" },
             { "Viewer.TotalDuration", "총 시간" },
+            { "Viewer.File", "파일" },
+            { "Viewer.SprFrame", "SPR 프레임" },
 
             // TIL Viewer
             { "Til.Block", "블록 {0}" },
