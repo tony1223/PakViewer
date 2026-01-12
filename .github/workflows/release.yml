@@ -23,8 +23,26 @@ jobs:
       run: |
         TAG=${GITHUB_REF#refs/tags/}
         VERSION=${TAG#v}
-        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+        # 解析版本號，將時間戳分割成符合 .NET 格式
+        # 例如: v1.26.01122103 -> 1.26.112.2103 (MAJOR.YEAR.MMDD.HHMM)
+        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]{8})$ ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          YEAR="${BASH_REMATCH[2]}"
+          TIMESTAMP="${BASH_REMATCH[3]}"
+          MMDD="${TIMESTAMP:0:4}"
+          HHMM="${TIMESTAMP:4:4}"
+          # 移除前導零以避免八進制解析問題
+          MMDD=$((10#$MMDD))
+          HHMM=$((10#$HHMM))
+          DOTNET_VERSION="${MAJOR}.${YEAR}.${MMDD}.${HHMM}"
+        else
+          # 如果不是時間戳格式，直接使用原版本號
+          DOTNET_VERSION="$VERSION"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "DOTNET_VERSION=$DOTNET_VERSION" >> $GITHUB_OUTPUT
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -36,7 +54,7 @@ jobs:
 
     - name: Build and Publish
       run: |
-        dotnet publish --configuration Release --runtime win-x64 --self-contained true -o publish /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+        dotnet publish --configuration Release --runtime win-x64 --self-contained true -o publish /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
 
     - name: Create ZIP archive
       shell: pwsh
@@ -62,8 +80,26 @@ jobs:
       run: |
         TAG=${GITHUB_REF#refs/tags/}
         VERSION=${TAG#v}
-        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+        # 解析版本號，將時間戳分割成符合 .NET 格式
+        # 例如: v1.26.01122103 -> 1.26.112.2103 (MAJOR.YEAR.MMDD.HHMM)
+        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]{8})$ ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          YEAR="${BASH_REMATCH[2]}"
+          TIMESTAMP="${BASH_REMATCH[3]}"
+          MMDD="${TIMESTAMP:0:4}"
+          HHMM="${TIMESTAMP:4:4}"
+          # 移除前導零以避免八進制解析問題
+          MMDD=$((10#$MMDD))
+          HHMM=$((10#$HHMM))
+          DOTNET_VERSION="${MAJOR}.${YEAR}.${MMDD}.${HHMM}"
+        else
+          # 如果不是時間戳格式，直接使用原版本號
+          DOTNET_VERSION="$VERSION"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "DOTNET_VERSION=$DOTNET_VERSION" >> $GITHUB_OUTPUT
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -75,7 +111,7 @@ jobs:
 
     - name: Build and Publish
       run: |
-        dotnet publish --configuration Release --runtime linux-x64 --self-contained true -o publish /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+        dotnet publish --configuration Release --runtime linux-x64 --self-contained true -o publish /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
 
     - name: Create ZIP archive
       run: |
@@ -102,8 +138,26 @@ jobs:
       run: |
         TAG=${GITHUB_REF#refs/tags/}
         VERSION=${TAG#v}
-        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+        # 解析版本號，將時間戳分割成符合 .NET 格式
+        # 例如: v1.26.01122103 -> 1.26.112.2103 (MAJOR.YEAR.MMDD.HHMM)
+        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]{8})$ ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          YEAR="${BASH_REMATCH[2]}"
+          TIMESTAMP="${BASH_REMATCH[3]}"
+          MMDD="${TIMESTAMP:0:4}"
+          HHMM="${TIMESTAMP:4:4}"
+          # 移除前導零以避免八進制解析問題
+          MMDD=$((10#$MMDD))
+          HHMM=$((10#$HHMM))
+          DOTNET_VERSION="${MAJOR}.${YEAR}.${MMDD}.${HHMM}"
+        else
+          # 如果不是時間戳格式，直接使用原版本號
+          DOTNET_VERSION="$VERSION"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "DOTNET_VERSION=$DOTNET_VERSION" >> $GITHUB_OUTPUT
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -115,11 +169,11 @@ jobs:
 
     - name: Build x64
       run: |
-        dotnet publish --configuration Release --runtime osx-x64 --self-contained true -o publish-x64 /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+        dotnet publish --configuration Release --runtime osx-x64 --self-contained true -o publish-x64 /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
 
     - name: Build arm64
       run: |
-        dotnet publish --configuration Release --runtime osx-arm64 --self-contained true -o publish-arm64 /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+        dotnet publish --configuration Release --runtime osx-arm64 --self-contained true -o publish-arm64 /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
 
     - name: Create Universal Binary
       run: |
