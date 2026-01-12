@@ -245,7 +245,7 @@ jobs:
         path: artifacts
 
     - name: List artifacts
-      run: find artifacts -type f -name "*.zip"
+      run: find artifacts -type f \( -name "*.zip" -o -name "*.dmg" \)
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
@@ -285,6 +285,7 @@ jobs:
           See [commit history](https://github.com/${{ github.repository }}/commits/${{ steps.get_version.outputs.TAG }}) for details.
         files: |
           artifacts/**/*.zip
+          artifacts/**/*.dmg
         draft: false
         prerelease: ${{ contains(steps.get_version.outputs.TAG, '-') }}
         generate_release_notes: true
