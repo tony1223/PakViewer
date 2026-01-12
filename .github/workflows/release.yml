@@ -58,7 +58,7 @@ jobs:
 
     - name: Build Framework-Dependent
       run: |
-        dotnet publish PakViewer.csproj -f net10.0-windows --configuration Release --runtime win-x64 --self-contained false -o publish-fd /p:PublishSingleFile=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
+        dotnet publish PakViewer.csproj -f net10.0-windows --configuration Release --self-contained false -o publish-fd /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
 
     - name: Create ZIP archives
       shell: pwsh
