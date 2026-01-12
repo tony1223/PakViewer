@@ -1783,6 +1783,12 @@ namespace PakViewer
             _currentPak = _allPakFiles.Values.FirstOrDefault();
             UpdateExtensionFilter();
             RefreshFileList();
+
+            // 如果在相簿模式，重新整理相簿
+            if (_galleryModeRadio?.Checked == true)
+            {
+                RefreshRightGallery();
+            }
         }
 
         private void OnOpenDatFile(object sender, EventArgs e)
@@ -2062,6 +2068,12 @@ namespace PakViewer
 
                 // Update file list
                 RefreshFileList();
+
+                // 如果在相簿模式，重新整理相簿
+                if (_galleryModeRadio?.Checked == true)
+                {
+                    RefreshRightGallery();
+                }
 
                 _statusLabel.Text = $"Loaded: {Path.GetFileName(idxPath)} ({_currentPak.Count} files, {_currentPak.EncryptionType})";
             }
