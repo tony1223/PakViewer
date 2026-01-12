@@ -1,7 +1,36 @@
 
 # PakViewer
 
-L1j's pak file editor.
+Cross-platform Lineage 1 PAK file editor.
+
+## Installation
+
+### Windows
+Download `*-win-x64.zip` from [Releases](../../releases), extract and run `PakViewer.exe`.
+
+### macOS
+Download `*-osx-universal.zip` from [Releases](../../releases).
+
+**Note:** The application is not signed with an Apple Developer certificate. You need to bypass Gatekeeper:
+
+```bash
+# After extracting, remove the quarantine attribute
+xattr -cr PakViewer
+
+# Or right-click the app and select "Open", then click "Open" in the dialog
+```
+
+Alternatively, go to **System Preferences > Security & Privacy > General** and click "Open Anyway" after the first blocked launch attempt.
+
+### Linux
+Download `*-linux-x64.zip` from [Releases](../../releases).
+
+```bash
+# Extract and set executable permission
+unzip PakViewer-*-linux-x64.zip
+chmod +x PakViewer
+./PakViewer
+```
 
 ## Features
 
@@ -15,59 +44,63 @@ Support pak file operations:
 4. Delete file
 5. Search and filter files
 6. Edit text files with encoding-aware save
+7. SPR sprite preview with animation
+8. TIL tile map viewer
+9. Gallery browsing mode with thumbnails
+10. Multi-IDX browsing (All IDX mode)
 
 ### CLI Mode
 
 Run with `-cli` flag for command-line operations:
 
 ```
-PakViewer.exe -cli <command> [arguments]
+PakViewer -cli <command> [arguments]
 ```
 
 #### Commands
 
 **list** - List files in PAK
 ```
-PakViewer.exe -cli list <idx_file> [filter]
+PakViewer -cli list <idx_file> [filter]
 ```
 Example:
 ```
-PakViewer.exe -cli list Text.idx
-PakViewer.exe -cli list Text.idx html
+PakViewer -cli list Text.idx
+PakViewer -cli list Text.idx html
 ```
 
 **read** - Read and display file content
 ```
-PakViewer.exe -cli read <idx_file> <filename> [encoding]
+PakViewer -cli read <idx_file> <filename> [encoding]
 ```
 Example:
 ```
-PakViewer.exe -cli read Text.idx 07bearNPC-c.html
+PakViewer -cli read Text.idx 07bearNPC-c.html
 ```
 
 **export** - Export file from PAK to disk
 ```
-PakViewer.exe -cli export <idx_file> <filename> <output_file> [encoding]
+PakViewer -cli export <idx_file> <filename> <output_file> [encoding]
 ```
 Example:
 ```
-PakViewer.exe -cli export Text.idx 07bearNPC-c.html output.html
+PakViewer -cli export Text.idx 07bearNPC-c.html output.html
 ```
 
 **import** - Import file from disk into PAK
 ```
-PakViewer.exe -cli import <idx_file> <filename> <input_file> [encoding]
+PakViewer -cli import <idx_file> <filename> <input_file> [encoding]
 ```
 Note: File must be same size as original.
 
 Example:
 ```
-PakViewer.exe -cli import Text.idx 07bearNPC-c.html modified.html
+PakViewer -cli import Text.idx 07bearNPC-c.html modified.html
 ```
 
 **info** - Show PAK file information
 ```
-PakViewer.exe -cli info <idx_file>
+PakViewer -cli info <idx_file>
 ```
 
 #### Encodings
