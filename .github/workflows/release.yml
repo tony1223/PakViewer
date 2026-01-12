@@ -189,36 +189,33 @@ jobs:
       run: |
         dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime osx-arm64 --self-contained true -o publish-arm64 /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
 
-    - name: Create Universal Binary App Bundle
+    - name: Create ZIP archives
       run: |
-        # Eto.Platform.Mac64 已經建立 .app bundle，我們只需要合併 universal binary
+        # .NET DLL 是架構相關的 (R2R 編譯)，無法建立真正的 universal binary
+        # 因此分別打包 x64 和 arm64 版本
         APP_NAME="${{ env.PROJECT_NAME }}.app"
 
-        # 複製 x64 的 .app bundle 作為基礎
-        cp -R "publish-x64/$APP_NAME" .
+        # 打包 arm64 版本 (Apple Silicon)
+        cd publish-arm64
+        zip -ry "../${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-arm64.zip" "$APP_NAME"
+        cd ..
 
-        # 使用 lipo 建立 universal binary 並替換 .app 內的執行檔
-        MACOS_DIR="$APP_NAME/Contents/MacOS"
-        for file in "publish-x64/$APP_NAME/Contents/MacOS/"*; do
-          filename=$(basename "$file")
-          arm64_file="publish-arm64/$APP_NAME/Contents/MacOS/$filename"
-          if [ -f "$arm64_file" ] && file "$file" | grep -q "Mach-O"; then
-            echo "Creating universal binary for $filename"
-            lipo -create "$file" "$arm64_file" -output "$MACOS_DIR/$filename"
-          fi
-        done
-        chmod +x "$MACOS_DIR/${{ env.PROJECT_NAME }}"* 2>/dev/null || true
+        # 打包 x64 版本 (Intel)
+        cd publish-x64
+        zip -ry "../${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-x64.zip" "$APP_NAME"
+        cd ..
 
-    - name: Create ZIP archive
-      run: |
-        # 打包 .app bundle (使用 -y 保留符號連結)
-        zip -ry "${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.zip" "${{ env.PROJECT_NAME }}.app"
-
-    - name: Upload artifact
+    - name: Upload arm64 artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.PROJECT_NAME }}-osx-universal
-        path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.zip
+        name: ${{ env.PROJECT_NAME }}-osx-arm64
+        path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-arm64.zip
+
+    - name: Upload x64 artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.PROJECT_NAME }}-osx-x64
+        path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-x64.zip
 
   release:
     needs: [build-windows, build-linux, build-macos]
@@ -259,7 +256,8 @@ jobs:
           | Windows x64 | `*-win-x64.zip` | 需安裝 [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
           | Windows x64 | `*-win-x64-self-contained.zip` | 包含 .NET Runtime，可直接執行 |
           | Linux x64 | `*-linux-x64.zip` | Self-contained |
-          | macOS Universal | `*-osx-universal.zip` | Self-contained, 支援 Intel & Apple Silicon |
+          | macOS arm64 | `*-osx-arm64.zip` | Self-contained, Apple Silicon (M1/M2/M3/M4) |
+          | macOS x64 | `*-osx-x64.zip` | Self-contained, Intel Mac |
 
           ### macOS / Linux 使用說明
 

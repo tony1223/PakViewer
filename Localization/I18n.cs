@@ -20,10 +20,10 @@ namespace PakViewer.Localization
 
         public static Dictionary<string, string> LanguageNames => new()
         {
-            { "zh-TW", "繁體中文" },
-            { "ja-JP", "日本語" },
+            { "zh-TW", "Chinese Traditional" },
+            { "ja-JP", "Japanese" },
             { "en-US", "English" },
-            { "ko-KR", "한국어" }
+            { "ko-KR", "Korean" }
         };
 
         static I18n()

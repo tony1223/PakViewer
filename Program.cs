@@ -96,6 +96,7 @@ namespace PakViewer
         private TextBox _contentSearchBox;
         private Button _contentSearchBtn;
         private Button _clearSearchBtn;
+        private Button _openFolderBtn;
         private DropDown _idxDropDown;
         private DropDown _extFilterDropDown;
         private DropDown _langFilterDropDown;
@@ -277,11 +278,64 @@ namespace PakViewer
 
             // Update browser tab title
             if (_browserPage != null)
-                _browserPage.Text = I18n.T("Tab.LinClient");  // Keep as is or localize if needed
+                _browserPage.Text = I18n.T("Tab.LinClient");
 
             // Refresh record count
             if (_filteredIndexes != null)
                 _recordCountLabel.Text = I18n.T("Status.Records", _filteredIndexes.Count, _currentPak?.Files.Count ?? 0);
+
+            // Update buttons
+            if (_openFolderBtn != null)
+                _openFolderBtn.Text = I18n.T("Button.Open");
+            if (_contentSearchBtn != null)
+                _contentSearchBtn.Text = I18n.T("Button.Search");
+            if (_clearSearchBtn != null)
+                _clearSearchBtn.Text = I18n.T("Button.Clear");
+            if (_textSearchNextBtn != null)
+                _textSearchNextBtn.Text = I18n.T("Button.Next");
+            if (_textSearchPrevBtn != null)
+                _textSearchPrevBtn.Text = I18n.T("Button.Prev");
+
+            // Update search box placeholder
+            if (_searchBox != null)
+                _searchBox.PlaceholderText = I18n.T("Label.Search");
+            if (_contentSearchBox != null)
+                _contentSearchBox.PlaceholderText = I18n.T("Label.Search");
+
+            // Update mode radio items
+            if (_viewModeRadio != null && _viewModeRadio.Items.Count >= 3)
+            {
+                _viewModeRadio.Items[MODE_NORMAL].Text = I18n.T("Mode.Normal");
+                _viewModeRadio.Items[MODE_SPR].Text = I18n.T("Mode.SPR");
+                _viewModeRadio.Items[MODE_SPR_LIST].Text = I18n.T("Mode.SPRList");
+            }
+
+            // Update SPR type filter dropdown
+            if (_sprTypeFilterDropDown != null && _sprTypeFilterDropDown.Items.Count > 0)
+            {
+                var selectedIdx = _sprTypeFilterDropDown.SelectedIndex;
+                _sprTypeFilterDropDown.Items.Clear();
+                _sprTypeFilterDropDown.Items.Add(I18n.T("Filter.AllTypes"));
+                _sprTypeFilterDropDown.Items.Add(I18n.T("Filter.Unreferenced"));
+                _sprTypeFilterDropDown.Items.Add($"0 - {I18n.T("SprType.0")}");
+                _sprTypeFilterDropDown.Items.Add($"1 - {I18n.T("SprType.1")}");
+                _sprTypeFilterDropDown.Items.Add($"5 - {I18n.T("SprType.5")}");
+                _sprTypeFilterDropDown.Items.Add($"6 - {I18n.T("SprType.6")}");
+                _sprTypeFilterDropDown.Items.Add($"7 - {I18n.T("SprType.7")}");
+                _sprTypeFilterDropDown.Items.Add($"8 - {I18n.T("SprType.8")}");
+                _sprTypeFilterDropDown.Items.Add($"9 - {I18n.T("SprType.9")}");
+                _sprTypeFilterDropDown.Items.Add($"10 - {I18n.T("SprType.10")}");
+                _sprTypeFilterDropDown.Items.Add($"11 - {I18n.T("SprType.11")}");
+                _sprTypeFilterDropDown.Items.Add($"12 - {I18n.T("SprType.12")}");
+                if (selectedIdx >= 0 && selectedIdx < _sprTypeFilterDropDown.Items.Count)
+                    _sprTypeFilterDropDown.SelectedIndex = selectedIdx;
+            }
+
+            // Update right panel mode radios
+            if (_previewModeRadio != null)
+                _previewModeRadio.Text = I18n.T("RightPanel.Preview");
+            if (_galleryModeRadio != null)
+                _galleryModeRadio.Text = I18n.T("RightPanel.Gallery");
         }
 
         private void CreateLayout()
@@ -345,8 +399,8 @@ namespace PakViewer
         {
             // Folder label with Open button
             _folderLabel = new Label { Text = "(none)", VerticalAlignment = VerticalAlignment.Center };
-            var openFolderBtn = new Button { Text = I18n.T("Button.Open"), Width = 70 };
-            openFolderBtn.Click += OnOpenFolder;
+            _openFolderBtn = new Button { Text = I18n.T("Button.Open"), Width = 70 };
+            _openFolderBtn.Click += OnOpenFolder;
 
             // IDX dropdown
             _idxDropDown = new DropDown();
@@ -643,7 +697,7 @@ namespace PakViewer
                             Orientation = Orientation.Horizontal,
                             Spacing = 5,
                             VerticalContentAlignment = VerticalAlignment.Center,
-                            Items = { _folderLabel, null, openFolderBtn }
+                            Items = { _folderLabel, null, _openFolderBtn }
                         }, true)
                     ),
                     // IDX row
