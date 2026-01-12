@@ -3063,6 +3063,9 @@ namespace PakViewer
                     // 恢復 IDX 下拉選單
                     RestoreIdxDropDown();
                     _leftListPanel.Content = _fileGrid;
+                    // 啟用相簿模式
+                    if (_galleryModeRadio != null)
+                        _galleryModeRadio.Enabled = true;
                     RefreshFileList();
                     break;
 
@@ -3077,6 +3080,9 @@ namespace PakViewer
                     SetSpriteIdxMode(true);
                     LoadSprGroups(_selectedFolder);
                     _leftListPanel.Content = _sprGroupGrid;
+                    // 啟用相簿模式
+                    if (_galleryModeRadio != null)
+                        _galleryModeRadio.Enabled = true;
                     // 重新整理相簿
                     if (_galleryModeRadio?.Checked == true)
                         RefreshRightGallery();
@@ -3103,9 +3109,13 @@ namespace PakViewer
                     LoadListSprFile();
                     ShowSprListViewer();
                     _leftListPanel.Content = _sprListGrid;
-                    // 重新整理相簿
-                    if (_galleryModeRadio?.Checked == true)
-                        RefreshRightGallery();
+                    // SPR List 模式不支援相簿，強制切回預覽模式
+                    if (_galleryModeRadio != null)
+                    {
+                        _galleryModeRadio.Enabled = false;
+                        if (_galleryModeRadio.Checked)
+                            _previewModeRadio.Checked = true;
+                    }
                     break;
             }
 
