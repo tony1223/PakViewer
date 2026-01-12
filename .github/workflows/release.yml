@@ -289,8 +289,12 @@ jobs:
           ${{ secrets.DISCORD_WEBHOOK_URL }}
 
     - name: Notify Discord Thread
-      if: success() && secrets.DISCORD_WEBHOOK_THREAD_URL != ''
+      if: success()
+      env:
+        DISCORD_THREAD_URL: ${{ secrets.DISCORD_WEBHOOK_THREAD_URL }}
       run: |
-        curl -H "Content-Type: application/json" \
-          -d "{\"content\": \"🎉 **PakViewer ${{ steps.get_version.outputs.TAG }}** 已發布！\n\n下載: https://github.com/${{ github.repository }}/releases/tag/${{ steps.get_version.outputs.TAG }}\"}" \
-          ${{ secrets.DISCORD_WEBHOOK_THREAD_URL }}
+        if [ -n "$DISCORD_THREAD_URL" ]; then
+          curl -H "Content-Type: application/json" \
+            -d "{\"content\": \"🎉 **PakViewer ${{ steps.get_version.outputs.TAG }}** 已發布！\n\n下載: https://github.com/${{ github.repository }}/releases/tag/${{ steps.get_version.outputs.TAG }}\"}" \
+            "$DISCORD_THREAD_URL"
+        fi
