@@ -1,6 +1,7 @@
 using System.IO;
 using Eto.Drawing;
 using Eto.Forms;
+using PakViewer.Localization;
 
 namespace PakViewer.Viewers
 {
@@ -26,7 +27,7 @@ namespace PakViewer.Viewers
             }
             catch
             {
-                _control = new Label { Text = "Failed to load image" };
+                _control = new Label { Text = I18n.T("Error.LoadImage") };
             }
         }
 

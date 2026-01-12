@@ -205,22 +205,6 @@ namespace PakViewer
 
             menu.Items.Add(fileMenu);
 
-            // Edit menu (for language)
-            var editMenu = new SubMenuItem { Text = I18n.T("Menu.Edit") };
-
-            var languageMenu = new SubMenuItem { Text = I18n.T("Menu.Edit.Language") };
-            foreach (var lang in I18n.AvailableLanguages)
-            {
-                var langItem = new RadioMenuItem { Text = I18n.LanguageNames[lang] };
-                langItem.Checked = (lang == I18n.CurrentLanguage);
-                var langCode = lang;  // Capture for closure
-                langItem.Click += (s, e) => OnLanguageChanged(langCode);
-                languageMenu.Items.Add(langItem);
-            }
-            editMenu.Items.Add(languageMenu);
-
-            menu.Items.Add(editMenu);
-
             // Tools menu
             var toolsMenu = new SubMenuItem { Text = I18n.T("Menu.Tools") };
 
@@ -239,6 +223,18 @@ namespace PakViewer
             toolsMenu.Items.Add(deleteCmd);
 
             menu.Items.Add(toolsMenu);
+
+            // Language menu (top-level)
+            var languageMenu = new SubMenuItem { Text = I18n.T("Menu.Language") };
+            foreach (var lang in I18n.AvailableLanguages)
+            {
+                var langItem = new RadioMenuItem { Text = I18n.LanguageNames[lang] };
+                langItem.Checked = (lang == I18n.CurrentLanguage);
+                var langCode = lang;  // Capture for closure
+                langItem.Click += (s, e) => OnLanguageChanged(langCode);
+                languageMenu.Items.Add(langItem);
+            }
+            menu.Items.Add(languageMenu);
 
             Menu = menu;
         }
@@ -266,7 +262,7 @@ namespace PakViewer
 
             // Update browser tab title
             if (_browserPage != null)
-                _browserPage.Text = "Lin Client";  // Keep as is or localize if needed
+                _browserPage.Text = I18n.T("Tab.LinClient");  // Keep as is or localize if needed
 
             // Refresh record count
             if (_filteredIndexes != null)
@@ -298,7 +294,7 @@ namespace PakViewer
             // Create browser page (non-closable)
             _browserPage = new TabPage
             {
-                Text = "Lin Client",
+                Text = I18n.T("Tab.LinClient"),
                 Content = mainSplitter
             };
             _mainTabControl.Pages.Add(_browserPage);
@@ -536,14 +532,14 @@ namespace PakViewer
 
             _sprGroupGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "ID",
+                HeaderText = I18n.T("Grid.ID"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprGroupItem, string>(r => r.Id.ToString()) },
                 Width = 60
             });
 
             _sprGroupGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "Parts",
+                HeaderText = I18n.T("Grid.Parts"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprGroupItem, string>(r => r.Parts.ToString()) },
                 Width = 50
             });
@@ -561,7 +557,7 @@ namespace PakViewer
                 {
                     // Folder row
                     new TableRow(
-                        new TableCell(new Label { Text = "Folder:", Width = labelWidth }, false),
+                        new TableCell(new Label { Text = I18n.T("Label.Folder"), Width = labelWidth }, false),
                         new TableCell(new StackLayout
                         {
                             Orientation = Orientation.Horizontal,
@@ -572,7 +568,7 @@ namespace PakViewer
                     ),
                     // IDX row
                     new TableRow(
-                        new TableCell(new Label { Text = "IDX:", Width = labelWidth }, false),
+                        new TableCell(new Label { Text = I18n.T("Label.IDX"), Width = labelWidth }, false),
                         new TableCell(_idxDropDown, true)
                     ),
                     // SPR List Mode (indent to align with controls)
@@ -592,27 +588,27 @@ namespace PakViewer
                     ),
                     // Ext row
                     new TableRow(
-                        new TableCell(new Label { Text = "Ext:", Width = labelWidth }, false),
+                        new TableCell(new Label { Text = I18n.T("Label.Ext"), Width = labelWidth }, false),
                         new TableCell(_extFilterDropDown, true)
                     ),
                     // Lang row
                     new TableRow(
-                        new TableCell(new Label { Text = "Lang:", Width = labelWidth }, false),
+                        new TableCell(new Label { Text = I18n.T("Label.Lang"), Width = labelWidth }, false),
                         new TableCell(_langFilterDropDown, true)
                     ),
                     // Type row (SPR List 模式專用)
                     new TableRow(
-                        new TableCell(_sprTypeLabel = new Label { Text = "Type:", Width = labelWidth, Visible = false }, false),
+                        new TableCell(_sprTypeLabel = new Label { Text = I18n.T("Label.Type"), Width = labelWidth, Visible = false }, false),
                         new TableCell(_sprTypeFilterDropDown, true)
                     ),
                     // Search row
                     new TableRow(
-                        new TableCell(new Label { Text = "Filter:", Width = labelWidth }, false),
+                        new TableCell(new Label { Text = I18n.T("Label.Filter"), Width = labelWidth }, false),
                         new TableCell(_searchBox, true)
                     ),
                     // Content search row
                     new TableRow(
-                        new TableCell(new Label { Text = "Search:", Width = labelWidth }, false),
+                        new TableCell(new Label { Text = I18n.T("Label.Search"), Width = labelWidth }, false),
                         new TableCell(new StackLayout
                         {
                             Orientation = Orientation.Horizontal,
@@ -640,7 +636,7 @@ namespace PakViewer
         private Control CreateRightPanel()
         {
             // Search toolbar for text viewer
-            _textSearchBox = new TextBox { PlaceholderText = "Search in text...", Width = 200 };
+            _textSearchBox = new TextBox { PlaceholderText = I18n.T("Placeholder.SearchInText"), Width = 200 };
             _textSearchBox.KeyDown += OnTextSearchKeyDown;
 
             _textSearchPrevBtn = new Button { Text = "◀", Width = 30 };
@@ -659,7 +655,7 @@ namespace PakViewer
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Items =
                 {
-                    new Label { Text = "Find:" },
+                    new Label { Text = I18n.T("Label.Find") },
                     _textSearchBox,
                     _textSearchPrevBtn,
                     _textSearchNextBtn,
@@ -927,21 +923,21 @@ namespace PakViewer
 
             fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "No.",
+                HeaderText = I18n.T("Grid.No"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.Index.ToString()) },
                 Width = 60
             });
 
             fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "FileName",
+                HeaderText = I18n.T("Grid.FileName"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.FileName) },
                 Width = 180
             });
 
             fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "Size",
+                HeaderText = I18n.T("Grid.Size"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.SizeText) },
                 Width = 80
             });
@@ -1050,7 +1046,7 @@ namespace PakViewer
                     }
                     else
                     {
-                        textViewer.Text = "Binary file";
+                        textViewer.Text = I18n.T("Status.BinaryFile");
                         viewerPanel.Content = textViewer;
                     }
 
@@ -1217,8 +1213,8 @@ namespace PakViewer
         private Control CreateDatBrowserContent(DatTools.DatFile datFile)
         {
             // Filter toolbar
-            var filterLabel = new Label { Text = "Filter:", VerticalAlignment = VerticalAlignment.Center };
-            var filterBox = new TextBox { PlaceholderText = "Type to filter...", Width = 200 };
+            var filterLabel = new Label { Text = I18n.T("Label.Filter"), VerticalAlignment = VerticalAlignment.Center };
+            var filterBox = new TextBox { PlaceholderText = I18n.T("Placeholder.TypeToFilter"), Width = 200 };
             var recordLabel = new Label { VerticalAlignment = VerticalAlignment.Center };
             var filterToolbar = new StackLayout
             {
@@ -1236,28 +1232,28 @@ namespace PakViewer
 
             fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "No.",
+                HeaderText = I18n.T("Grid.No"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<DatFileItem, string>(r => r.Index.ToString()) },
                 Width = 60
             });
 
             fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "FileName",
+                HeaderText = I18n.T("Grid.FileName"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<DatFileItem, string>(r => r.FileName) },
                 Width = 200
             });
 
             fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "Size",
+                HeaderText = I18n.T("Grid.Size"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<DatFileItem, string>(r => r.SizeText) },
                 Width = 80
             });
 
             fileGrid.Columns.Add(new GridColumn
             {
-                HeaderText = "Offset",
+                HeaderText = I18n.T("Grid.Offset"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<DatFileItem, string>(r => $"0x{r.Offset:X}") },
                 Width = 100
             });
@@ -1361,7 +1357,7 @@ namespace PakViewer
 
             // Context menu for export
             var contextMenu = new ContextMenu();
-            var exportItem = new ButtonMenuItem { Text = "Export Selected..." };
+            var exportItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             exportItem.Click += (s, e) =>
             {
                 using var dialog = new SelectFolderDialog { Title = "Export To" };
@@ -1532,7 +1528,7 @@ namespace PakViewer
 
             _contentSearchKeyword = keyword;
             _contentSearchResults = new HashSet<int>();
-            _statusLabel.Text = "Searching content...";
+            _statusLabel.Text = I18n.T("Status.SearchingContent");
 
             int found = 0;
             for (int i = 0; i < _currentPak.Count; i++)
@@ -1573,7 +1569,7 @@ namespace PakViewer
             _contentSearchKeyword = "";
             _contentSearchResults = null;
             _contentSearchBox.Text = "";
-            _statusLabel.Text = "Content search cleared";
+            _statusLabel.Text = I18n.T("Status.ContentSearchCleared");
             RefreshFileList();
         }
 
@@ -1977,8 +1973,8 @@ namespace PakViewer
             var encoding = DetectEncoding(data, fileName);
             var text = encoding.GetString(data);
 
-            var searchBox = new TextBox { PlaceholderText = "Search...", Width = 200 };
-            var searchBtn = new Button { Text = "Find" };
+            var searchBox = new TextBox { PlaceholderText = I18n.T("Placeholder.Search"), Width = 200 };
+            var searchBtn = new Button { Text = I18n.T("Button.Find") };
             var textArea = new RichTextArea
             {
                 ReadOnly = true,
@@ -2004,7 +2000,7 @@ namespace PakViewer
                 Orientation = Orientation.Horizontal,
                 Spacing = 5,
                 Padding = new Padding(5),
-                Items = { new Label { Text = "Find:" }, searchBox, searchBtn }
+                Items = { new Label { Text = I18n.T("Label.Find") }, searchBox, searchBtn }
             };
 
             return new TableLayout
@@ -2068,7 +2064,7 @@ namespace PakViewer
 
                 var menu = new ContextMenu();
 
-                var closeItem = new ButtonMenuItem { Text = "Close Tab" };
+                var closeItem = new ButtonMenuItem { Text = I18n.T("Context.CloseTab") };
                 closeItem.Click += (s, ev) =>
                 {
                     if (_mainTabControl.SelectedPage != null && _mainTabControl.SelectedPage != _browserPage)
@@ -2076,7 +2072,7 @@ namespace PakViewer
                 };
                 menu.Items.Add(closeItem);
 
-                var closeOthersItem = new ButtonMenuItem { Text = "Close Other Tabs" };
+                var closeOthersItem = new ButtonMenuItem { Text = I18n.T("Tab.CloseOthers") };
                 closeOthersItem.Click += (s, ev) =>
                 {
                     if (_mainTabControl.SelectedPage != null)
@@ -2084,7 +2080,7 @@ namespace PakViewer
                 };
                 menu.Items.Add(closeOthersItem);
 
-                var closeAllItem = new ButtonMenuItem { Text = "Close All Tabs" };
+                var closeAllItem = new ButtonMenuItem { Text = I18n.T("Tab.CloseAll") };
                 closeAllItem.Click += (s, ev) => CloseAllTabs();
                 menu.Items.Add(closeAllItem);
 
@@ -2133,19 +2129,19 @@ namespace PakViewer
         {
             if (e.Key == Keys.Enter)
             {
-                _textSearchResultLabel.Text = "Use viewer's built-in search";
+                _textSearchResultLabel.Text = I18n.T("Status.UseViewerSearch");
                 e.Handled = true;
             }
         }
 
         private void OnTextSearchNext(object sender, EventArgs e)
         {
-            _textSearchResultLabel.Text = "Use viewer's built-in search";
+            _textSearchResultLabel.Text = I18n.T("Status.UseViewerSearch");
         }
 
         private void OnTextSearchPrev(object sender, EventArgs e)
         {
-            _textSearchResultLabel.Text = "Use viewer's built-in search";
+            _textSearchResultLabel.Text = I18n.T("Status.UseViewerSearch");
         }
 
         #endregion

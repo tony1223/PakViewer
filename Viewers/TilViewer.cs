@@ -10,6 +10,7 @@ using Lin.Helper.Core.Tile;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Formats.Png;
+using PakViewer.Localization;
 
 namespace PakViewer.Viewers
 {
@@ -74,7 +75,7 @@ namespace PakViewer.Viewers
 
             if (_blocks == null || _blocks.Count == 0)
             {
-                _control = new Label { Text = "Failed to load TIL file" };
+                _control = new Label { Text = I18n.T("Error.LoadTil") };
                 return;
             }
 
@@ -93,7 +94,7 @@ namespace PakViewer.Viewers
                 Spacing = 10,
                 Items =
                 {
-                    (_saveButton = new Button { Text = "儲存變更", Enabled = false }),
+                    (_saveButton = new Button { Text = I18n.T("Button.Save"), Enabled = false }),
                     new Label { Text = "|", VerticalAlignment = VerticalAlignment.Center },
                 }
             };
@@ -115,7 +116,7 @@ namespace PakViewer.Viewers
 
             // 背景色選項
             toolbar.Items.Add(new Label { Text = "  |  ", VerticalAlignment = VerticalAlignment.Center });
-            toolbar.Items.Add(new Label { Text = "背景:", VerticalAlignment = VerticalAlignment.Center });
+            toolbar.Items.Add(new Label { Text = I18n.T("Til.Background"), VerticalAlignment = VerticalAlignment.Center });
             var bgDropdown = new DropDown { Width = 80 };
             bgDropdown.Items.Add("黑色");
             bgDropdown.Items.Add("白色");
@@ -129,7 +130,7 @@ namespace PakViewer.Viewers
 
             // 圖例
             toolbar.Items.Add(new Label { Text = "  |  ", VerticalAlignment = VerticalAlignment.Center });
-            toolbar.Items.Add(new Label { Text = "□透明背景", TextColor = Colors.DodgerBlue, VerticalAlignment = VerticalAlignment.Center });
+            toolbar.Items.Add(new Label { Text = I18n.T("Til.TransparentBg"), TextColor = Colors.DodgerBlue, VerticalAlignment = VerticalAlignment.Center });
 
             layout.AddRow(toolbar);
 
@@ -361,10 +362,10 @@ namespace PakViewer.Viewers
             }
 
             // 按鈕
-            var btnCancel = new Button { Text = "取消" };
+            var btnCancel = new Button { Text = I18n.T("Button.Cancel") };
             btnCancel.Click += (s, ev) => _editDialog.Close();
 
-            var btnOK = new Button { Text = "確定" };
+            var btnOK = new Button { Text = I18n.T("Button.OK") };
             btnOK.Click += (s, ev) =>
             {
                 if (flags != originalFlags)
@@ -469,7 +470,7 @@ namespace PakViewer.Viewers
             if (!_hasChanges) return;
 
             // 顯示儲存中狀態
-            _saveButton.Text = "儲存中...";
+            _saveButton.Text = I18n.T("Status.Saving");
             _saveButton.Enabled = false;
             Application.Instance.RunIteration();  // 強制更新 UI
 
@@ -483,14 +484,14 @@ namespace PakViewer.Viewers
                 _data = newData;
                 _hasChanges = false;
                 _infoLabel.Text = $"Blocks: {_blocks.Count}  (已儲存)";
-                _saveButton.Text = "儲存變更";
+                _saveButton.Text = I18n.T("Button.Save");
                 // 儲存成功後按鈕保持禁用 (沒有變更)
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"儲存失敗: {ex.Message}", "錯誤", MessageBoxType.Error);
                 _saveButton.Enabled = true;
-                _saveButton.Text = "儲存變更";
+                _saveButton.Text = I18n.T("Button.Save");
             }
         }
 

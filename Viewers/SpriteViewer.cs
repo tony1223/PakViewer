@@ -4,6 +4,7 @@ using Eto.Drawing;
 using Eto.Forms;
 using Lin.Helper.Core.Sprite;
 using SixLabors.ImageSharp.Formats.Png;
+using PakViewer.Localization;
 
 namespace PakViewer.Viewers
 {
@@ -27,7 +28,7 @@ namespace PakViewer.Viewers
             _frames = SprReader.Load(data);
             if (_frames == null || _frames.Length == 0)
             {
-                _control = new Label { Text = "Failed to load SPR file" };
+                _control = new Label { Text = I18n.T("Error.LoadSpr") };
                 return;
             }
 

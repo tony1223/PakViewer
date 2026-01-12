@@ -3,6 +3,7 @@ using Eto.Drawing;
 using Eto.Forms;
 using CoreImageConverter = Lin.Helper.Core.Image.ImageConverter;
 using SixLabors.ImageSharp.Formats.Png;
+using PakViewer.Localization;
 
 namespace PakViewer.Viewers
 {
@@ -54,7 +55,7 @@ namespace PakViewer.Viewers
                 }
                 else
                 {
-                    _control = new Label { Text = "Failed to load L1Image" };
+                    _control = new Label { Text = I18n.T("Error.LoadL1Image") };
                 }
             }
             catch (System.Exception ex)

@@ -10,6 +10,7 @@ using Lin.Helper.Core.Sprite;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Formats.Png;
+using PakViewer.Localization;
 
 namespace PakViewer.Viewers
 {
@@ -67,11 +68,11 @@ namespace PakViewer.Viewers
                 Spacing = 10,
                 Items =
                 {
-                    new Label { Text = "搜尋:", VerticalAlignment = VerticalAlignment.Center }
+                    new Label { Text = I18n.T("Label.Search"), VerticalAlignment = VerticalAlignment.Center }
                 }
             };
 
-            _searchBox = new TextBox { Width = 100, PlaceholderText = "ID..." };
+            _searchBox = new TextBox { Width = 100, PlaceholderText = I18n.T("Placeholder.ID") };
             _searchBox.TextChanged += OnSearchChanged;
             toolbar.Items.Add(_searchBox);
 

@@ -108,6 +108,9 @@ namespace PakViewer.Localization
             { "Menu.Edit", "編輯(&E)" },
             { "Menu.Edit.Language", "語言(&L)" },
 
+            // Menu - Language (top-level)
+            { "Menu.Language", "語言(&L)" },
+
             // Labels
             { "Label.Folder", "資料夾:" },
             { "Label.IDX", "IDX:" },
@@ -222,6 +225,44 @@ namespace PakViewer.Localization
             // Toast
             { "Toast.SaveSuccess", "儲存成功" },
             { "Toast.FileSaved", "檔案已儲存至 PAK" },
+            // Tab/Browser
+            { "Tab.LinClient", "Lin Client" },
+            { "Tab.CloseOthers", "關閉其他分頁" },
+            { "Tab.CloseAll", "關閉所有分頁" },
+
+            // Grid Headers (additional)
+            { "Grid.Offset", "偏移" },
+            { "Grid.Parts", "部件" },
+
+            // Placeholder
+            { "Placeholder.SearchInText", "搜尋文字..." },
+            { "Placeholder.TypeToFilter", "輸入篩選..." },
+            { "Placeholder.Search", "搜尋..." },
+            { "Placeholder.ID", "ID..." },
+
+            // Status (additional)
+            { "Status.SearchingContent", "搜尋內容中..." },
+            { "Status.ContentSearchCleared", "已清除內容搜尋" },
+            { "Status.UseViewerSearch", "請使用檢視器內建搜尋" },
+            { "Status.NotFound", "找不到" },
+            { "Status.BinaryFile", "二進制檔案" },
+            { "Status.Saving", "儲存中..." },
+
+            // Errors
+            { "Error.LoadImage", "無法載入圖片" },
+            { "Error.LoadSpr", "無法載入 SPR 檔案" },
+            { "Error.LoadL1Image", "無法載入 L1Image" },
+            { "Error.LoadTil", "無法載入 TIL 檔案" },
+
+            // TIL Viewer (additional)
+            { "Til.Background", "背景:" },
+            { "Til.TransparentBg", "□透明背景" },
+
+            // Buttons (additional)
+            { "Button.Pause", "⏸ 暫停" },
+            { "Button.Cancel", "取消" },
+            { "Button.OK", "確定" },
+            { "Button.Find", "尋找" },
         };
         #endregion
 
@@ -248,6 +289,9 @@ namespace PakViewer.Localization
             // Menu - Edit
             { "Menu.Edit", "編集(&E)" },
             { "Menu.Edit.Language", "言語(&L)" },
+
+            // Menu - Language (top-level)
+            { "Menu.Language", "言語(&L)" },
 
             // Labels
             { "Label.Folder", "フォルダ:" },
@@ -363,6 +407,44 @@ namespace PakViewer.Localization
             // Toast
             { "Toast.SaveSuccess", "保存成功" },
             { "Toast.FileSaved", "ファイルを PAK に保存しました" },
+            // Tab/Browser
+            { "Tab.LinClient", "Lin Client" },
+            { "Tab.CloseOthers", "他のタブを閉じる" },
+            { "Tab.CloseAll", "すべてのタブを閉じる" },
+
+            // Grid Headers (additional)
+            { "Grid.Offset", "オフセット" },
+            { "Grid.Parts", "パーツ" },
+
+            // Placeholder
+            { "Placeholder.SearchInText", "テキストを検索..." },
+            { "Placeholder.TypeToFilter", "フィルター..." },
+            { "Placeholder.Search", "検索..." },
+            { "Placeholder.ID", "ID..." },
+
+            // Status (additional)
+            { "Status.SearchingContent", "コンテンツを検索中..." },
+            { "Status.ContentSearchCleared", "コンテンツ検索をクリアしました" },
+            { "Status.UseViewerSearch", "ビューアの検索機能を使用してください" },
+            { "Status.NotFound", "見つかりません" },
+            { "Status.BinaryFile", "バイナリファイル" },
+            { "Status.Saving", "保存中..." },
+
+            // Errors
+            { "Error.LoadImage", "画像を読み込めません" },
+            { "Error.LoadSpr", "SPR ファイルを読み込めません" },
+            { "Error.LoadL1Image", "L1Image を読み込めません" },
+            { "Error.LoadTil", "TIL ファイルを読み込めません" },
+
+            // TIL Viewer (additional)
+            { "Til.Background", "背景:" },
+            { "Til.TransparentBg", "□透明背景" },
+
+            // Buttons (additional)
+            { "Button.Pause", "⏸ 一時停止" },
+            { "Button.Cancel", "キャンセル" },
+            { "Button.OK", "OK" },
+            { "Button.Find", "検索" },
         };
         #endregion
 
@@ -389,6 +471,9 @@ namespace PakViewer.Localization
             // Menu - Edit
             { "Menu.Edit", "&Edit" },
             { "Menu.Edit.Language", "&Language" },
+
+            // Menu - Language (top-level)
+            { "Menu.Language", "&Language" },
 
             // Labels
             { "Label.Folder", "Folder:" },
@@ -504,6 +589,44 @@ namespace PakViewer.Localization
             // Toast
             { "Toast.SaveSuccess", "Save Successful" },
             { "Toast.FileSaved", "File saved to PAK" },
+            // Tab/Browser
+            { "Tab.LinClient", "Lin Client" },
+            { "Tab.CloseOthers", "Close Other Tabs" },
+            { "Tab.CloseAll", "Close All Tabs" },
+
+            // Grid Headers (additional)
+            { "Grid.Offset", "Offset" },
+            { "Grid.Parts", "Parts" },
+
+            // Placeholder
+            { "Placeholder.SearchInText", "Search in text..." },
+            { "Placeholder.TypeToFilter", "Type to filter..." },
+            { "Placeholder.Search", "Search..." },
+            { "Placeholder.ID", "ID..." },
+
+            // Status (additional)
+            { "Status.SearchingContent", "Searching content..." },
+            { "Status.ContentSearchCleared", "Content search cleared" },
+            { "Status.UseViewerSearch", "Use viewer's built-in search" },
+            { "Status.NotFound", "Not found" },
+            { "Status.BinaryFile", "Binary file" },
+            { "Status.Saving", "Saving..." },
+
+            // Errors
+            { "Error.LoadImage", "Failed to load image" },
+            { "Error.LoadSpr", "Failed to load SPR file" },
+            { "Error.LoadL1Image", "Failed to load L1Image" },
+            { "Error.LoadTil", "Failed to load TIL file" },
+
+            // TIL Viewer (additional)
+            { "Til.Background", "Background:" },
+            { "Til.TransparentBg", "□Transparent" },
+
+            // Buttons (additional)
+            { "Button.Pause", "⏸ Pause" },
+            { "Button.Cancel", "Cancel" },
+            { "Button.OK", "OK" },
+            { "Button.Find", "Find" },
         };
         #endregion
 
@@ -530,6 +653,9 @@ namespace PakViewer.Localization
             // Menu - Edit
             { "Menu.Edit", "편집(&E)" },
             { "Menu.Edit.Language", "언어(&L)" },
+
+            // Menu - Language (top-level)
+            { "Menu.Language", "언어(&L)" },
 
             // Labels
             { "Label.Folder", "폴더:" },
@@ -645,6 +771,44 @@ namespace PakViewer.Localization
             // Toast
             { "Toast.SaveSuccess", "저장 성공" },
             { "Toast.FileSaved", "파일이 PAK에 저장되었습니다" },
+            // Tab/Browser
+            { "Tab.LinClient", "Lin Client" },
+            { "Tab.CloseOthers", "다른 탭 닫기" },
+            { "Tab.CloseAll", "모든 탭 닫기" },
+
+            // Grid Headers (additional)
+            { "Grid.Offset", "오프셋" },
+            { "Grid.Parts", "파츠" },
+
+            // Placeholder
+            { "Placeholder.SearchInText", "텍스트 검색..." },
+            { "Placeholder.TypeToFilter", "필터..." },
+            { "Placeholder.Search", "검색..." },
+            { "Placeholder.ID", "ID..." },
+
+            // Status (additional)
+            { "Status.SearchingContent", "콘텐츠 검색 중..." },
+            { "Status.ContentSearchCleared", "콘텐츠 검색 초기화됨" },
+            { "Status.UseViewerSearch", "뷰어의 내장 검색을 사용하세요" },
+            { "Status.NotFound", "찾을 수 없음" },
+            { "Status.BinaryFile", "바이너리 파일" },
+            { "Status.Saving", "저장 중..." },
+
+            // Errors
+            { "Error.LoadImage", "이미지를 로드할 수 없습니다" },
+            { "Error.LoadSpr", "SPR 파일을 로드할 수 없습니다" },
+            { "Error.LoadL1Image", "L1Image를 로드할 수 없습니다" },
+            { "Error.LoadTil", "TIL 파일을 로드할 수 없습니다" },
+
+            // TIL Viewer (additional)
+            { "Til.Background", "배경:" },
+            { "Til.TransparentBg", "□투명 배경" },
+
+            // Buttons (additional)
+            { "Button.Pause", "⏸ 일시정지" },
+            { "Button.Cancel", "취소" },
+            { "Button.OK", "확인" },
+            { "Button.Find", "찾기" },
         };
         #endregion
     }

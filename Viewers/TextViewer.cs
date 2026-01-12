@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using Eto.Drawing;
 using Eto.Forms;
+using PakViewer.Localization;
 
 namespace PakViewer.Viewers
 {
@@ -41,7 +42,7 @@ namespace PakViewer.Viewers
 
         public override Control GetSearchToolbar()
         {
-            _searchBox = new TextBox { PlaceholderText = "Search...", Width = 200 };
+            _searchBox = new TextBox { PlaceholderText = I18n.T("Placeholder.Search"), Width = 200 };
             _searchBox.KeyDown += OnSearchKeyDown;
 
             var prevBtn = new Button { Text = "\u25c0", Width = 30 };
@@ -58,7 +59,7 @@ namespace PakViewer.Viewers
                 Spacing = 5,
                 Padding = new Padding(5),
                 VerticalContentAlignment = VerticalAlignment.Center,
-                Items = { new Label { Text = "Find:" }, _searchBox, prevBtn, nextBtn, _searchResultLabel }
+                Items = { new Label { Text = I18n.T("Label.Find") }, _searchBox, prevBtn, nextBtn, _searchResultLabel }
             };
         }
 
@@ -95,7 +96,7 @@ namespace PakViewer.Viewers
             }
             else
             {
-                _searchResultLabel.Text = "Not found";
+                _searchResultLabel.Text = I18n.T("Status.NotFound");
             }
         }
 
@@ -121,7 +122,7 @@ namespace PakViewer.Viewers
             }
             else
             {
-                _searchResultLabel.Text = "Not found";
+                _searchResultLabel.Text = I18n.T("Status.NotFound");
             }
         }
 

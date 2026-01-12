@@ -10,6 +10,7 @@ using Lin.Helper.Core.Sprite;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Formats.Png;
+using PakViewer.Localization;
 
 namespace PakViewer.Viewers
 {
@@ -88,7 +89,7 @@ namespace PakViewer.Viewers
             };
             _previewDrawable.Paint += OnPreviewPaint;
 
-            _playBtn = new Button { Text = "▶ 播放" };
+            _playBtn = new Button { Text = I18n.T("Button.Play") };
             _playBtn.Click += (s, e) => ToggleAnimation();
 
             var previewPanel = new StackLayout
@@ -189,7 +190,7 @@ namespace PakViewer.Viewers
                                 // 停止目前動畫
                                 _animTimer.Stop();
                                 _isPlaying = false;
-                                if (_playBtn != null) _playBtn.Text = "▶ 播放";
+                                if (_playBtn != null) _playBtn.Text = I18n.T("Button.Play");
 
                                 _selectedPart = part;
                                 _selectedFrameIndex = frameIndex;
@@ -208,7 +209,7 @@ namespace PakViewer.Viewers
                         _animFrameIndex = 0;
                         _isPlaying = true;
                         _animTimer.Start();
-                        if (_playBtn != null) _playBtn.Text = "⏸ 暫停";
+                        if (_playBtn != null) _playBtn.Text = I18n.T("Button.Pause");
                         _previewDrawable.Invalidate();
                     }
 
@@ -232,7 +233,7 @@ namespace PakViewer.Viewers
                         _animFrameIndex = 0;
                         _isPlaying = true;
                         _animTimer.Start();
-                        if (_playBtn != null) _playBtn.Text = "⏸ 暫停";
+                        if (_playBtn != null) _playBtn.Text = I18n.T("Button.Pause");
                         _previewDrawable.Invalidate();
                     }
                 }
@@ -315,12 +316,12 @@ namespace PakViewer.Viewers
             {
                 _animFrameIndex = 0;
                 _animTimer.Start();
-                if (_playBtn != null) _playBtn.Text = "⏸ 暫停";
+                if (_playBtn != null) _playBtn.Text = I18n.T("Button.Pause");
             }
             else
             {
                 _animTimer.Stop();
-                if (_playBtn != null) _playBtn.Text = "▶ 播放";
+                if (_playBtn != null) _playBtn.Text = I18n.T("Button.Play");
             }
         }
 
