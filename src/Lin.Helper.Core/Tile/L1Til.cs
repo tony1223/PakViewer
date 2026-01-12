@@ -1281,6 +1281,15 @@ namespace Lin.Helper.Core.Tile
         /// <summary>
         /// 將 block 渲染到 BGRA32 格式，支援 type 6/7 半透明渲染
         /// </summary>
+        /// <param name="blockData">Block 資料</param>
+        /// <param name="destX">目標 X 座標</param>
+        /// <param name="destY">目標 Y 座標</param>
+        /// <param name="canvas">BGRA32 畫布</param>
+        /// <param name="canvasWidth">畫布寬度</param>
+        /// <param name="canvasHeight">畫布高度</param>
+        /// <param name="bgR">背景紅色分量</param>
+        /// <param name="bgG">背景綠色分量</param>
+        /// <param name="bgB">背景藍色分量</param>
         /// <param name="applyTypeAlpha">是否根據 block type 套用透明度 (type 6/7 = 50% opacity)</param>
         public static void RenderBlockToBgra(byte[] blockData, int destX, int destY, byte[] canvas, int canvasWidth, int canvasHeight, byte bgR, byte bgG, byte bgB, bool applyTypeAlpha)
         {
@@ -1540,6 +1549,110 @@ namespace Lin.Helper.Core.Tile
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// 檢查是否為透明色
+        /// </summary>
+        private static bool IsTransparentColor(ushort color)
+        {
+            return color == 0 || color == 0x0421 || color == 0x7FFF || color == 0x7FE0;
+        }
+
+        /// <summary>
+        /// 計算 inverted alpha 值 (用於雲霧/煙霧效果)
+        /// bit4 (0x10): 白色不透明，黑色透明 (雲 - map 0)
+        /// bit5 (0x20): 黑色不透明，白色透明 (煙 - map 666)
+        /// </summary>
+        public static byte CalculateInvertedAlpha(ushort color, byte ttype)
+        {
+            if (IsTransparentColor(color)) return 0;
+
+            ushort color15 = (ushort)(color & 0x7FFF);
+
+            // Extract RGB555 components
+            uint r = (uint)((color15 >> 10) & 0x1F);
+            uint g = (uint)((color15 >> 5) & 0x1F);
+            uint b = (uint)(color15 & 0x1F);
+
+            // Calculate brightness (max of RGB)
+            uint brightness = Math.Max(r, Math.Max(g, b));
+
+            if ((ttype & 0x20) != 0)
+            {
+                // Bit 0x20: Dark = opaque, White = transparent (smoke, map 666)
+                return (byte)((31 - brightness) * 255 / 31);
+            }
+            else if ((ttype & 0x10) != 0)
+            {
+                // Bit 0x10: White = opaque, Dark = transparent (cloud, map 0)
+                return (byte)(brightness * 255 / 31);
+            }
+
+            return 255; // Full opacity for normal tiles
+        }
+
+        /// <summary>
+        /// 取得 inverted alpha 的渲染顏色
+        /// </summary>
+        public static ushort GetInvertedAlphaRenderColor(ushort color, byte ttype)
+        {
+            ushort color15 = (ushort)(color & 0x7FFF);
+            uint r = (uint)((color15 >> 10) & 0x1F);
+            uint g = (uint)((color15 >> 5) & 0x1F);
+            uint b = (uint)(color15 & 0x1F);
+
+            // Check if grayscale
+            bool isGrayscale = Math.Abs((int)r - (int)g) <= 2 && Math.Abs((int)g - (int)b) <= 2;
+
+            if (isGrayscale)
+            {
+                if ((ttype & 0x20) != 0)
+                    return 0x6318; // Dark gray smoke (map 666)
+                else
+                    return 0x739C; // Light gray cloud (map 0)
+            }
+            else
+            {
+                // Colored effect (blood) - darken original color
+                uint darkR = Math.Min(r * 2 / 3, 31);
+                uint darkG = Math.Min(g * 2 / 3, 31);
+                uint darkB = Math.Min(b * 2 / 3, 31);
+                return (ushort)((darkR << 10) | (darkG << 5) | darkB);
+            }
+        }
+
+        /// <summary>
+        /// RGB555 alpha blending
+        /// </summary>
+        public static ushort BlendRgb555WithAlpha(ushort bg, ushort fg, byte alpha)
+        {
+            if (alpha == 255) return fg;
+            if (alpha == 0) return bg;
+
+            uint invAlpha = (uint)(255 - alpha);
+
+            uint bgR = (uint)((bg >> 10) & 0x1F);
+            uint bgG = (uint)((bg >> 5) & 0x1F);
+            uint bgB = (uint)(bg & 0x1F);
+
+            uint fgR = (uint)((fg >> 10) & 0x1F);
+            uint fgG = (uint)((fg >> 5) & 0x1F);
+            uint fgB = (uint)(fg & 0x1F);
+
+            uint outR = (bgR * invAlpha + fgR * alpha) / 255;
+            uint outG = (bgG * invAlpha + fgG * alpha) / 255;
+            uint outB = (bgB * invAlpha + fgB * alpha) / 255;
+
+            return (ushort)((outR << 10) | (outG << 5) | outB);
+        }
+
+        /// <summary>
+        /// 檢查 block type 是否使用 inverted alpha
+        /// </summary>
+        public static bool HasInvertedAlpha(byte ttype)
+        {
+            return (ttype & 0x30) != 0; // bit4 or bit5
         }
 
         /// <summary>

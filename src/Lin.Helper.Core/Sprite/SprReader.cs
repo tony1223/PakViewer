@@ -164,16 +164,44 @@ namespace Lin.Helper.Core.Sprite
                     }
                 }
 
-                // 組合幀圖像
+                // 組合幀圖像 (使用擴展邊界，不裁切)
                 for (int i = 0; i < frameCount; i++)
                 {
                     if (blockDefs[i] == null) continue;
 
-                    var frame = frames[i];
                     frames[i].MaskColor = maskColor;
 
-                    int stride = (frame.Width + frame.Width % 2) * 2;
-                    byte[] bmpData = new byte[frame.Height * stride];
+                    // 計算擴展邊界
+                    int minX = int.MaxValue, maxX = int.MinValue;
+                    int minY = int.MaxValue, maxY = int.MinValue;
+
+                    for (int b = 0; b < blockDefs[i].Length; b++)
+                    {
+                        int a = blockDefs[i][b].A;
+                        int bVal = blockDefs[i][b].B;
+                        // 負數 A 值需要調整以修正整數除法的捨入行為
+                        int aAdj = a;
+                        if (aAdj < 0) aAdj--;
+                        int blockX = 24 * (bVal + a - aAdj / 2);
+                        int blockY = 12 * (bVal - aAdj / 2);
+
+                        minX = Math.Min(minX, blockX);
+                        maxX = Math.Max(maxX, blockX + 23);
+                        minY = Math.Min(minY, blockY);
+                        maxY = Math.Max(maxY, blockY + 23);
+                    }
+
+                    int width = maxX - minX + 1;
+                    int height = maxY - minY + 1;
+
+                    // 更新 frame 資訊
+                    frames[i].XOffset = minX;
+                    frames[i].YOffset = minY;
+                    frames[i].Width = width;
+                    frames[i].Height = height;
+
+                    int stride = (width + width % 2) * 2;
+                    byte[] bmpData = new byte[height * stride];
 
                     // 填充遮罩色
                     for (int j = 0; j < bmpData.Length; j += 2)
@@ -186,10 +214,11 @@ namespace Lin.Helper.Core.Sprite
                     for (int b = 0; b < blockDefs[i].Length; b++)
                     {
                         int a = blockDefs[i][b].A;
-                        if (a < 0) a--;
-
-                        int blockX = 24 * (blockDefs[i][b].B + blockDefs[i][b].A - a / 2);
-                        int blockY = 12 * (blockDefs[i][b].B - a / 2);
+                        int bVal = blockDefs[i][b].B;
+                        int aAdj = a;
+                        if (aAdj < 0) aAdj--;
+                        int blockX = 24 * (bVal + a - aAdj / 2);
+                        int blockY = 12 * (bVal - aAdj / 2);
 
                         var block = blocks[blockDefs[i][b].BlockId];
 
@@ -200,22 +229,17 @@ namespace Lin.Helper.Core.Sprite
                                 ushort color = block[by, bx];
                                 if (color == 32768) continue;
 
-                                int px = blockX + bx;
-                                int py = blockY + by;
+                                int px = blockX + bx - minX;
+                                int py = blockY + by - minY;
 
-                                if (px >= frame.XOffset && px < frame.Width + frame.XOffset &&
-                                    py >= frame.YOffset && py < frame.Height + frame.YOffset)
-                                {
-                                    int offset = ((py - frame.YOffset) * (frame.Width + frame.Width % 2) +
-                                                  (px - frame.XOffset)) * 2;
-                                    bmpData[offset] = (byte)(color & 0xFF);
-                                    bmpData[offset + 1] = (byte)((color >> 8) & 0xFF);
-                                }
+                                int offset = (py * (width + width % 2) + px) * 2;
+                                bmpData[offset] = (byte)(color & 0xFF);
+                                bmpData[offset + 1] = (byte)((color >> 8) & 0xFF);
                             }
                         }
                     }
 
-                    frames[i].Image = ImageConverter.CreateBitmap(frame.Width, frame.Height, bmpData, 0, maskColor);
+                    frames[i].Image = ImageConverter.CreateBitmap(width, height, bmpData, 0, maskColor);
                 }
 
                 return frames;
@@ -366,15 +390,44 @@ namespace Lin.Helper.Core.Sprite
                     }
                 }
 
+                // 組合幀圖像 (使用擴展邊界，不裁切)
                 for (int i = 0; i < frameCount; i++)
                 {
                     if (blockDefs[i] == null) continue;
 
-                    var frame = frames[i];
                     frames[i].MaskColor = maskColor;
 
-                    int stride = (frame.Width + frame.Width % 2) * 2;
-                    byte[] bmpData = new byte[frame.Height * stride];
+                    // 計算擴展邊界
+                    int minX = int.MaxValue, maxX = int.MinValue;
+                    int minY = int.MaxValue, maxY = int.MinValue;
+
+                    for (int b = 0; b < blockDefs[i].Length; b++)
+                    {
+                        int a = blockDefs[i][b].A;
+                        int bVal = blockDefs[i][b].B;
+                        // 負數 A 值需要調整以修正整數除法的捨入行為
+                        int aAdj = a;
+                        if (aAdj < 0) aAdj--;
+                        int blockX = 24 * (bVal + a - aAdj / 2);
+                        int blockY = 12 * (bVal - aAdj / 2);
+
+                        minX = Math.Min(minX, blockX);
+                        maxX = Math.Max(maxX, blockX + 23);
+                        minY = Math.Min(minY, blockY);
+                        maxY = Math.Max(maxY, blockY + 23);
+                    }
+
+                    int width = maxX - minX + 1;
+                    int height = maxY - minY + 1;
+
+                    // 更新 frame 資訊
+                    frames[i].XOffset = minX;
+                    frames[i].YOffset = minY;
+                    frames[i].Width = width;
+                    frames[i].Height = height;
+
+                    int stride = (width + width % 2) * 2;
+                    byte[] bmpData = new byte[height * stride];
 
                     for (int j = 0; j < bmpData.Length; j += 2)
                     {
@@ -385,10 +438,11 @@ namespace Lin.Helper.Core.Sprite
                     for (int b = 0; b < blockDefs[i].Length; b++)
                     {
                         int a = blockDefs[i][b].A;
-                        if (a < 0) a--;
-
-                        int blockX = 24 * (blockDefs[i][b].B + blockDefs[i][b].A - a / 2);
-                        int blockY = 12 * (blockDefs[i][b].B - a / 2);
+                        int bVal = blockDefs[i][b].B;
+                        int aAdj = a;
+                        if (aAdj < 0) aAdj--;
+                        int blockX = 24 * (bVal + a - aAdj / 2);
+                        int blockY = 12 * (bVal - aAdj / 2);
 
                         var block = blocks[blockDefs[i][b].BlockId];
 
@@ -399,23 +453,18 @@ namespace Lin.Helper.Core.Sprite
                                 ushort color = block[by, bx];
                                 if (color == 32768) continue;
 
-                                int px = blockX + bx;
-                                int py = blockY + by;
+                                int px = blockX + bx - minX;
+                                int py = blockY + by - minY;
 
-                                if (px >= frame.XOffset && px < frame.Width + frame.XOffset &&
-                                    py >= frame.YOffset && py < frame.Height + frame.YOffset)
-                                {
-                                    int offset = ((py - frame.YOffset) * (frame.Width + frame.Width % 2) +
-                                                  (px - frame.XOffset)) * 2;
-                                    bmpData[offset] = (byte)(color & 0xFF);
-                                    bmpData[offset + 1] = (byte)((color >> 8) & 0xFF);
-                                }
+                                int offset = (py * (width + width % 2) + px) * 2;
+                                bmpData[offset] = (byte)(color & 0xFF);
+                                bmpData[offset + 1] = (byte)((color >> 8) & 0xFF);
                             }
                         }
                     }
 
                     // 轉換為 RGBA byte[]
-                    frames[i].Pixels = ImageConverter.CreateRgbaBytes(frame.Width, frame.Height, bmpData, 0, maskColor);
+                    frames[i].Pixels = ImageConverter.CreateRgbaBytes(width, height, bmpData, 0, maskColor);
                 }
 
                 return frames;

@@ -10,7 +10,7 @@ env:
   PROJECT_NAME: PakViewer
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
 
     steps:
@@ -21,13 +21,10 @@ jobs:
       id: get_version
       shell: bash
       run: |
-        # 從 tag 取得版本號 (移除 'v' 前綴)
-        # Tag 格式: v1.yy.MMddHHmm (例如 v1.24.1225143000)
         TAG=${GITHUB_REF#refs/tags/}
         VERSION=${TAG#v}
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "TAG=$TAG" >> $GITHUB_OUTPUT
-        echo "Building version: $VERSION"
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -37,26 +34,143 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
 
-    - name: Build
+    - name: Build and Publish
       run: |
-        dotnet build --configuration Release --no-restore /p:Version=${{ steps.get_version.outputs.VERSION }}
+        dotnet publish --configuration Release --runtime win-x64 --self-contained true -o publish /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 
-    - name: Publish (Self-contained)
-      run: |
-        dotnet publish --configuration Release --runtime win-x64 --self-contained true -o publish/self-contained /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
-
-    - name: Publish (Framework-dependent)
-      run: |
-        dotnet publish --configuration Release -o publish/framework-dependent /p:Version=${{ steps.get_version.outputs.VERSION }}
-
-    - name: Create ZIP archives
+    - name: Create ZIP archive
       shell: pwsh
       run: |
-        # Self-contained 版本 (包含 .NET Runtime)
-        Compress-Archive -Path "publish/self-contained/*" -DestinationPath "${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64-self-contained.zip"
+        Compress-Archive -Path "publish/*" -DestinationPath "${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64.zip"
 
-        # Framework-dependent 版本 (需要安裝 .NET Runtime)
-        Compress-Archive -Path "publish/framework-dependent/*" -DestinationPath "${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64.zip"
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.PROJECT_NAME }}-win-x64
+        path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64.zip
+
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Get version from tag
+      id: get_version
+      shell: bash
+      run: |
+        TAG=${GITHUB_REF#refs/tags/}
+        VERSION=${TAG#v}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build and Publish
+      run: |
+        dotnet publish --configuration Release --runtime linux-x64 --self-contained true -o publish /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+
+    - name: Create ZIP archive
+      run: |
+        cd publish
+        chmod +x ${{ env.PROJECT_NAME }}* 2>/dev/null || true
+        zip -r "../${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-linux-x64.zip" .
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.PROJECT_NAME }}-linux-x64
+        path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-linux-x64.zip
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Get version from tag
+      id: get_version
+      shell: bash
+      run: |
+        TAG=${GITHUB_REF#refs/tags/}
+        VERSION=${TAG#v}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build x64
+      run: |
+        dotnet publish --configuration Release --runtime osx-x64 --self-contained true -o publish-x64 /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+
+    - name: Build arm64
+      run: |
+        dotnet publish --configuration Release --runtime osx-arm64 --self-contained true -o publish-arm64 /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+
+    - name: Create Universal Binary
+      run: |
+        mkdir -p publish-universal
+        # 複製非執行檔
+        cp -R publish-x64/* publish-universal/
+        # 使用 lipo 建立 universal binary
+        for file in publish-x64/${{ env.PROJECT_NAME }}*; do
+          filename=$(basename "$file")
+          if [ -f "publish-arm64/$filename" ] && file "$file" | grep -q "Mach-O"; then
+            echo "Creating universal binary for $filename"
+            lipo -create "publish-x64/$filename" "publish-arm64/$filename" -output "publish-universal/$filename"
+          fi
+        done
+        chmod +x publish-universal/${{ env.PROJECT_NAME }}* 2>/dev/null || true
+
+    - name: Create ZIP archive
+      run: |
+        cd publish-universal
+        zip -r "../${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.zip" .
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.PROJECT_NAME }}-osx-universal
+        path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.zip
+
+  release:
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Get version from tag
+      id: get_version
+      shell: bash
+      run: |
+        TAG=${GITHUB_REF#refs/tags/}
+        VERSION=${TAG#v}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: List artifacts
+      run: find artifacts -type f -name "*.zip"
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
@@ -66,14 +180,33 @@ jobs:
           ## ${{ env.PROJECT_NAME }} ${{ steps.get_version.outputs.TAG }}
 
           ### Downloads
-          - **Self-contained** (`-self-contained.zip`): 包含 .NET Runtime，可直接執行
-          - **Framework-dependent** (`.zip`): 需要安裝 [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+
+          | Platform | File | Note |
+          |----------|------|------|
+          | Windows x64 | `*-win-x64.zip` | Self-contained, 可直接執行 |
+          | Linux x64 | `*-linux-x64.zip` | Self-contained |
+          | macOS Universal | `*-osx-universal.zip` | Self-contained, 支援 Intel & Apple Silicon |
+
+          ### macOS / Linux 使用說明
+
+          **macOS** (未簽署，需手動允許執行):
+          ```bash
+          # 解壓縮後，移除 quarantine 屬性
+          xattr -cr PakViewer
+          # 或在系統偏好設定 > 安全性與隱私 中允許執行
+          ```
+
+          **Linux**:
+          ```bash
+          # 解壓縮後，給予執行權限
+          chmod +x PakViewer
+          ./PakViewer
+          ```
 
           ### Changes
           See [commit history](https://github.com/${{ github.repository }}/commits/${{ steps.get_version.outputs.TAG }}) for details.
         files: |
-          ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64-self-contained.zip
-          ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64.zip
+          artifacts/**/*.zip
         draft: false
         prerelease: ${{ contains(steps.get_version.outputs.TAG, '-') }}
         generate_release_notes: true

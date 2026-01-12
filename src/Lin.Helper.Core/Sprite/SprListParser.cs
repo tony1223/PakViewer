@@ -192,7 +192,19 @@ namespace Lin.Helper.Core.Sprite
                 entry.ImageCount = int.Parse(stdMatch.Groups[2].Value);
                 if (!string.IsNullOrEmpty(stdMatch.Groups[3].Value))
                     entry.LinkedId = int.Parse(stdMatch.Groups[3].Value);
-                entry.Name = stdMatch.Groups[4].Value.Trim();
+
+                // 名稱可能後接動作或屬性定義，需要在第一個 "數字." 模式前截斷
+                var rawName = stdMatch.Groups[4].Value.Trim();
+                var nameParts = rawName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                var nameBuilder = new StringBuilder();
+                foreach (var part in nameParts)
+                {
+                    if (Regex.IsMatch(part, @"^\d+\."))
+                        break;
+                    if (nameBuilder.Length > 0) nameBuilder.Append(" ");
+                    nameBuilder.Append(part);
+                }
+                entry.Name = nameBuilder.Length > 0 ? nameBuilder.ToString() : rawName;
             }
             else
             {
