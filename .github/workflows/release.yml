@@ -280,3 +280,10 @@ jobs:
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Notify Discord
+      if: success()
+      run: |
+        curl -H "Content-Type: application/json" \
+          -d "{\"content\": \"🎉 **PakViewer ${{ steps.get_version.outputs.TAG }}** 已發布！\n\n下載: https://github.com/${{ github.repository }}/releases/tag/${{ steps.get_version.outputs.TAG }}\"}" \
+          ${{ secrets.DISCORD_WEBHOOK_URL }}
