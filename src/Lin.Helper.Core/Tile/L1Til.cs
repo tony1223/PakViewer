@@ -1281,6 +1281,15 @@ namespace Lin.Helper.Core.Tile
         /// <summary>
         /// 將 block 渲染到 BGRA32 格式，支援 type 6/7 半透明渲染
         /// </summary>
+        /// <param name="blockData">Block 資料</param>
+        /// <param name="destX">目標 X 座標</param>
+        /// <param name="destY">目標 Y 座標</param>
+        /// <param name="canvas">BGRA32 畫布</param>
+        /// <param name="canvasWidth">畫布寬度</param>
+        /// <param name="canvasHeight">畫布高度</param>
+        /// <param name="bgR">背景紅色分量</param>
+        /// <param name="bgG">背景綠色分量</param>
+        /// <param name="bgB">背景藍色分量</param>
         /// <param name="applyTypeAlpha">是否根據 block type 套用透明度 (type 6/7 = 50% opacity)</param>
         public static void RenderBlockToBgra(byte[] blockData, int destX, int destY, byte[] canvas, int canvasWidth, int canvasHeight, byte bgR, byte bgG, byte bgB, bool applyTypeAlpha)
         {
