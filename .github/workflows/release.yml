@@ -281,9 +281,16 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Notify Discord
+    - name: Notify Discord Channel
       if: success()
       run: |
         curl -H "Content-Type: application/json" \
           -d "{\"content\": \"🎉 **PakViewer ${{ steps.get_version.outputs.TAG }}** 已發布！\n\n下載: https://github.com/${{ github.repository }}/releases/tag/${{ steps.get_version.outputs.TAG }}\"}" \
           ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+    - name: Notify Discord Thread
+      if: success() && secrets.DISCORD_WEBHOOK_THREAD_URL != ''
+      run: |
+        curl -H "Content-Type: application/json" \
+          -d "{\"content\": \"🎉 **PakViewer ${{ steps.get_version.outputs.TAG }}** 已發布！\n\n下載: https://github.com/${{ github.repository }}/releases/tag/${{ steps.get_version.outputs.TAG }}\"}" \
+          ${{ secrets.DISCORD_WEBHOOK_THREAD_URL }}
