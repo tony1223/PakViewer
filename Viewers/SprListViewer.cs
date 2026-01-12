@@ -26,16 +26,35 @@ namespace PakViewer.Viewers
 
         // UI
         private Scrollable _actionsPanel;
-        private ImageView _previewImage;
+        private Drawable _previewDrawable;
+        private Bitmap _currentBitmap;
         private Label _previewInfoLabel;
         private Label _entryTitleLabel;
         private Button _stopButton;
         private UITimer _animTimer;
-        private Button[] _directionButtons;  // 方向選擇按鈕
+        private Button[] _directionButtons;  // 方向選擇按鈕 (右側)
+
+        // 縮放與背景
+        private int _zoomLevel = 2;  // 預設 2x
+        private int _bgColorIndex = 0;  // 0=黑, 1=紅, 2=透明, 3=白
+        private DropDown _zoomDropDown;
+        private DropDown _bgColorDropDown;
+        private Action<int> _onBgColorChanged;  // 背景色變更回呼
+
+        // 播放速度控制
+        private RadioButtonList _speedRadio;
+        private NumericStepper _customSpeedInput;
+        private const int SPEED_STANDARD = 0;
+        private const int SPEED_SLOW = 1;
+        private const int SPEED_CUSTOM = 2;
 
         // 動畫資料
         private SprFrame[] _currentSprFrames;
         private Func<int, byte[]> _getSpriteDataFunc;
+        private Func<int, SprFrame[]> _getSpriteFramesFunc;  // 直接取得合併後的 frames
+        private Func<string, byte[]> _getSpriteByKeyFunc;    // 以 "spriteId-subId" 格式取得 SPR
+        private string _loadedSpriteKey;  // 目前載入的 sprite key
+        private StackLayout _playingActionPanel;  // 目前播放中的動作面板
 
         public SprListViewer()
         {
@@ -43,11 +62,41 @@ namespace PakViewer.Viewers
         }
 
         /// <summary>
-        /// 設定取得 SPR 資料的函數
+        /// 設定背景顏色初始值和變更回呼
+        /// </summary>
+        public void SetBackgroundColorSettings(int initialColor, Action<int> onChanged)
+        {
+            _bgColorIndex = initialColor;
+            _onBgColorChanged = onChanged;
+            if (_bgColorDropDown != null)
+            {
+                _bgColorDropDown.SelectedIndex = Math.Min(_bgColorIndex, 3);
+            }
+            UpdatePreviewBackground();
+        }
+
+        /// <summary>
+        /// 設定取得 SPR 資料的函數 (單一 part)
         /// </summary>
         public void SetSpriteDataProvider(Func<int, byte[]> getSpriteDataFunc)
         {
             _getSpriteDataFunc = getSpriteDataFunc;
+        }
+
+        /// <summary>
+        /// 設定取得合併後 SprFrame[] 的函數 (所有 parts)
+        /// </summary>
+        public void SetSpriteFramesProvider(Func<int, SprFrame[]> getFramesFunc)
+        {
+            _getSpriteFramesFunc = getFramesFunc;
+        }
+
+        /// <summary>
+        /// 設定以 "spriteId-subId" 格式取得 SPR 的函數 (用於有向動畫)
+        /// </summary>
+        public void SetSpriteByKeyProvider(Func<string, byte[]> getByKeyFunc)
+        {
+            _getSpriteByKeyFunc = getByKeyFunc;
         }
 
         /// <summary>
@@ -63,7 +112,9 @@ namespace PakViewer.Viewers
             {
                 _entryTitleLabel.Text = I18n.T("Viewer.SelectEntry");
                 _actionsPanel.Content = null;
-                _previewImage.Image = null;
+                _currentBitmap?.Dispose();
+                _currentBitmap = null;
+                _previewDrawable?.Invalidate();
                 _previewInfoLabel.Text = "";
                 return;
             }
@@ -101,24 +152,129 @@ namespace PakViewer.Viewers
                 BackgroundColor = Eto.Drawing.Color.FromArgb(250, 250, 252)
             };
 
-            // 預覽區
-            _previewImage = new ImageView { Size = new Eto.Drawing.Size(200, 200) };
+            // 預覽區元件
+            _previewDrawable = new Drawable
+            {
+                Size = new Eto.Drawing.Size(200, 200),
+                BackgroundColor = Colors.Black
+            };
+            _previewDrawable.Paint += OnPreviewPaint;
+
             _previewInfoLabel = new Label { Text = "", TextColor = Colors.White };
             _stopButton = new Button { Text = I18n.T("Button.Stop"), Width = 80 };
             _stopButton.Click += OnStopClick;
 
+            // 縮放選擇
+            _zoomDropDown = new DropDown();
+            _zoomDropDown.Items.Add("1x");
+            _zoomDropDown.Items.Add("2x");
+            _zoomDropDown.SelectedIndex = _zoomLevel - 1;
+            _zoomDropDown.SelectedIndexChanged += (s, e) =>
+            {
+                _zoomLevel = _zoomDropDown.SelectedIndex + 1;
+                _previewDrawable?.Invalidate();
+            };
+
+            // 背景顏色選擇
+            _bgColorDropDown = new DropDown();
+            _bgColorDropDown.Items.Add(I18n.T("Color.Black"));
+            _bgColorDropDown.Items.Add(I18n.T("Color.Red"));
+            _bgColorDropDown.Items.Add(I18n.T("Color.Transparent"));
+            _bgColorDropDown.Items.Add(I18n.T("Color.White"));
+            _bgColorDropDown.SelectedIndex = Math.Min(_bgColorIndex, 3);
+            _bgColorDropDown.SelectedIndexChanged += (s, e) =>
+            {
+                _bgColorIndex = _bgColorDropDown.SelectedIndex;
+                UpdatePreviewBackground();
+                _onBgColorChanged?.Invoke(_bgColorIndex);
+            };
+
+            var zoomBgPanel = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                Items =
+                {
+                    new Label { Text = I18n.T("Label.Zoom"), TextColor = Colors.White, VerticalAlignment = VerticalAlignment.Center },
+                    _zoomDropDown,
+                    new Label { Text = I18n.T("Label.Background"), TextColor = Colors.White, VerticalAlignment = VerticalAlignment.Center },
+                    _bgColorDropDown
+                }
+            };
+
+            // 方向選擇器 (右側)
+            var directionSelector = CreateDirectionSelector();
+            var directionPanel = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 10,
+                Items =
+                {
+                    new Label { Text = I18n.T("Viewer.Direction") + ":", TextColor = Colors.White },
+                    directionSelector
+                }
+            };
+
+            // 播放速度選擇 (垂直排列避免截斷)
+            _speedRadio = new RadioButtonList
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = new Eto.Drawing.Size(0, 2),
+                TextColor = Colors.White
+            };
+            _speedRadio.Items.Add(I18n.T("Speed.Standard"));
+            _speedRadio.Items.Add(I18n.T("Speed.Slow"));
+            _speedRadio.Items.Add(I18n.T("Speed.Custom"));
+            _speedRadio.SelectedIndex = SPEED_STANDARD;
+
+            _customSpeedInput = new NumericStepper
+            {
+                MinValue = 1,
+                MaxValue = 1000,
+                Value = 100,
+                Width = 60,
+                Enabled = false
+            };
+            _speedRadio.SelectedIndexChanged += (s, e) =>
+            {
+                _customSpeedInput.Enabled = (_speedRadio.SelectedIndex == SPEED_CUSTOM);
+            };
+
+            var customSpeedRow = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                Items = { _customSpeedInput, new Label { Text = "ms", TextColor = Colors.White } }
+            };
+
+            var speedPanel = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 3,
+                Items =
+                {
+                    new Label { Text = I18n.T("Viewer.Speed") + ":", TextColor = Colors.White },
+                    _speedRadio,
+                    customSpeedRow
+                }
+            };
+
+            // 右側預覽區
             var previewPanel = new StackLayout
             {
                 Orientation = Orientation.Vertical,
                 Padding = 10,
-                Spacing = 5,
+                Spacing = 8,
                 BackgroundColor = Eto.Drawing.Color.FromArgb(80, 80, 80),
                 Items =
                 {
                     new Label { Text = I18n.T("Viewer.AnimPreview"), TextColor = Colors.White, Font = new Font(SystemFont.Bold) },
+                    zoomBgPanel,
+                    directionPanel,
+                    speedPanel,
+                    _previewDrawable,
                     _previewInfoLabel,
-                    _stopButton,
-                    _previewImage
+                    _stopButton
                 }
             };
 
@@ -152,7 +308,18 @@ namespace PakViewer.Viewers
         {
             _currentSprFrames = null;
 
-            if (_getSpriteDataFunc != null)
+            // 優先使用 frames provider (載入所有 parts)
+            if (_getSpriteFramesFunc != null)
+            {
+                try
+                {
+                    _currentSprFrames = _getSpriteFramesFunc(entry.SpriteId);
+                }
+                catch { }
+            }
+
+            // 備用: 使用 data provider (單一 part)
+            if (_currentSprFrames == null && _getSpriteDataFunc != null)
             {
                 try
                 {
@@ -206,7 +373,8 @@ namespace PakViewer.Viewers
 
             // 播放按鈕
             var playBtn = new Button { Text = I18n.T("Button.Play"), Width = 70 };
-            playBtn.Click += (s, e) => PlayAction(entry, action);
+            StackLayout panelRef = null;  // 稍後設定
+            playBtn.Click += (s, e) => PlayAction(entry, action, panelRef);
 
             // 動作資訊
             var directionText = action.Directional == 1 ? I18n.T("Viewer.Directional") : I18n.T("Viewer.NonDirectional");
@@ -223,13 +391,6 @@ namespace PakViewer.Viewers
                 Orientation = Orientation.Vertical,
                 Spacing = 3
             };
-
-            // 方向選擇器 (只對有向動作顯示)
-            if (action.Directional == 1)
-            {
-                var dirSelector = CreateDirectionSelector();
-                contentPanel.Items.Add(dirSelector);
-            }
 
             // 幀格預覽
             var framesPanel = new StackLayout
@@ -270,6 +431,9 @@ namespace PakViewer.Viewers
                     contentPanel
                 }
             };
+
+            // 設定 panelRef 供按鈕點擊時使用
+            panelRef = panel;
 
             return panel;
         }
@@ -350,9 +514,11 @@ namespace PakViewer.Viewers
                 }
             }
 
-            // 如果正在播放，更新當前幀
-            if (_playingAction != null)
+            // 如果正在播放，立即更新當前幀 (不等待 timer)
+            if (_playingAction != null && _playingAction.Frames.Count > 0)
             {
+                // 重新計算並顯示當前幀
+                _playingFrameIndex = 0;  // 重置到第一幀
                 UpdateAnimationFrame();
             }
         }
@@ -432,22 +598,28 @@ namespace PakViewer.Viewers
             return string.Join("", parts);  // 不加空格，緊湊顯示
         }
 
-        private void PlayAction(SprListEntry entry, SprAction action)
+        private void PlayAction(SprListEntry entry, SprAction action, StackLayout actionPanel = null)
         {
             _animTimer.Stop();
             _playingAction = action;
             _playingFrameIndex = 0;
+            _loadedSpriteKey = null;  // 重置，讓 UpdateAnimationFrame 重新載入
+
+            // 更新動作面板高亮
+            if (_playingActionPanel != null)
+            {
+                _playingActionPanel.BackgroundColor = Colors.White;
+            }
+            _playingActionPanel = actionPanel;
+            if (_playingActionPanel != null)
+            {
+                _playingActionPanel.BackgroundColor = Eto.Drawing.Color.FromArgb(200, 230, 255);  // 淡藍色
+            }
 
             if (action.Frames.Count == 0)
             {
                 _previewInfoLabel.Text = I18n.T("Viewer.NoFrames");
                 return;
-            }
-
-            // 確保有 sprite 資料
-            if (_currentSprFrames == null || _currentSprFrames.Length == 0)
-            {
-                LoadSpriteData(entry);
             }
 
             UpdateAnimationFrame();
@@ -476,48 +648,108 @@ namespace PakViewer.Viewers
 
             var frame = _playingAction.Frames[_playingFrameIndex];
 
-            // 設定下一幀間隔 (舊版公式: Duration * 30ms, 最小 50ms)
-            _animTimer.Interval = Math.Max(0.05, frame.Duration * 0.03);
+            // 設定下一幀間隔
+            double interval = GetFrameInterval(frame.Duration);
+            _animTimer.Interval = Math.Max(0.02, interval);
+
+            // 計算 subId: ImageId + direction (有向) 或 ImageId (無向)
+            // 舊版格式: {SpriteId}-{subId}.spr 每個方向是獨立的 SPR 檔案
+            int direction = _playingAction.IsDirectional ? _currentDirection : 0;
+            int subId = frame.ImageId + direction;
+            string spriteKey = $"{_selectedEntry?.SpriteId}-{subId}";
+
+            // 如果 sprite key 改變了，重新載入
+            if (_loadedSpriteKey != spriteKey)
+            {
+                LoadSpriteByKey(spriteKey);
+            }
+
+            // 實際幀索引就是 FrameIndex
+            int actualIndex = frame.FrameIndex;
 
             // 顯示圖片
             if (_currentSprFrames != null && _currentSprFrames.Length > 0)
             {
-                // 計算實際幀索引 - 舊版公式: ImageId + FrameIndex
-                int actualIndex = frame.ImageId + frame.FrameIndex;
-
-                // 如果超出範圍，嘗試只用 ImageId
-                if (actualIndex < 0 || actualIndex >= _currentSprFrames.Length)
-                {
-                    if (frame.ImageId >= 0 && frame.ImageId < _currentSprFrames.Length)
-                    {
-                        actualIndex = frame.ImageId;
-                    }
-                    else
-                    {
-                        actualIndex = actualIndex % _currentSprFrames.Length;
-                    }
-                }
-
                 if (actualIndex >= 0 && actualIndex < _currentSprFrames.Length)
                 {
                     var sprFrame = _currentSprFrames[actualIndex];
                     if (sprFrame.Image != null)
                     {
-                        _previewImage.Image = ConvertToEtoBitmap(sprFrame.Image);
+                        _currentBitmap?.Dispose();
+                        _currentBitmap = ConvertToEtoBitmap(sprFrame.Image);
+                        _previewDrawable?.Invalidate();
                     }
                 }
 
-                // 顯示 SPR 檔名、格數和方向資訊
-                var sprFileName = $"{_selectedEntry?.SpriteId}.spr";
-                var directionText = _playingAction.IsDirectional ? $"#Dir:{_currentDirection}" : "";
-                _previewInfoLabel.Text = $"{I18n.T("Viewer.File")}: {sprFileName}\n" +
-                                         $"{I18n.T("Viewer.Frame")}: {_playingFrameIndex + 1}/{_playingAction.Frames.Count} {directionText}\n" +
-                                         $"{I18n.T("Viewer.SprFrame")}: {actualIndex}/{_currentSprFrames.Length}";
+                // 顯示格式: SpriteId-subId #{FrameIndex}
+                var sprRef = $"{_selectedEntry?.SpriteId}-{subId} #{actualIndex}";
+                var directionText = _playingAction.IsDirectional ? $" Dir:{_currentDirection}" : "";
+                _previewInfoLabel.Text = $"{sprRef}\n" +
+                                         $"{I18n.T("Viewer.Frame", _playingFrameIndex + 1, _playingAction.Frames.Count)}{directionText}\n" +
+                                         $"SPR: {_currentSprFrames.Length}{I18n.T("Viewer.Frames")}";
             }
             else
             {
-                _previewInfoLabel.Text = I18n.T("Viewer.Playing", _playingAction.DisplayName, _playingFrameIndex + 1, _playingAction.Frames.Count) + "\n" +
-                                         I18n.T("Viewer.NoImageData");
+                // 沒有圖片資料
+                var sprRef = $"{_selectedEntry?.SpriteId}-{subId} #{actualIndex}";
+                var directionText = _playingAction.IsDirectional ? $" Dir:{_currentDirection}" : "";
+                _previewInfoLabel.Text = $"{sprRef}\n" +
+                                         $"{I18n.T("Viewer.Frame", _playingFrameIndex + 1, _playingAction.Frames.Count)}{directionText}\n" +
+                                         $"({I18n.T("Viewer.NoImageData")})";
+            }
+        }
+
+        private void OnPreviewPaint(object sender, PaintEventArgs e)
+        {
+            if (_currentBitmap == null) return;
+
+            var g = e.Graphics;
+            var drawableSize = _previewDrawable.Size;
+
+            float scale = Math.Min((float)(drawableSize.Width - 10) / _currentBitmap.Width, (float)(drawableSize.Height - 10) / _currentBitmap.Height);
+            scale = Math.Min(scale, _zoomLevel);
+
+            float w = _currentBitmap.Width * scale;
+            float h = _currentBitmap.Height * scale;
+            float x = (drawableSize.Width - w) / 2;
+            float y = (drawableSize.Height - h) / 2;
+
+            g.DrawImage(_currentBitmap, x, y, w, h);
+        }
+
+        private void UpdatePreviewBackground()
+        {
+            if (_previewDrawable == null) return;
+            _previewDrawable.BackgroundColor = _bgColorIndex switch
+            {
+                1 => Colors.Red,
+                2 => Colors.Transparent,
+                3 => Colors.White,
+                _ => Colors.Black
+            };
+            _previewDrawable.Invalidate();
+        }
+
+        /// <summary>
+        /// 以 spriteKey 格式載入 SPR (例如 "3225-20")
+        /// </summary>
+        private void LoadSpriteByKey(string spriteKey)
+        {
+            _currentSprFrames = null;
+            _loadedSpriteKey = null;
+
+            if (_getSpriteByKeyFunc != null)
+            {
+                try
+                {
+                    var sprData = _getSpriteByKeyFunc(spriteKey);
+                    if (sprData != null)
+                    {
+                        _currentSprFrames = SprReader.Load(sprData);
+                        _loadedSpriteKey = spriteKey;
+                    }
+                }
+                catch { }
             }
         }
 
@@ -534,12 +766,42 @@ namespace PakViewer.Viewers
             _animTimer.Stop();
             _playingAction = null;
             _previewInfoLabel.Text = I18n.T("Viewer.Stopped");
+
+            // 清除動作面板高亮
+            if (_playingActionPanel != null)
+            {
+                _playingActionPanel.BackgroundColor = Colors.White;
+                _playingActionPanel = null;
+            }
+        }
+
+        /// <summary>
+        /// 根據播放速度設定計算幀間隔
+        /// </summary>
+        private double GetFrameInterval(int duration)
+        {
+            switch (_speedRadio.SelectedIndex)
+            {
+                case SPEED_STANDARD:
+                    // 1/24 秒 ≈ 41.67ms，乘以 duration
+                    return duration * (1.0 / 24.0);
+                case SPEED_SLOW:
+                    // 10/24 秒 ≈ 416.67ms，乘以 duration
+                    return duration * (10.0 / 24.0);
+                case SPEED_CUSTOM:
+                    // 自訂毫秒值
+                    return _customSpeedInput.Value / 1000.0;
+                default:
+                    return duration * (1.0 / 24.0);
+            }
         }
 
         public override void Dispose()
         {
             _animTimer?.Stop();
             _animTimer?.Dispose();
+            _currentBitmap?.Dispose();
+            _currentBitmap = null;
             base.Dispose();
         }
     }

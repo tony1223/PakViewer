@@ -38,11 +38,29 @@ namespace PakViewer.Viewers
         private bool _isPlaying = false;
         private Button _playBtn;
 
+        // 縮放
+        private int _zoomLevel = 2;  // 預設 2x
+        private DropDown _zoomDropDown;
+
+        // 背景顏色
+        private int _bgColorIndex = 0;  // 0=黑, 1=紅, 2=透明, 3=白
+        private DropDown _bgColorDropDown;
+        private Action<int> _onBgColorChanged;  // 背景色變更回呼
+
         private const int THUMB_SIZE = 48;
         private const int THUMB_SPACING = 4;
 
         public override string[] SupportedExtensions => Array.Empty<string>();
         public override bool CanEdit => false;
+
+        /// <summary>
+        /// 設定背景顏色初始值和變更回呼
+        /// </summary>
+        public void SetBackgroundColorSettings(int initialColor, Action<int> onChanged)
+        {
+            _bgColorIndex = initialColor;
+            _onBgColorChanged = onChanged;
+        }
 
         public override void LoadData(byte[] data, string fileName)
         {
@@ -53,8 +71,34 @@ namespace PakViewer.Viewers
         {
             _group = group;
             _frameBitmaps.Clear();
+            _partFramesCache.Clear();
             BuildUI();
-            // LoadFrameThumbnails 已不需要，因為 AddPartSection 會直接載入
+
+            // 自動載入並播放第一個 part
+            if (_group.Parts.Count > 0)
+            {
+                AutoPlayFirstPart();
+            }
+        }
+
+        private void AutoPlayFirstPart()
+        {
+            var firstPart = _group.Parts[0];
+            var frames = LoadPartFramesInternal(firstPart);
+            if (frames != null && frames.Length > 0)
+            {
+                _partFramesCache[firstPart.FileName] = frames;
+                LoadFrameBitmaps(firstPart, frames);
+
+                _selectedPart = firstPart;
+                _currentFrames = frames;
+                _selectedFrameIndex = 0;
+                _animFrameIndex = 0;
+                _isPlaying = true;
+                _animTimer.Start();
+                if (_playBtn != null) _playBtn.Text = I18n.T("Button.Pause");
+                _previewDrawable?.Invalidate();
+            }
         }
 
         private void BuildUI()
@@ -92,13 +136,51 @@ namespace PakViewer.Viewers
             _playBtn = new Button { Text = I18n.T("Button.Play") };
             _playBtn.Click += (s, e) => ToggleAnimation();
 
+            // 縮放選擇
+            _zoomDropDown = new DropDown();
+            _zoomDropDown.Items.Add("1x");
+            _zoomDropDown.Items.Add("2x");
+            _zoomDropDown.SelectedIndex = _zoomLevel - 1;  // 預設 2x
+            _zoomDropDown.SelectedIndexChanged += (s, e) =>
+            {
+                _zoomLevel = _zoomDropDown.SelectedIndex + 1;
+                _previewDrawable?.Invalidate();
+            };
+
+            // 背景顏色選擇
+            _bgColorDropDown = new DropDown();
+            _bgColorDropDown.Items.Add(I18n.T("Color.Black"));
+            _bgColorDropDown.Items.Add(I18n.T("Color.Red"));
+            _bgColorDropDown.Items.Add(I18n.T("Color.Transparent"));
+            _bgColorDropDown.Items.Add(I18n.T("Color.White"));
+            _bgColorDropDown.SelectedIndex = Math.Min(_bgColorIndex, 3);
+            _bgColorDropDown.SelectedIndexChanged += (s, e) =>
+            {
+                _bgColorIndex = _bgColorDropDown.SelectedIndex;
+                UpdatePreviewBackground();
+                _onBgColorChanged?.Invoke(_bgColorIndex);
+            };
+
+            var controlsPanel = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 10,
+                Items = {
+                    _playBtn,
+                    new Label { Text = I18n.T("Label.Zoom"), VerticalAlignment = VerticalAlignment.Center },
+                    _zoomDropDown,
+                    new Label { Text = I18n.T("Label.Background"), VerticalAlignment = VerticalAlignment.Center },
+                    _bgColorDropDown
+                }
+            };
+
             var previewPanel = new StackLayout
             {
                 Orientation = Orientation.Vertical,
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 Spacing = 5,
                 Padding = 5,
-                Items = { _previewDrawable, _playBtn }
+                Items = { _previewDrawable, controlsPanel }
             };
 
             // 使用 Splitter 分割上下區域
@@ -291,9 +373,9 @@ namespace PakViewer.Viewers
             var g = e.Graphics;
             var drawableSize = _previewDrawable.Size;
 
-            // 2x 縮放
+            // 依選擇的縮放倍率繪製
             float scale = Math.Min((float)(drawableSize.Width - 20) / bmp.Width, (float)(drawableSize.Height - 20) / bmp.Height);
-            scale = Math.Min(scale, 2);
+            scale = Math.Min(scale, _zoomLevel);
 
             float w = bmp.Width * scale;
             float h = bmp.Height * scale;
@@ -305,6 +387,19 @@ namespace PakViewer.Viewers
             // 顯示資訊
             var info = $"Frame {_selectedFrameIndex} ({frame.Width}x{frame.Height})";
             g.DrawText(new Font(SystemFont.Default, 9), Colors.White, 5, 5, info);
+        }
+
+        private void UpdatePreviewBackground()
+        {
+            if (_previewDrawable == null) return;
+            _previewDrawable.BackgroundColor = _bgColorIndex switch
+            {
+                1 => Colors.Red,
+                2 => Colors.Transparent,
+                3 => Colors.White,
+                _ => Colors.Black
+            };
+            _previewDrawable.Invalidate();
         }
 
         private void ToggleAnimation()

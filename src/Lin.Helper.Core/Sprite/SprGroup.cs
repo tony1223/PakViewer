@@ -32,6 +32,7 @@ namespace Lin.Helper.Core.Sprite
     /// </summary>
     public class SprGroupItem
     {
+        public bool? IsChecked { get; set; } = false;
         public int Id { get; set; }
         public int Parts { get; set; }
         public int Frames { get; set; }

@@ -58,7 +58,6 @@ namespace PakViewer
         // SPR List Mode
         private SprListFile _sprListFile;
         private List<SprListEntry> _filteredSprListEntries;
-        private int? _sprListTypeFilter = null;
         private Dictionary<int, PakFile> _spritePakFiles;  // SpriteId -> PakFile mapping
 
         // 模式控制 (Radio: 一般/SPR/SPR List)
@@ -70,6 +69,8 @@ namespace PakViewer
 
         // SPR Mode
         private Dictionary<int, SprGroup> _sprGroups;
+        private int? _sprModeTypeFilter = null;
+        private bool _sprModeUnreferencedFilter = false;
         private GridView _sprGroupGrid;
         private CheckBox _sprModeListSprCheck;      // list.spr 是否已設定
         private Label _sprModeListSprLabel;         // list.spr 路徑顯示
@@ -193,10 +194,6 @@ namespace PakViewer
             var openIdxCmd = new Command { MenuText = I18n.T("Menu.File.OpenIdx"), Shortcut = Keys.Control | Keys.I };
             openIdxCmd.Executed += OnOpenIdxFile;
             fileMenu.Items.Add(openIdxCmd);
-
-            var openSprListCmd = new Command { MenuText = I18n.T("Menu.File.OpenSprList"), Shortcut = Keys.Control | Keys.L };
-            openSprListCmd.Executed += OnOpenSprList;
-            fileMenu.Items.Add(openSprListCmd);
 
             var openDatCmd = new Command { MenuText = I18n.T("Menu.File.OpenDat"), Shortcut = Keys.Control | Keys.M };
             openDatCmd.Executed += OnOpenDatFile;
@@ -389,9 +386,10 @@ namespace PakViewer
             _langFilterDropDown.SelectedIndex = 0;
             _langFilterDropDown.SelectedIndexChanged += OnLangFilterChanged;
 
-            // SPR Type filter (for SPR List mode)
+            // SPR Type filter (for SPR mode with list.spr)
             _sprTypeFilterDropDown = new DropDown { Visible = false };
             _sprTypeFilterDropDown.Items.Add(I18n.T("Filter.AllTypes"));
+            _sprTypeFilterDropDown.Items.Add(I18n.T("Filter.Unreferenced"));
             _sprTypeFilterDropDown.Items.Add($"0 - {I18n.T("SprType.0")}");
             _sprTypeFilterDropDown.Items.Add($"1 - {I18n.T("SprType.1")}");
             _sprTypeFilterDropDown.Items.Add($"5 - {I18n.T("SprType.5")}");
@@ -498,6 +496,15 @@ namespace PakViewer
                 ShowHeader = true
             };
 
+            // 勾選欄位
+            _sprListGrid.Columns.Add(new GridColumn
+            {
+                HeaderText = "",
+                DataCell = new CheckBoxCell { Binding = Binding.Property<SprListItem, bool?>(r => r.IsChecked) },
+                Width = 30,
+                Editable = true
+            });
+
             _sprListGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.ID"),
@@ -535,12 +542,37 @@ namespace PakViewer
 
             _sprListGrid.SelectionChanged += OnSprListSelected;
 
+            // SPR List 右鍵選單 (不包含刪除功能)
+            var sprListContextMenu = new ContextMenu();
+            var sprListSelectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.SelectAll") };
+            sprListSelectAllMenuItem.Click += OnSprListSelectAll;
+            var sprListUnselectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.UnselectAll") };
+            sprListUnselectAllMenuItem.Click += OnSprListUnselectAll;
+            var sprListSaveMenuItem = new ButtonMenuItem { Text = I18n.T("Context.SaveAs") };
+            sprListSaveMenuItem.Click += OnSprListSaveAs;
+
+            sprListContextMenu.Items.Add(sprListSelectAllMenuItem);
+            sprListContextMenu.Items.Add(sprListUnselectAllMenuItem);
+            sprListContextMenu.Items.Add(new SeparatorMenuItem());
+            sprListContextMenu.Items.Add(sprListSaveMenuItem);
+
+            _sprListGrid.ContextMenu = sprListContextMenu;
+
             // SPR Group Grid (新增 - SPR 模式用)
             _sprGroupGrid = new GridView
             {
-                AllowMultipleSelection = false,
+                AllowMultipleSelection = true,
                 ShowHeader = true
             };
+
+            // 勾選欄
+            _sprGroupGrid.Columns.Add(new GridColumn
+            {
+                HeaderText = "",
+                DataCell = new CheckBoxCell { Binding = Binding.Property<SprGroupItem, bool?>(r => r.IsChecked) },
+                Width = 30,
+                Editable = true
+            });
 
             _sprGroupGrid.Columns.Add(new GridColumn
             {
@@ -557,6 +589,22 @@ namespace PakViewer
             });
 
             _sprGroupGrid.SelectionChanged += OnSprGroupSelected;
+
+            // SPR Group 右鍵選單
+            var sprGroupContextMenu = new ContextMenu();
+            var sprGroupSelectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.SelectAll") };
+            sprGroupSelectAllMenuItem.Click += OnSprGroupSelectAll;
+            var sprGroupUnselectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.UnselectAll") };
+            sprGroupUnselectAllMenuItem.Click += OnSprGroupUnselectAll;
+            var sprGroupDeleteMenuItem = new ButtonMenuItem { Text = I18n.T("Context.Delete") };
+            sprGroupDeleteMenuItem.Click += OnSprGroupDelete;
+
+            sprGroupContextMenu.Items.Add(sprGroupSelectAllMenuItem);
+            sprGroupContextMenu.Items.Add(sprGroupUnselectAllMenuItem);
+            sprGroupContextMenu.Items.Add(new SeparatorMenuItem());
+            sprGroupContextMenu.Items.Add(sprGroupDeleteMenuItem);
+
+            _sprGroupGrid.ContextMenu = sprGroupContextMenu;
 
             // 統一標籤寬度
             const int labelWidth = 50;
@@ -2245,9 +2293,10 @@ namespace PakViewer
                 _filteredSprListEntries = _sprListFile.Entries;
                 _viewModeRadio.SelectedIndex = MODE_SPR_LIST;
 
-                // 重置類型篩選器為「全部」
+                // 重置類型篩選器為「全部」(SPR List 模式不使用類型篩選)
                 _sprTypeFilterDropDown.SelectedIndex = 0;
-                _sprListTypeFilter = null;
+                _sprModeTypeFilter = null;
+                _sprModeUnreferencedFilter = false;
 
                 // Load sprite*.idx files for sprite data
                 if (!string.IsNullOrEmpty(_selectedFolder))
@@ -2285,19 +2334,34 @@ namespace PakViewer
             // 建立簡化的 SprListViewer - 只顯示動作面板
             var viewer = new Viewers.SprListViewer();
 
-            // 設定 sprite 資料提供者
-            viewer.SetSpriteDataProvider(spriteId =>
+            // 設定背景顏色
+            viewer.SetBackgroundColorSettings(_settings.SprPreviewBgColor, color =>
             {
-                if (_spritePakFiles != null && _spritePakFiles.TryGetValue(spriteId, out var pak))
+                _settings.SprPreviewBgColor = color;
+                _settings.Save();
+            });
+
+            // 設定以 "spriteId-subId" 格式取得 SPR 的函數 (用於有向動畫)
+            // 例如 "3225-20" 會載入 3225-20.spr
+            viewer.SetSpriteByKeyProvider(spriteKey =>
+            {
+                // spriteKey 格式: "spriteId-subId" (例如 "3225-20")
+                var sprFileName = $"{spriteKey}.spr";
+
+                // 從所有已載入的 sprite pak 中尋找
+                if (_spritePakFiles != null)
                 {
-                    var sprFileName = $"{spriteId}.spr";
-                    var fileIndex = pak.Files.ToList().FindIndex(f =>
-                        f.FileName.Equals(sprFileName, StringComparison.OrdinalIgnoreCase));
-                    if (fileIndex >= 0)
+                    foreach (var pak in _spritePakFiles.Values.Distinct())
                     {
-                        return pak.Extract(fileIndex);
+                        var fileIndex = pak.Files.ToList().FindIndex(f =>
+                            f.FileName.Equals(sprFileName, StringComparison.OrdinalIgnoreCase));
+                        if (fileIndex >= 0)
+                        {
+                            return pak.Extract(fileIndex);
+                        }
                     }
                 }
+
                 return null;
             });
 
@@ -2344,6 +2408,11 @@ namespace PakViewer
                         }
                     }
                     SetSpriteIdxMode(true);
+                    // 載入 SPR Groups (用於 sprite 資料查找)
+                    if (_sprGroups == null || _sprGroups.Count == 0)
+                    {
+                        LoadSprGroups(_selectedFolder);
+                    }
                     LoadListSprFile();
                     ShowSprListViewer();
                     _leftListPanel.Content = _sprListGrid;
@@ -2579,8 +2648,37 @@ namespace PakViewer
             if (_sprGroups == null) return;
 
             var filter = _currentFilter?.ToLowerInvariant() ?? "";
-            var items = _sprGroups.Values
-                .Where(g => string.IsNullOrEmpty(filter) || g.SpriteId.ToString().Contains(filter))
+            var groups = _sprGroups.Values.AsEnumerable();
+
+            // 如果有 list.spr，可以做類型篩選
+            if (_sprListFile != null)
+            {
+                if (_sprModeUnreferencedFilter)
+                {
+                    // 篩選未被 list.spr 引用的 SPR
+                    var referencedIds = _sprListFile.Entries
+                        .Select(e => e.SpriteId)
+                        .ToHashSet();
+                    groups = groups.Where(g => !referencedIds.Contains(g.SpriteId));
+                }
+                else if (_sprModeTypeFilter.HasValue)
+                {
+                    // 篩選特定類型
+                    var typeIds = _sprListFile.Entries
+                        .Where(e => e.TypeId == _sprModeTypeFilter.Value)
+                        .Select(e => e.SpriteId)
+                        .ToHashSet();
+                    groups = groups.Where(g => typeIds.Contains(g.SpriteId));
+                }
+            }
+
+            // 文字搜尋篩選
+            if (!string.IsNullOrEmpty(filter))
+            {
+                groups = groups.Where(g => g.SpriteId.ToString().Contains(filter));
+            }
+
+            var items = groups
                 .OrderBy(g => g.SpriteId)
                 .Select(g => new SprGroupItem
                 {
@@ -2592,7 +2690,7 @@ namespace PakViewer
                 .ToList();
 
             _sprGroupGrid.DataStore = items;
-            _recordCountLabel.Text = $"{items.Count} 筆";
+            _recordCountLabel.Text = $"{items.Count} / {_sprGroups.Count} 筆";
         }
 
         private void ShowSprGroupViewer(SprGroup group)
@@ -2600,6 +2698,11 @@ namespace PakViewer
             _currentViewer?.Dispose();
 
             var viewer = new Viewers.SprGroupViewer();
+            viewer.SetBackgroundColorSettings(_settings.SprPreviewBgColor, color =>
+            {
+                _settings.SprPreviewBgColor = color;
+                _settings.Save();
+            });
             viewer.LoadGroup(group);
             _currentViewer = viewer;
             _viewerPanel.Content = viewer.GetControl();
@@ -2620,9 +2723,16 @@ namespace PakViewer
         private void OnSprTypeFilterChanged(object sender, EventArgs e)
         {
             var selected = _sprTypeFilterDropDown.SelectedValue?.ToString() ?? "All Types";
-            if (selected == "All Types")
+            _sprModeUnreferencedFilter = false;
+            _sprModeTypeFilter = null;
+
+            if (selected == I18n.T("Filter.AllTypes"))
             {
-                _sprListTypeFilter = null;
+                // No filter
+            }
+            else if (selected == I18n.T("Filter.Unreferenced"))
+            {
+                _sprModeUnreferencedFilter = true;
             }
             else
             {
@@ -2630,11 +2740,11 @@ namespace PakViewer
                 var parts = selected.Split('-');
                 if (parts.Length > 0 && int.TryParse(parts[0].Trim(), out int typeId))
                 {
-                    _sprListTypeFilter = typeId;
+                    _sprModeTypeFilter = typeId;
                 }
             }
 
-            UpdateSprListDisplay();
+            UpdateSprGroupDisplay();
         }
 
         private void UpdateModeDisplay()
@@ -2642,8 +2752,8 @@ namespace PakViewer
             var mode = _viewModeRadio.SelectedIndex;
 
             // Toggle visibility of mode-specific filter controls
-            // 只在 SPR List 模式顯示類型篩選器
-            var showTypeFilter = (mode == MODE_SPR_LIST);
+            // 只在 SPR 模式且有載入 list.spr 時顯示類型篩選器
+            var showTypeFilter = (mode == MODE_SPR && _sprListFile != null);
             _sprTypeFilterDropDown.Visible = showTypeFilter;
             _sprTypeLabel.Visible = showTypeFilter;
 
@@ -2701,11 +2811,7 @@ namespace PakViewer
 
             foreach (var entry in _sprListFile.Entries)
             {
-                // Apply type filter
-                if (_sprListTypeFilter.HasValue && entry.TypeId != _sprListTypeFilter)
-                    continue;
-
-                // Apply search filter
+                // Apply search filter only (no type filter in SPR List mode)
                 if (!string.IsNullOrEmpty(filter))
                 {
                     if (!entry.Name.ToLowerInvariant().Contains(filter) &&
@@ -2728,6 +2834,12 @@ namespace PakViewer
             _filteredSprListEntries = items.Select(i => i.Entry).ToList();
             _sprListGrid.DataStore = items;
             _recordCountLabel.Text = $"Records: {items.Count} / {_sprListFile.Entries.Count}";
+
+            // 預設選擇第一個條目
+            if (items.Count > 0 && _sprListGrid.SelectedRow < 0)
+            {
+                _sprListGrid.SelectedRow = 0;
+            }
         }
 
         private void OnSprListSelected(object sender, EventArgs e)
@@ -2754,6 +2866,167 @@ namespace PakViewer
 
             // Show entry info in status
             _statusLabel.Text = $"#{entry.Id} {entry.Name} - {entry.TypeName} ({entry.Actions.Count} actions, {entry.ImageCount} images)";
+        }
+
+        private void OnSprListSelectAll(object sender, EventArgs e)
+        {
+            var items = _sprListGrid.DataStore as IEnumerable<SprListItem>;
+            if (items == null) return;
+
+            foreach (var item in items)
+            {
+                item.IsChecked = true;
+            }
+            _sprListGrid.Invalidate();
+
+            int count = items.Count(i => i.IsChecked == true);
+            _statusLabel.Text = $"{I18n.T("Status.Selected")}: {count}";
+        }
+
+        private void OnSprListUnselectAll(object sender, EventArgs e)
+        {
+            var items = _sprListGrid.DataStore as IEnumerable<SprListItem>;
+            if (items == null) return;
+
+            foreach (var item in items)
+            {
+                item.IsChecked = false;
+            }
+            _sprListGrid.Invalidate();
+            _statusLabel.Text = I18n.T("Status.SelectionCleared");
+        }
+
+        private void OnSprListDelete(object sender, EventArgs e)
+        {
+            var items = _sprListGrid.DataStore as IEnumerable<SprListItem>;
+            if (items == null) return;
+
+            var checkedItems = items.Where(i => i.IsChecked == true).ToList();
+            if (checkedItems.Count == 0)
+            {
+                MessageBox.Show(I18n.T("Error.NoItemSelected"), I18n.T("Dialog.Info"));
+                return;
+            }
+
+            // 確認刪除
+            var result = MessageBox.Show(
+                string.Format(I18n.T("Confirm.DeleteItems"), checkedItems.Count),
+                I18n.T("Dialog.Confirm"),
+                MessageBoxButtons.YesNo,
+                MessageBoxType.Question);
+
+            if (result != DialogResult.Yes) return;
+
+            // 從 _sprListFile.Entries 中移除
+            foreach (var item in checkedItems)
+            {
+                _sprListFile.Entries.Remove(item.Entry);
+            }
+
+            // 更新顯示
+            UpdateSprListDisplay();
+            _statusLabel.Text = string.Format(I18n.T("Status.ItemsDeleted"), checkedItems.Count);
+        }
+
+        private void OnSprListSaveAs(object sender, EventArgs e)
+        {
+            if (_sprListFile == null)
+            {
+                MessageBox.Show(I18n.T("Error.NoFileLoaded"), I18n.T("Dialog.Error"));
+                return;
+            }
+
+            using var dlg = new SaveFileDialog
+            {
+                Title = I18n.T("Dialog.SaveAs"),
+                Filters = { new FileFilter(I18n.T("Filter.SprList"), ".spr") }
+            };
+
+            if (dlg.ShowDialog(this) == DialogResult.Ok)
+            {
+                try
+                {
+                    // 使用 SprListWriter 儲存
+                    Lin.Helper.Core.Sprite.SprListWriter.SaveToFile(_sprListFile, dlg.FileName);
+
+                    _statusLabel.Text = $"{I18n.T("Status.Saved")}: {dlg.FileName}";
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"{I18n.T("Error.SaveFailed")}: {ex.Message}", I18n.T("Dialog.Error"));
+                }
+            }
+        }
+
+        private void OnSprGroupSelectAll(object sender, EventArgs e)
+        {
+            var items = _sprGroupGrid.DataStore as IEnumerable<SprGroupItem>;
+            if (items == null) return;
+
+            foreach (var item in items)
+            {
+                item.IsChecked = true;
+            }
+            _sprGroupGrid.Invalidate();
+
+            int count = items.Count(i => i.IsChecked == true);
+            _statusLabel.Text = $"{I18n.T("Status.Selected")}: {count}";
+        }
+
+        private void OnSprGroupUnselectAll(object sender, EventArgs e)
+        {
+            var items = _sprGroupGrid.DataStore as IEnumerable<SprGroupItem>;
+            if (items == null) return;
+
+            foreach (var item in items)
+            {
+                item.IsChecked = false;
+            }
+            _sprGroupGrid.Invalidate();
+            _statusLabel.Text = I18n.T("Status.SelectionCleared");
+        }
+
+        private void OnSprGroupDelete(object sender, EventArgs e)
+        {
+            var items = _sprGroupGrid.DataStore as IEnumerable<SprGroupItem>;
+            if (items == null) return;
+
+            var checkedItems = items.Where(i => i.IsChecked == true).ToList();
+            if (checkedItems.Count == 0)
+            {
+                MessageBox.Show(I18n.T("Error.NoItemSelected"), I18n.T("Dialog.Info"));
+                return;
+            }
+
+            // 建立要刪除的 SPR 檔案清單
+            var sprFileNames = checkedItems
+                .SelectMany(g => Enumerable.Range(0, g.Group.PartsCount)
+                    .Select(p => $"{g.Id}-{p}.spr"))
+                .ToList();
+
+            var message = string.Format(I18n.T("Confirm.DeleteSprFiles"),
+                string.Join("\n", sprFileNames.Take(10)) +
+                (sprFileNames.Count > 10 ? $"\n... {I18n.T("Status.AndMore", sprFileNames.Count - 10)}" : ""));
+
+            // 確認刪除
+            var result = MessageBox.Show(
+                message,
+                I18n.T("Dialog.Confirm"),
+                MessageBoxButtons.YesNo,
+                MessageBoxType.Warning);
+
+            if (result != DialogResult.Yes) return;
+
+            // TODO: 實際刪除 SPR 檔案從 sprite*.idx
+            // 目前只從顯示列表中移除
+            foreach (var item in checkedItems)
+            {
+                _sprGroups.Remove(item.Id);
+            }
+
+            // 更新顯示
+            UpdateSprGroupDisplay();
+            _statusLabel.Text = string.Format(I18n.T("Status.ItemsDeleted"), checkedItems.Count);
         }
 
         #endregion
@@ -2795,6 +3068,7 @@ namespace PakViewer
         public int? TypeId { get; set; }
         public int ActionCount { get; set; }
         public SprListEntry Entry { get; set; }
+        public bool? IsChecked { get; set; } = false;  // 勾選狀態
 
         public string TypeName => Entry?.TypeName ?? "未知";
     }
@@ -2826,6 +3100,7 @@ namespace PakViewer
         public string LastSprListFile { get; set; }
         public string SprModeListSprPath { get; set; }  // SPR 模式用的 list.spr 路徑
         public string Language { get; set; } = "zh-TW"; // 預設語言
+        public int SprPreviewBgColor { get; set; } = 0;  // SPR 預覽背景色 (0=黑, 1=紅, 2=透明, 3=白)
 
         private static string SettingsPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

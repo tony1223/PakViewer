@@ -121,6 +121,12 @@ namespace PakViewer.Localization
             { "Label.Search", "搜尋:" },
             { "Label.Find", "尋找:" },
             { "Label.Mode", "模式:" },
+            { "Label.Zoom", "縮放:" },
+            { "Label.Background", "背景:" },
+            { "Color.Black", "黑色" },
+            { "Color.Red", "紅色" },
+            { "Color.Transparent", "透明" },
+            { "Color.White", "白色" },
 
             // Mode
             { "Mode.Normal", "一般" },
@@ -151,7 +157,8 @@ namespace PakViewer.Localization
 
             // Filters
             { "Filter.All", "全部" },
-            { "Filter.AllTypes", "All Types" },
+            { "Filter.AllTypes", "全部類型" },
+            { "Filter.Unreferenced", "未引用" },
 
             // SPR Types
             { "SprType.0", "影子/法術" },
@@ -187,6 +194,8 @@ namespace PakViewer.Localization
             { "Context.SelectAll", "全選" },
             { "Context.UnselectAll", "取消全選" },
             { "Context.CloseTab", "關閉分頁" },
+            { "Context.Delete", "刪除(&D)" },
+            { "Context.SaveAs", "另存新檔(&S)..." },
 
             // Status
             { "Status.Ready", "就緒" },
@@ -199,6 +208,28 @@ namespace PakViewer.Localization
             { "Status.Deleted", "已刪除 {0} 個檔案" },
             { "Status.SaveSuccess", "儲存成功" },
             { "Status.SaveFailed", "儲存失敗" },
+            { "Status.Selected", "已選取" },
+            { "Status.SelectionCleared", "已清除選取" },
+            { "Status.ItemsDeleted", "已刪除 {0} 個條目" },
+            { "Status.Saved", "已儲存" },
+
+            // Confirm
+            { "Confirm.DeleteItems", "確定要刪除 {0} 個選取的條目嗎？" },
+            { "Confirm.DeleteSprFiles", "以下 SPR 檔案將從 sprite*.idx 中刪除:\n\n{0}" },
+
+            // Status
+            { "Status.AndMore", "還有 {0} 個" },
+
+            // Error
+            { "Error.NoItemSelected", "請先勾選要操作的條目" },
+            { "Error.NoFileLoaded", "尚未載入檔案" },
+            { "Error.SaveFailed", "儲存失敗" },
+
+            // Dialog
+            { "Dialog.SaveAs", "另存新檔" },
+
+            // Filter
+            { "Filter.SprList", "SPR List 檔案" },
 
             // Viewer
             { "Viewer.SelectEntry", "請在左側選擇一個條目" },
@@ -214,6 +245,11 @@ namespace PakViewer.Localization
             { "Viewer.Frame", "幀: {0}/{1}" },
             { "Viewer.Directional", "有向" },
             { "Viewer.NonDirectional", "無向" },
+            { "Viewer.Direction", "方向" },
+            { "Viewer.Speed", "播放速度" },
+            { "Speed.Standard", "1/24 (標準)" },
+            { "Speed.Slow", "10/24 (慢動作)" },
+            { "Speed.Custom", "自訂" },
             { "Viewer.TotalDuration", "總時長" },
             { "Viewer.File", "檔案" },
             { "Viewer.SprFrame", "SPR幀" },
@@ -316,6 +352,12 @@ namespace PakViewer.Localization
             { "Label.Search", "検索:" },
             { "Label.Find", "検索:" },
             { "Label.Mode", "モード:" },
+            { "Label.Zoom", "拡大:" },
+            { "Label.Background", "背景:" },
+            { "Color.Black", "黒" },
+            { "Color.Red", "赤" },
+            { "Color.Transparent", "透明" },
+            { "Color.White", "白" },
 
             // Mode
             { "Mode.Normal", "通常" },
@@ -347,6 +389,7 @@ namespace PakViewer.Localization
             // Filters
             { "Filter.All", "すべて" },
             { "Filter.AllTypes", "すべてのタイプ" },
+            { "Filter.Unreferenced", "未参照" },
 
             // SPR Types
             { "SprType.0", "影/魔法" },
@@ -382,6 +425,8 @@ namespace PakViewer.Localization
             { "Context.SelectAll", "すべて選択" },
             { "Context.UnselectAll", "選択解除" },
             { "Context.CloseTab", "タブを閉じる" },
+            { "Context.Delete", "削除(&D)" },
+            { "Context.SaveAs", "名前を付けて保存(&S)..." },
 
             // Status
             { "Status.Ready", "準備完了" },
@@ -394,6 +439,28 @@ namespace PakViewer.Localization
             { "Status.Deleted", "{0} ファイルを削除しました" },
             { "Status.SaveSuccess", "保存成功" },
             { "Status.SaveFailed", "保存失敗" },
+            { "Status.Selected", "選択中" },
+            { "Status.SelectionCleared", "選択を解除しました" },
+            { "Status.ItemsDeleted", "{0} エントリを削除しました" },
+            { "Status.Saved", "保存しました" },
+
+            // Confirm
+            { "Confirm.DeleteItems", "{0} 個の選択されたエントリを削除しますか？" },
+            { "Confirm.DeleteSprFiles", "以下のSPRファイルがsprite*.idxから削除されます:\n\n{0}" },
+
+            // Status
+            { "Status.AndMore", "他 {0} 個" },
+
+            // Error
+            { "Error.NoItemSelected", "操作するエントリをチェックしてください" },
+            { "Error.NoFileLoaded", "ファイルが読み込まれていません" },
+            { "Error.SaveFailed", "保存に失敗しました" },
+
+            // Dialog
+            { "Dialog.SaveAs", "名前を付けて保存" },
+
+            // Filter
+            { "Filter.SprList", "SPR List ファイル" },
 
             // Viewer
             { "Viewer.SelectEntry", "左側でエントリを選択してください" },
@@ -409,6 +476,11 @@ namespace PakViewer.Localization
             { "Viewer.Frame", "フレーム: {0}/{1}" },
             { "Viewer.Directional", "方向あり" },
             { "Viewer.NonDirectional", "方向なし" },
+            { "Viewer.Direction", "方向" },
+            { "Viewer.Speed", "再生速度" },
+            { "Speed.Standard", "1/24 (標準)" },
+            { "Speed.Slow", "10/24 (スロー)" },
+            { "Speed.Custom", "カスタム" },
             { "Viewer.TotalDuration", "合計時間" },
             { "Viewer.File", "ファイル" },
             { "Viewer.SprFrame", "SPRフレーム" },
@@ -511,6 +583,12 @@ namespace PakViewer.Localization
             { "Label.Search", "Search:" },
             { "Label.Find", "Find:" },
             { "Label.Mode", "Mode:" },
+            { "Label.Zoom", "Zoom:" },
+            { "Label.Background", "BG:" },
+            { "Color.Black", "Black" },
+            { "Color.Red", "Red" },
+            { "Color.Transparent", "Transparent" },
+            { "Color.White", "White" },
 
             // Mode
             { "Mode.Normal", "Normal" },
@@ -542,6 +620,7 @@ namespace PakViewer.Localization
             // Filters
             { "Filter.All", "All" },
             { "Filter.AllTypes", "All Types" },
+            { "Filter.Unreferenced", "Unreferenced" },
 
             // SPR Types
             { "SprType.0", "Shadow/Magic" },
@@ -577,6 +656,8 @@ namespace PakViewer.Localization
             { "Context.SelectAll", "Select All" },
             { "Context.UnselectAll", "Unselect All" },
             { "Context.CloseTab", "Close Tab" },
+            { "Context.Delete", "Delete(&D)" },
+            { "Context.SaveAs", "Save As(&S)..." },
 
             // Status
             { "Status.Ready", "Ready" },
@@ -589,6 +670,28 @@ namespace PakViewer.Localization
             { "Status.Deleted", "Deleted {0} files" },
             { "Status.SaveSuccess", "Save Successful" },
             { "Status.SaveFailed", "Save Failed" },
+            { "Status.Selected", "Selected" },
+            { "Status.SelectionCleared", "Selection cleared" },
+            { "Status.ItemsDeleted", "{0} entries deleted" },
+            { "Status.Saved", "Saved" },
+
+            // Confirm
+            { "Confirm.DeleteItems", "Are you sure you want to delete {0} selected entries?" },
+            { "Confirm.DeleteSprFiles", "The following SPR files will be deleted from sprite*.idx:\n\n{0}" },
+
+            // Status
+            { "Status.AndMore", "and {0} more" },
+
+            // Error
+            { "Error.NoItemSelected", "Please check the items to operate on" },
+            { "Error.NoFileLoaded", "No file loaded" },
+            { "Error.SaveFailed", "Save failed" },
+
+            // Dialog
+            { "Dialog.SaveAs", "Save As" },
+
+            // Filter
+            { "Filter.SprList", "SPR List Files" },
 
             // Viewer
             { "Viewer.SelectEntry", "Please select an entry on the left" },
@@ -604,6 +707,11 @@ namespace PakViewer.Localization
             { "Viewer.Frame", "Frame: {0}/{1}" },
             { "Viewer.Directional", "Directional" },
             { "Viewer.NonDirectional", "Non-directional" },
+            { "Viewer.Direction", "Direction" },
+            { "Viewer.Speed", "Speed" },
+            { "Speed.Standard", "1/24 (Standard)" },
+            { "Speed.Slow", "10/24 (Slow)" },
+            { "Speed.Custom", "Custom" },
             { "Viewer.TotalDuration", "Total Duration" },
             { "Viewer.File", "File" },
             { "Viewer.SprFrame", "SPR Frame" },
@@ -706,6 +814,12 @@ namespace PakViewer.Localization
             { "Label.Search", "검색:" },
             { "Label.Find", "찾기:" },
             { "Label.Mode", "모드:" },
+            { "Label.Zoom", "확대:" },
+            { "Label.Background", "배경:" },
+            { "Color.Black", "검정" },
+            { "Color.Red", "빨강" },
+            { "Color.Transparent", "투명" },
+            { "Color.White", "흰색" },
 
             // Mode
             { "Mode.Normal", "일반" },
@@ -737,6 +851,7 @@ namespace PakViewer.Localization
             // Filters
             { "Filter.All", "전체" },
             { "Filter.AllTypes", "모든 유형" },
+            { "Filter.Unreferenced", "미참조" },
 
             // SPR Types
             { "SprType.0", "그림자/마법" },
@@ -771,6 +886,8 @@ namespace PakViewer.Localization
             { "Context.SelectAll", "모두 선택" },
             { "Context.UnselectAll", "선택 해제" },
             { "Context.CloseTab", "탭 닫기" },
+            { "Context.Delete", "삭제(&D)" },
+            { "Context.SaveAs", "다른 이름으로 저장(&S)..." },
 
             // Status
             { "Status.Ready", "준비" },
@@ -783,6 +900,28 @@ namespace PakViewer.Localization
             { "Status.Deleted", "{0}개 파일 삭제됨" },
             { "Status.SaveSuccess", "저장 성공" },
             { "Status.SaveFailed", "저장 실패" },
+            { "Status.Selected", "선택됨" },
+            { "Status.SelectionCleared", "선택 해제됨" },
+            { "Status.ItemsDeleted", "{0}개 항목 삭제됨" },
+            { "Status.Saved", "저장됨" },
+
+            // Confirm
+            { "Confirm.DeleteItems", "{0}개의 선택된 항목을 삭제하시겠습니까?" },
+            { "Confirm.DeleteSprFiles", "다음 SPR 파일이 sprite*.idx에서 삭제됩니다:\n\n{0}" },
+
+            // Status
+            { "Status.AndMore", "외 {0}개" },
+
+            // Error
+            { "Error.NoItemSelected", "작업할 항목을 체크하세요" },
+            { "Error.NoFileLoaded", "파일이 로드되지 않았습니다" },
+            { "Error.SaveFailed", "저장 실패" },
+
+            // Dialog
+            { "Dialog.SaveAs", "다른 이름으로 저장" },
+
+            // Filter
+            { "Filter.SprList", "SPR List 파일" },
 
             // Viewer
             { "Viewer.SelectEntry", "왼쪽에서 항목을 선택하세요" },
@@ -798,6 +937,11 @@ namespace PakViewer.Localization
             { "Viewer.Frame", "프레임: {0}/{1}" },
             { "Viewer.Directional", "방향성" },
             { "Viewer.NonDirectional", "무방향" },
+            { "Viewer.Direction", "방향" },
+            { "Viewer.Speed", "재생 속도" },
+            { "Speed.Standard", "1/24 (표준)" },
+            { "Speed.Slow", "10/24 (슬로우)" },
+            { "Speed.Custom", "사용자 정의" },
             { "Viewer.TotalDuration", "총 시간" },
             { "Viewer.File", "파일" },
             { "Viewer.SprFrame", "SPR 프레임" },
