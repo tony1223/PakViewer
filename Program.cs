@@ -611,7 +611,14 @@ namespace PakViewer
             sprGroupUnselectAllMenuItem.Click += OnSprGroupUnselectAll;
             var sprGroupDeleteMenuItem = new ButtonMenuItem { Text = I18n.T("Context.Delete") };
             sprGroupDeleteMenuItem.Click += OnSprGroupDelete;
+            var sprGroupExportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
+            sprGroupExportMenuItem.Click += OnSprGroupExport;
+            var sprGroupExportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
+            sprGroupExportToMenuItem.Click += OnSprGroupExportTo;
 
+            sprGroupContextMenu.Items.Add(sprGroupExportMenuItem);
+            sprGroupContextMenu.Items.Add(sprGroupExportToMenuItem);
+            sprGroupContextMenu.Items.Add(new SeparatorMenuItem());
             sprGroupContextMenu.Items.Add(sprGroupSelectAllMenuItem);
             sprGroupContextMenu.Items.Add(sprGroupUnselectAllMenuItem);
             sprGroupContextMenu.Items.Add(new SeparatorMenuItem());
@@ -1103,17 +1110,35 @@ namespace PakViewer
 
         private void OnRightGalleryItemRightClicked(object sender, Controls.GalleryItem item)
         {
-            if (item?.Tag is not FileItem fileItem) return;
+            if (item?.Tag == null) return;
 
-            // 建立右鍵選單
             var menu = new ContextMenu();
 
+            // 根據 Tag 類型建立不同的選單
+            if (item.Tag is FileItem fileItem)
+            {
+                BuildFileItemContextMenu(menu, fileItem, item.Index);
+            }
+            else if (item.Tag is SprGroup sprGroup)
+            {
+                BuildSprGroupContextMenu(menu, sprGroup);
+            }
+            else if (item.Tag is SprListItem sprListItem)
+            {
+                BuildSprListItemContextMenu(menu, sprListItem);
+            }
+
+            menu.Show(_rightGalleryPanel);
+        }
+
+        private void BuildFileItemContextMenu(ContextMenu menu, FileItem fileItem, int galleryIndex)
+        {
             var openInTabMenuItem = new ButtonMenuItem { Text = I18n.T("Context.OpenInNewTab") };
             openInTabMenuItem.Click += (s, e) =>
             {
                 var pak = fileItem.SourcePak ?? _currentPak;
                 if (pak == null) return;
-                var dialog = new ViewerDialog(pak, _rightGalleryItems, item.Index);
+                var dialog = new ViewerDialog(pak, _rightGalleryItems, galleryIndex);
                 dialog.Show();
             };
             menu.Items.Add(openInTabMenuItem);
@@ -1130,7 +1155,7 @@ namespace PakViewer
                     var data = pak.Extract(fileItem.Index);
                     var savePath = Path.Combine(_selectedFolder ?? ".", fileItem.FileName);
                     File.WriteAllBytes(savePath, data);
-                    _statusLabel.Text = I18n.T("Status.Exported", 1);
+                    _statusLabel.Text = string.Format(I18n.T("Status.Exported"), 1);
                 }
                 catch (Exception ex)
                 {
@@ -1157,7 +1182,7 @@ namespace PakViewer
                     {
                         var data = pak.Extract(fileItem.Index);
                         File.WriteAllBytes(dialog.FileName, data);
-                        _statusLabel.Text = I18n.T("Status.Exported", 1);
+                        _statusLabel.Text = string.Format(I18n.T("Status.Exported"), 1);
                     }
                     catch (Exception ex)
                     {
@@ -1175,9 +1200,94 @@ namespace PakViewer
                 new Clipboard().Text = fileItem.FileName;
             };
             menu.Items.Add(copyFileNameMenuItem);
+        }
 
-            // 顯示選單
-            menu.Show(_rightGalleryPanel);
+        private void BuildSprGroupContextMenu(ContextMenu menu, SprGroup sprGroup)
+        {
+            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
+            exportMenuItem.Click += (s, e) => ExportSprGroup(sprGroup, false);
+            menu.Items.Add(exportMenuItem);
+
+            var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
+            exportToMenuItem.Click += (s, e) => ExportSprGroup(sprGroup, true);
+            menu.Items.Add(exportToMenuItem);
+
+            menu.Items.Add(new SeparatorMenuItem());
+
+            var copyIdMenuItem = new ButtonMenuItem { Text = I18n.T("Context.CopyFilename") };
+            copyIdMenuItem.Click += (s, e) =>
+            {
+                new Clipboard().Text = $"SPR {sprGroup.SpriteId}";
+            };
+            menu.Items.Add(copyIdMenuItem);
+        }
+
+        private void BuildSprListItemContextMenu(ContextMenu menu, SprListItem sprListItem)
+        {
+            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
+            exportMenuItem.Click += (s, e) =>
+            {
+                if (_sprGroups != null && _sprGroups.TryGetValue(sprListItem.SpriteId, out var group))
+                    ExportSprGroup(group, false);
+            };
+            menu.Items.Add(exportMenuItem);
+
+            var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
+            exportToMenuItem.Click += (s, e) =>
+            {
+                if (_sprGroups != null && _sprGroups.TryGetValue(sprListItem.SpriteId, out var group))
+                    ExportSprGroup(group, true);
+            };
+            menu.Items.Add(exportToMenuItem);
+
+            menu.Items.Add(new SeparatorMenuItem());
+
+            var copyNameMenuItem = new ButtonMenuItem { Text = I18n.T("Context.CopyFilename") };
+            copyNameMenuItem.Click += (s, e) =>
+            {
+                new Clipboard().Text = !string.IsNullOrEmpty(sprListItem.Name) ? sprListItem.Name : $"SPR {sprListItem.SpriteId}";
+            };
+            menu.Items.Add(copyNameMenuItem);
+        }
+
+        private void ExportSprGroup(SprGroup group, bool selectFolder)
+        {
+            if (group?.Parts == null || group.Parts.Count == 0) return;
+
+            string exportPath = _selectedFolder;
+            if (selectFolder)
+            {
+                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.SelectExportFolder") };
+                if (!string.IsNullOrEmpty(_selectedFolder))
+                    dialog.Directory = _selectedFolder;
+                if (dialog.ShowDialog(this) != DialogResult.Ok)
+                    return;
+                exportPath = dialog.Directory;
+            }
+
+            int exportedCount = 0;
+            int errorCount = 0;
+
+            foreach (var part in group.Parts)
+            {
+                try
+                {
+                    if (part.SourcePak == null) continue;
+
+                    var data = part.SourcePak.Extract(part.FileIndex);
+                    var outputPath = Path.Combine(exportPath, part.FileName);
+                    File.WriteAllBytes(outputPath, data);
+                    exportedCount++;
+                }
+                catch
+                {
+                    errorCount++;
+                }
+            }
+
+            _statusLabel.Text = errorCount > 0
+                ? string.Format(I18n.T("Status.ExportedWithErrors"), exportedCount, errorCount)
+                : string.Format(I18n.T("Status.Exported"), exportedCount);
         }
 
         /// <summary>
@@ -3572,6 +3682,82 @@ namespace PakViewer
             }
             _sprGroupGrid.Invalidate();
             _statusLabel.Text = I18n.T("Status.SelectionCleared");
+        }
+
+        private void OnSprGroupExport(object sender, EventArgs e)
+        {
+            ExportSprGroups(false);
+        }
+
+        private void OnSprGroupExportTo(object sender, EventArgs e)
+        {
+            ExportSprGroups(true);
+        }
+
+        private void ExportSprGroups(bool selectFolder)
+        {
+            // 取得要匯出的群組 (優先使用勾選的，否則使用選取的)
+            var items = _sprGroupGrid.DataStore as IEnumerable<SprGroupItem>;
+            if (items == null) return;
+
+            var checkedItems = items.Where(i => i.IsChecked == true).ToList();
+            if (checkedItems.Count == 0)
+            {
+                // 使用目前選取的項目
+                var selected = _sprGroupGrid.SelectedItem as SprGroupItem;
+                if (selected != null)
+                    checkedItems = new List<SprGroupItem> { selected };
+            }
+
+            if (checkedItems.Count == 0)
+            {
+                MessageBox.Show(I18n.T("Error.NoItemSelected"), I18n.T("Dialog.Info"));
+                return;
+            }
+
+            // 決定匯出目錄
+            string exportPath = _selectedFolder;
+            if (selectFolder)
+            {
+                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.SelectExportFolder") };
+                if (!string.IsNullOrEmpty(_selectedFolder))
+                    dialog.Directory = _selectedFolder;
+                if (dialog.ShowDialog(this) != DialogResult.Ok)
+                    return;
+                exportPath = dialog.Directory;
+            }
+
+            // 匯出所有選取群組的 SPR 檔案
+            int exportedCount = 0;
+            int errorCount = 0;
+
+            foreach (var groupItem in checkedItems)
+            {
+                var group = groupItem.Group;
+                if (group?.Parts == null) continue;
+
+                foreach (var part in group.Parts)
+                {
+                    try
+                    {
+                        if (part.SourcePak == null) continue;
+
+                        var data = part.SourcePak.Extract(part.FileIndex);
+                        var outputPath = Path.Combine(exportPath, part.FileName);
+
+                        File.WriteAllBytes(outputPath, data);
+                        exportedCount++;
+                    }
+                    catch
+                    {
+                        errorCount++;
+                    }
+                }
+            }
+
+            _statusLabel.Text = errorCount > 0
+                ? string.Format(I18n.T("Status.ExportedWithErrors"), exportedCount, errorCount)
+                : string.Format(I18n.T("Status.Exported"), exportedCount);
         }
 
         private void OnSprGroupDelete(object sender, EventArgs e)
