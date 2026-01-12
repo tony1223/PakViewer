@@ -182,31 +182,37 @@ jobs:
 
     - name: Build x64
       run: |
-        dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime osx-x64 --self-contained true -o publish-x64 /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
+        # macOS 不使用 PublishSingleFile，因為 .app bundle 已提供封裝，且 SingleFile 會導致 System.Security.Cryptography 無法載入
+        dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime osx-x64 --self-contained true -o publish-x64 /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
 
     - name: Build arm64
       run: |
-        dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime osx-arm64 --self-contained true -o publish-arm64 /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
+        dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime osx-arm64 --self-contained true -o publish-arm64 /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
 
-    - name: Create Universal Binary
+    - name: Create Universal Binary App Bundle
       run: |
-        mkdir -p publish-universal
-        # 複製非執行檔
-        cp -R publish-x64/* publish-universal/
-        # 使用 lipo 建立 universal binary
-        for file in publish-x64/${{ env.PROJECT_NAME }}*; do
+        # Eto.Platform.Mac64 已經建立 .app bundle，我們只需要合併 universal binary
+        APP_NAME="${{ env.PROJECT_NAME }}.app"
+
+        # 複製 x64 的 .app bundle 作為基礎
+        cp -R "publish-x64/$APP_NAME" .
+
+        # 使用 lipo 建立 universal binary 並替換 .app 內的執行檔
+        MACOS_DIR="$APP_NAME/Contents/MacOS"
+        for file in "publish-x64/$APP_NAME/Contents/MacOS/"*; do
           filename=$(basename "$file")
-          if [ -f "publish-arm64/$filename" ] && file "$file" | grep -q "Mach-O"; then
+          arm64_file="publish-arm64/$APP_NAME/Contents/MacOS/$filename"
+          if [ -f "$arm64_file" ] && file "$file" | grep -q "Mach-O"; then
             echo "Creating universal binary for $filename"
-            lipo -create "publish-x64/$filename" "publish-arm64/$filename" -output "publish-universal/$filename"
+            lipo -create "$file" "$arm64_file" -output "$MACOS_DIR/$filename"
           fi
         done
-        chmod +x publish-universal/${{ env.PROJECT_NAME }}* 2>/dev/null || true
+        chmod +x "$MACOS_DIR/${{ env.PROJECT_NAME }}"* 2>/dev/null || true
 
     - name: Create ZIP archive
       run: |
-        cd publish-universal
-        zip -r "../${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.zip" .
+        # 打包 .app bundle (使用 -y 保留符號連結)
+        zip -ry "${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.zip" "${{ env.PROJECT_NAME }}.app"
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -260,7 +266,9 @@ jobs:
           **macOS** (未簽署，需手動允許執行):
           ```bash
           # 解壓縮後，移除 quarantine 屬性
-          xattr -cr PakViewer
+          xattr -cr PakViewer.app
+          # 雙擊 PakViewer.app 執行，或使用命令列:
+          open PakViewer.app
           # 或在系統偏好設定 > 安全性與隱私 中允許執行
           ```
 
