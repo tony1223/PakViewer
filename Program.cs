@@ -858,6 +858,24 @@ namespace PakViewer
         {
             if (_rightGalleryPanel == null) return;
 
+            var mode = _viewModeRadio?.SelectedIndex ?? MODE_NORMAL;
+
+            switch (mode)
+            {
+                case MODE_SPR:
+                    RefreshRightGalleryForSprMode();
+                    break;
+                case MODE_SPR_LIST:
+                    RefreshRightGalleryForSprListMode();
+                    break;
+                default:
+                    RefreshRightGalleryForNormalMode();
+                    break;
+            }
+        }
+
+        private void RefreshRightGalleryForNormalMode()
+        {
             var imageExtensions = new HashSet<string> { ".spr", ".tbt", ".img", ".png", ".til", ".gif" };
 
             // 從 _fileGrid 的 DataStore 取得已過濾的項目 (包含正確的 SourcePak)
@@ -887,88 +905,179 @@ namespace PakViewer
             _rightGalleryPanel.SetItems(_rightGalleryItems);
         }
 
+        private void RefreshRightGalleryForSprMode()
+        {
+            // SPR 模式: 從 _sprGroupGrid 取得顯示的群組
+            var groupItems = _sprGroupGrid?.DataStore as IEnumerable<SprGroupItem>;
+            if (groupItems == null)
+            {
+                _rightGalleryItems = new List<Controls.GalleryItem>();
+                _rightGalleryPanel.SetItems(_rightGalleryItems);
+                return;
+            }
+
+            _rightGalleryItems = groupItems
+                .Select(g => new Controls.GalleryItem
+                {
+                    Index = g.Id,
+                    FileName = $"SPR {g.Id}",
+                    FileSize = g.Frames,
+                    Tag = g.Group  // Tag 存 SprGroup
+                })
+                .ToList();
+
+            _rightGalleryPanel.SetItems(_rightGalleryItems);
+        }
+
+        private void RefreshRightGalleryForSprListMode()
+        {
+            // SPR List 模式: 從 _sprListGrid 取得顯示的項目
+            var listItems = _sprListGrid?.DataStore as IEnumerable<SprListItem>;
+            if (listItems == null)
+            {
+                _rightGalleryItems = new List<Controls.GalleryItem>();
+                _rightGalleryPanel.SetItems(_rightGalleryItems);
+                return;
+            }
+
+            _rightGalleryItems = listItems
+                .Select(item => new Controls.GalleryItem
+                {
+                    Index = item.SpriteId,
+                    FileName = !string.IsNullOrEmpty(item.Name) ? item.Name : $"SPR {item.SpriteId}",
+                    FileSize = item.ImageCount,
+                    Tag = item  // Tag 存 SprListItem
+                })
+                .ToList();
+
+            _rightGalleryPanel.SetItems(_rightGalleryItems);
+        }
+
         private Bitmap LoadThumbnailForRightGallery(int itemIndex)
         {
             if (itemIndex < 0 || itemIndex >= _rightGalleryItems.Count) return null;
 
             var item = _rightGalleryItems[itemIndex];
-            if (item.Tag is not FileItem fileItem) return null;
-
-            var pak = fileItem.SourcePak ?? _currentPak;
-            if (pak == null) return null;
+            var size = _cachedThumbnailSize;
 
             try
             {
-                var data = pak.Extract(item.Index);
-                var ext = Path.GetExtension(item.FileName).ToLower();
-                var size = _cachedThumbnailSize;  // 使用快取值，避免從背景執行緒存取 UI 控制項
-
-                SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32> image = null;
-
-                switch (ext)
+                // 根據 Tag 類型決定載入方式
+                if (item.Tag is FileItem fileItem)
                 {
-                    case ".spr":
-                        var frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
-                        if (frames?.Length > 0)
-                            image = frames[0].Image;
-                        break;
-
-                    case ".tbt":
-                        image = L1ImageConverter.LoadTbt(data);
-                        break;
-
-                    case ".img":
-                        image = L1ImageConverter.LoadImg(data);
-                        break;
-
-                    case ".png":
-                    case ".gif":
-                        // PNG/GIF 在 UI 執行緒載入並縮放 (WPF 需要)
-                        Bitmap pngResult = null;
-                        Application.Instance.Invoke(() =>
-                        {
-                            using (var ms = new MemoryStream(data))
-                            {
-                                using var originalBitmap = new Bitmap(ms);
-                                // 計算縮放後的大小
-                                int thumbWidth, thumbHeight;
-                                if (originalBitmap.Width > originalBitmap.Height)
-                                {
-                                    thumbWidth = size;
-                                    thumbHeight = (int)((double)originalBitmap.Height / originalBitmap.Width * size);
-                                }
-                                else
-                                {
-                                    thumbHeight = size;
-                                    thumbWidth = (int)((double)originalBitmap.Width / originalBitmap.Height * size);
-                                }
-                                if (thumbWidth <= 0) thumbWidth = 1;
-                                if (thumbHeight <= 0) thumbHeight = 1;
-
-                                // 縮放並返回
-                                pngResult = new Bitmap(thumbWidth, thumbHeight, PixelFormat.Format32bppRgba);
-                                using (var g = new Graphics(pngResult))
-                                {
-                                    g.DrawImage(originalBitmap, 0, 0, thumbWidth, thumbHeight);
-                                }
-                            }
-                        });
-                        return pngResult;
-
-                    case ".til":
-                        image = RenderTilThumbnail(data);
-                        break;
+                    return LoadThumbnailForFileItem(fileItem, size);
+                }
+                else if (item.Tag is SprGroup sprGroup)
+                {
+                    return LoadThumbnailForSprGroup(sprGroup, size);
+                }
+                else if (item.Tag is SprListItem sprListItem)
+                {
+                    return LoadThumbnailForSprListItem(sprListItem, size);
                 }
 
-                if (image == null)
-                    return null;
-
-                return CreateThumbnailBitmap(image, size);
+                return null;
             }
             catch
             {
                 return null;
             }
+        }
+
+        private Bitmap LoadThumbnailForFileItem(FileItem fileItem, int size)
+        {
+            var pak = fileItem.SourcePak ?? _currentPak;
+            if (pak == null) return null;
+
+            var data = pak.Extract(fileItem.Index);
+            var ext = Path.GetExtension(fileItem.FileName).ToLower();
+
+            SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32> image = null;
+
+            switch (ext)
+            {
+                case ".spr":
+                    var frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
+                    if (frames?.Length > 0)
+                        image = frames[0].Image;
+                    break;
+
+                case ".tbt":
+                    image = L1ImageConverter.LoadTbt(data);
+                    break;
+
+                case ".img":
+                    image = L1ImageConverter.LoadImg(data);
+                    break;
+
+                case ".png":
+                case ".gif":
+                    // PNG/GIF 在 UI 執行緒載入並縮放 (WPF 需要)
+                    Bitmap pngResult = null;
+                    Application.Instance.Invoke(() =>
+                    {
+                        using (var ms = new MemoryStream(data))
+                        {
+                            using var originalBitmap = new Bitmap(ms);
+                            int thumbWidth, thumbHeight;
+                            if (originalBitmap.Width > originalBitmap.Height)
+                            {
+                                thumbWidth = size;
+                                thumbHeight = (int)((double)originalBitmap.Height / originalBitmap.Width * size);
+                            }
+                            else
+                            {
+                                thumbHeight = size;
+                                thumbWidth = (int)((double)originalBitmap.Width / originalBitmap.Height * size);
+                            }
+                            if (thumbWidth <= 0) thumbWidth = 1;
+                            if (thumbHeight <= 0) thumbHeight = 1;
+
+                            pngResult = new Bitmap(thumbWidth, thumbHeight, PixelFormat.Format32bppRgba);
+                            using (var g = new Graphics(pngResult))
+                            {
+                                g.DrawImage(originalBitmap, 0, 0, thumbWidth, thumbHeight);
+                            }
+                        }
+                    });
+                    return pngResult;
+
+                case ".til":
+                    image = RenderTilThumbnail(data);
+                    break;
+            }
+
+            if (image == null)
+                return null;
+
+            return CreateThumbnailBitmap(image, size);
+        }
+
+        private Bitmap LoadThumbnailForSprGroup(SprGroup sprGroup, int size)
+        {
+            // 取得第一個 part 的第一個 frame
+            if (sprGroup?.Parts == null || sprGroup.Parts.Count == 0) return null;
+
+            var firstPart = sprGroup.Parts[0];
+            if (firstPart.SourcePak == null) return null;
+
+            var data = firstPart.SourcePak.Extract(firstPart.FileIndex);
+            var frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
+            if (frames?.Length > 0)
+            {
+                return CreateThumbnailBitmap(frames[0].Image, size);
+            }
+
+            return null;
+        }
+
+        private Bitmap LoadThumbnailForSprListItem(SprListItem sprListItem, int size)
+        {
+            // 從 _sprGroups 找到對應的 SprGroup
+            if (_sprGroups == null || !_sprGroups.TryGetValue(sprListItem.SpriteId, out var sprGroup))
+                return null;
+
+            return LoadThumbnailForSprGroup(sprGroup, size);
         }
 
         private void OnRightGalleryItemSelected(object sender, Controls.GalleryItem item)
@@ -1570,7 +1679,7 @@ namespace PakViewer
         {
             using var dialog = new OpenFileDialog
             {
-                Title = "Open Lineage M DAT File",
+                Title = "Open Lineage M Icon/Image DAT File",
                 Filters = { new FileFilter("DAT Files", ".dat"), new FileFilter("All Files", ".*") }
             };
 
@@ -2858,6 +2967,9 @@ namespace PakViewer
                     SetSpriteIdxMode(true);
                     LoadSprGroups(_selectedFolder);
                     _leftListPanel.Content = _sprGroupGrid;
+                    // 重新整理相簿
+                    if (_galleryModeRadio?.Checked == true)
+                        RefreshRightGallery();
                     break;
 
                 case MODE_SPR_LIST:
@@ -2881,6 +2993,9 @@ namespace PakViewer
                     LoadListSprFile();
                     ShowSprListViewer();
                     _leftListPanel.Content = _sprListGrid;
+                    // 重新整理相簿
+                    if (_galleryModeRadio?.Checked == true)
+                        RefreshRightGallery();
                     break;
             }
 
@@ -3156,6 +3271,10 @@ namespace PakViewer
 
             _sprGroupGrid.DataStore = items;
             _recordCountLabel.Text = $"{items.Count} / {_sprGroups.Count} 筆";
+
+            // 重新整理相簿
+            if (_galleryModeRadio?.Checked == true)
+                RefreshRightGallery();
         }
 
         private void ShowSprGroupViewer(SprGroup group)
@@ -3305,6 +3424,10 @@ namespace PakViewer
             {
                 _sprListGrid.SelectedRow = 0;
             }
+
+            // 重新整理相簿
+            if (_galleryModeRadio?.Checked == true)
+                RefreshRightGallery();
         }
 
         private void OnSprListSelected(object sender, EventArgs e)
