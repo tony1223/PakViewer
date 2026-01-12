@@ -182,40 +182,45 @@ jobs:
 
     - name: Build x64
       run: |
-        # macOS 不使用 PublishSingleFile，因為 .app bundle 已提供封裝，且 SingleFile 會導致 System.Security.Cryptography 無法載入
-        dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime osx-x64 --self-contained true -o publish-x64 /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
+        # 關閉 R2R 讓 managed DLL 架構無關，以便建立 universal binary
+        dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime osx-x64 --self-contained true -o publish-x64 /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }} /p:PublishReadyToRun=false
 
     - name: Build arm64
       run: |
-        dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime osx-arm64 --self-contained true -o publish-arm64 /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
+        dotnet publish PakViewer.csproj -f net10.0 --configuration Release --runtime osx-arm64 --self-contained true -o publish-arm64 /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }} /p:PublishReadyToRun=false
 
-    - name: Create ZIP archives
+    - name: Create Universal Binary DMG
       run: |
-        # .NET DLL 是架構相關的 (R2R 編譯)，無法建立真正的 universal binary
-        # 因此分別打包 x64 和 arm64 版本
         APP_NAME="${{ env.PROJECT_NAME }}.app"
+        UNIVERSAL_APP="universal/$APP_NAME"
 
-        # 打包 arm64 版本 (Apple Silicon)
-        cd publish-arm64
-        zip -ry "../${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-arm64.zip" "$APP_NAME"
-        cd ..
+        # 複製 arm64 版本作為基礎
+        mkdir -p universal
+        cp -R "publish-arm64/$APP_NAME" "$UNIVERSAL_APP"
 
-        # 打包 x64 版本 (Intel)
-        cd publish-x64
-        zip -ry "../${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-x64.zip" "$APP_NAME"
-        cd ..
+        # 使用 lipo 合併所有 Mach-O 檔案 (執行檔和 dylib)
+        MACOS_DIR="$UNIVERSAL_APP/Contents/MacOS"
+        for file in "$MACOS_DIR"/*; do
+          filename=$(basename "$file")
+          x64_file="publish-x64/$APP_NAME/Contents/MacOS/$filename"
+          if [ -f "$x64_file" ] && file "$file" | grep -q "Mach-O"; then
+            echo "Creating universal binary for $filename"
+            lipo -create "$file" "$x64_file" -output "$MACOS_DIR/$filename.universal"
+            mv "$MACOS_DIR/$filename.universal" "$MACOS_DIR/$filename"
+          fi
+        done
 
-    - name: Upload arm64 artifact
+        # Ad-hoc 簽署
+        codesign --force --deep --sign - "$UNIVERSAL_APP"
+
+        # 建立 DMG
+        hdiutil create -volname "${{ env.PROJECT_NAME }}" -srcfolder "$UNIVERSAL_APP" -ov -format UDZO "${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.dmg"
+
+    - name: Upload universal artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.PROJECT_NAME }}-osx-arm64
-        path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-arm64.zip
-
-    - name: Upload x64 artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ env.PROJECT_NAME }}-osx-x64
-        path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-x64.zip
+        name: ${{ env.PROJECT_NAME }}-osx-universal
+        path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.dmg
 
   release:
     needs: [build-windows, build-linux, build-macos]
@@ -256,18 +261,17 @@ jobs:
           | Windows x64 | `*-win-x64.zip` | 需安裝 [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
           | Windows x64 | `*-win-x64-self-contained.zip` | 包含 .NET Runtime，可直接執行 |
           | Linux x64 | `*-linux-x64.zip` | Self-contained |
-          | macOS arm64 | `*-osx-arm64.zip` | Self-contained, Apple Silicon (M1/M2/M3/M4) |
-          | macOS x64 | `*-osx-x64.zip` | Self-contained, Intel Mac |
+          | macOS Universal | `*-osx-universal.dmg` | Self-contained, 支援 Intel & Apple Silicon |
 
           ### macOS / Linux 使用說明
 
-          **macOS** (未簽署，需手動允許執行):
+          **macOS**:
+          1. 下載 DMG 檔案並雙擊掛載
+          2. 將 PakViewer.app 拖曳到應用程式資料夾
+          3. 首次開啟時，右鍵點擊 app → 選擇「打開」
+          4. 如果還是無法開啟，在終端機執行：
           ```bash
-          # 解壓縮後，移除 quarantine 屬性
-          xattr -cr PakViewer.app
-          # 雙擊 PakViewer.app 執行，或使用命令列:
-          open PakViewer.app
-          # 或在系統偏好設定 > 安全性與隱私 中允許執行
+          xattr -cr /Applications/PakViewer.app
           ```
 
           **Linux**:
