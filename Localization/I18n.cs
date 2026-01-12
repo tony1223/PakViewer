@@ -127,6 +127,10 @@ namespace PakViewer.Localization
             { "Color.Red", "紅色" },
             { "Color.Transparent", "透明" },
             { "Color.White", "白色" },
+            { "Color.Green", "綠色" },
+            { "Color.Blue", "藍色" },
+            { "Color.Gray", "灰色" },
+            { "Label.Scale", "縮放:" },
 
             // Mode
             { "Mode.Normal", "一般" },
@@ -313,6 +317,16 @@ namespace PakViewer.Localization
             { "Button.Cancel", "取消" },
             { "Button.OK", "確定" },
             { "Button.Find", "尋找" },
+            { "Button.Prev", "上一個" },
+            { "Button.Next", "下一個" },
+
+            // Right panel mode
+            { "RightPanel.Preview", "預覽" },
+            { "RightPanel.Gallery", "相簿" },
+            { "RightPanel.ThumbnailSize", "縮圖:" },
+
+            // Viewer Dialog
+            { "ViewerDialog.Title", "詳細檢視" },
         };
         #endregion
 
@@ -359,6 +373,10 @@ namespace PakViewer.Localization
             { "Color.Red", "赤" },
             { "Color.Transparent", "透明" },
             { "Color.White", "白" },
+            { "Color.Green", "緑" },
+            { "Color.Blue", "青" },
+            { "Color.Gray", "灰色" },
+            { "Label.Scale", "拡大:" },
 
             // Mode
             { "Mode.Normal", "通常" },
@@ -545,6 +563,16 @@ namespace PakViewer.Localization
             { "Button.Cancel", "キャンセル" },
             { "Button.OK", "OK" },
             { "Button.Find", "検索" },
+            { "Button.Prev", "前へ" },
+            { "Button.Next", "次へ" },
+
+            // Right panel mode
+            { "RightPanel.Preview", "プレビュー" },
+            { "RightPanel.Gallery", "ギャラリー" },
+            { "RightPanel.ThumbnailSize", "サムネイル:" },
+
+            // Viewer Dialog
+            { "ViewerDialog.Title", "詳細ビュー" },
         };
         #endregion
 
@@ -591,6 +619,10 @@ namespace PakViewer.Localization
             { "Color.Red", "Red" },
             { "Color.Transparent", "Transparent" },
             { "Color.White", "White" },
+            { "Color.Green", "Green" },
+            { "Color.Blue", "Blue" },
+            { "Color.Gray", "Gray" },
+            { "Label.Scale", "Scale:" },
 
             // Mode
             { "Mode.Normal", "Normal" },
@@ -777,6 +809,16 @@ namespace PakViewer.Localization
             { "Button.Cancel", "Cancel" },
             { "Button.OK", "OK" },
             { "Button.Find", "Find" },
+            { "Button.Prev", "Previous" },
+            { "Button.Next", "Next" },
+
+            // Right panel mode
+            { "RightPanel.Preview", "Preview" },
+            { "RightPanel.Gallery", "Gallery" },
+            { "RightPanel.ThumbnailSize", "Thumbnail:" },
+
+            // Viewer Dialog
+            { "ViewerDialog.Title", "Detail View" },
         };
         #endregion
 
@@ -823,6 +865,10 @@ namespace PakViewer.Localization
             { "Color.Red", "빨강" },
             { "Color.Transparent", "투명" },
             { "Color.White", "흰색" },
+            { "Color.Green", "초록" },
+            { "Color.Blue", "파랑" },
+            { "Color.Gray", "회색" },
+            { "Label.Scale", "배율:" },
 
             // Mode
             { "Mode.Normal", "일반" },
@@ -1008,6 +1054,16 @@ namespace PakViewer.Localization
             { "Button.Cancel", "취소" },
             { "Button.OK", "확인" },
             { "Button.Find", "찾기" },
+            { "Button.Prev", "이전" },
+            { "Button.Next", "다음" },
+
+            // Right panel mode
+            { "RightPanel.Preview", "미리보기" },
+            { "RightPanel.Gallery", "갤러리" },
+            { "RightPanel.ThumbnailSize", "썸네일:" },
+
+            // Viewer Dialog
+            { "ViewerDialog.Title", "상세 보기" },
         };
         #endregion
     }

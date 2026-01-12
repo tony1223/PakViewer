@@ -11,7 +11,10 @@ using Lin.Helper.Core.Pak;
 using Lin.Helper.Core.Sprite;
 using Lin.Helper.Core.Image;
 using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Processing;
 using ImageSharpImage = SixLabors.ImageSharp.Image;
+using L1ImageConverter = Lin.Helper.Core.Image.ImageConverter;
+using Lin.Helper.Core.Tile;
 using System.Text.Json;
 using PakViewer.Utility;
 using PakViewer.Localization;
@@ -89,6 +92,7 @@ namespace PakViewer
         private GridView _fileGrid;
         private GridView _sprListGrid;
         private TextBox _searchBox;
+        private UITimer _searchDebounceTimer;
         private TextBox _contentSearchBox;
         private Button _contentSearchBtn;
         private Button _clearSearchBtn;
@@ -105,6 +109,15 @@ namespace PakViewer
         // Viewers (模組化架構)
         private Panel _viewerPanel;
         private Viewers.IFileViewer _currentViewer;
+
+        // 右側面板模式切換
+        private Panel _rightPanelContainer;
+        private RadioButton _previewModeRadio;
+        private RadioButton _galleryModeRadio;
+        private Controls.GalleryPanel _rightGalleryPanel;
+        private Slider _rightThumbnailSlider;
+        private int _cachedThumbnailSize = 80;  // 快取的縮圖大小，避免從背景執行緒存取 UI 控制項
+        private List<Controls.GalleryItem> _rightGalleryItems = new();
 
         // Tab control
         private TabControl _mainTabControl;
@@ -680,9 +693,7 @@ namespace PakViewer
                 }
             };
 
-            _leftListPanel = new Panel();
-            // Start with file grid visible
-            _leftListPanel.Content = _fileGrid;
+            _leftListPanel = new Panel { Content = _fileGrid };
 
             return new TableLayout
             {
@@ -696,6 +707,50 @@ namespace PakViewer
 
         private Control CreateRightPanel()
         {
+            // 模式切換工具列
+            _previewModeRadio = new RadioButton { Text = I18n.T("RightPanel.Preview") };
+            _galleryModeRadio = new RadioButton(_previewModeRadio) { Text = I18n.T("RightPanel.Gallery") };
+            _previewModeRadio.Checked = true;
+
+            _previewModeRadio.CheckedChanged += (s, e) =>
+            {
+                if (_previewModeRadio.Checked) SetRightPanelMode(false);
+            };
+            _galleryModeRadio.CheckedChanged += (s, e) =>
+            {
+                if (_galleryModeRadio.Checked) SetRightPanelMode(true);
+            };
+
+            _rightThumbnailSlider = new Slider
+            {
+                MinValue = 48,
+                MaxValue = 200,
+                Value = 80,
+                Width = 100
+            };
+            _rightThumbnailSlider.ValueChanged += (s, e) =>
+            {
+                _cachedThumbnailSize = _rightThumbnailSlider.Value;  // 快取值供背景執行緒使用
+                if (_rightGalleryPanel != null)
+                    _rightGalleryPanel.ThumbnailSize = _rightThumbnailSlider.Value;
+            };
+
+            var modeToolbar = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 10,
+                Padding = new Padding(5),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items =
+                {
+                    _previewModeRadio,
+                    _galleryModeRadio,
+                    new Label { Text = "|", VerticalAlignment = VerticalAlignment.Center },
+                    new Label { Text = I18n.T("RightPanel.ThumbnailSize"), VerticalAlignment = VerticalAlignment.Center },
+                    _rightThumbnailSlider
+                }
+            };
+
             // Search toolbar for text viewer
             _textSearchBox = new TextBox { PlaceholderText = I18n.T("Placeholder.SearchInText"), Width = 200 };
             _textSearchBox.KeyDown += OnTextSearchKeyDown;
@@ -726,8 +781,8 @@ namespace PakViewer
 
             _viewerPanel = new Panel { BackgroundColor = Colors.DarkGray };
 
-            // Wrap viewer panel with search toolbar
-            return new TableLayout
+            // 預覽模式的完整容器 (含搜尋工具列)
+            var previewContainer = new TableLayout
             {
                 Rows =
                 {
@@ -735,6 +790,285 @@ namespace PakViewer
                     new TableRow(_viewerPanel) { ScaleHeight = true }
                 }
             };
+
+            // 右側容器 (可切換預覽/相簿)
+            _rightPanelContainer = new Panel { Content = previewContainer };
+
+            // 整體佈局
+            return new TableLayout
+            {
+                Rows =
+                {
+                    new TableRow(modeToolbar),
+                    new TableRow(_rightPanelContainer) { ScaleHeight = true }
+                }
+            };
+        }
+
+        private void SetRightPanelMode(bool isGallery)
+        {
+            if (isGallery)
+            {
+                // 切換到相簿模式
+                if (_rightGalleryPanel == null)
+                {
+                    _rightGalleryPanel = new Controls.GalleryPanel();
+                    _rightGalleryPanel.ThumbnailSize = _rightThumbnailSlider.Value;
+                    _rightGalleryPanel.ThumbnailLoader = LoadThumbnailForRightGallery;
+                    _rightGalleryPanel.ItemSelected += OnRightGalleryItemSelected;
+                    _rightGalleryPanel.ItemDoubleClicked += OnRightGalleryItemDoubleClicked;
+                    _rightGalleryPanel.ItemRightClicked += OnRightGalleryItemRightClicked;
+                }
+                RefreshRightGallery();
+                _rightPanelContainer.Content = _rightGalleryPanel;
+            }
+            else
+            {
+                // 切換回預覽模式
+                var searchToolbar = new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 5,
+                    Padding = new Padding(5),
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Items =
+                    {
+                        new Label { Text = I18n.T("Label.Find") },
+                        _textSearchBox,
+                        _textSearchPrevBtn,
+                        _textSearchNextBtn,
+                        _textSearchResultLabel
+                    }
+                };
+
+                var previewContainer = new TableLayout
+                {
+                    Rows =
+                    {
+                        new TableRow(searchToolbar),
+                        new TableRow(_viewerPanel) { ScaleHeight = true }
+                    }
+                };
+
+                _rightPanelContainer.Content = previewContainer;
+            }
+        }
+
+        private void RefreshRightGallery()
+        {
+            if (_rightGalleryPanel == null) return;
+
+            var imageExtensions = new HashSet<string> { ".spr", ".tbt", ".img", ".png", ".til", ".gif" };
+
+            // 從 _fileGrid 的 DataStore 取得已過濾的項目 (包含正確的 SourcePak)
+            var fileItems = _fileGrid.DataStore as IEnumerable<FileItem>;
+            if (fileItems == null)
+            {
+                _rightGalleryItems = new List<Controls.GalleryItem>();
+                _rightGalleryPanel.SetItems(_rightGalleryItems);
+                return;
+            }
+
+            _rightGalleryItems = fileItems
+                .Where(f =>
+                {
+                    var ext = Path.GetExtension(f.FileName).ToLower();
+                    return imageExtensions.Contains(ext);
+                })
+                .Select(f => new Controls.GalleryItem
+                {
+                    Index = f.Index,
+                    FileName = f.FileName,
+                    FileSize = f.FileSize,
+                    Tag = f
+                })
+                .ToList();
+
+            _rightGalleryPanel.SetItems(_rightGalleryItems);
+        }
+
+        private Bitmap LoadThumbnailForRightGallery(int itemIndex)
+        {
+            if (itemIndex < 0 || itemIndex >= _rightGalleryItems.Count) return null;
+
+            var item = _rightGalleryItems[itemIndex];
+            if (item.Tag is not FileItem fileItem) return null;
+
+            var pak = fileItem.SourcePak ?? _currentPak;
+            if (pak == null) return null;
+
+            try
+            {
+                var data = pak.Extract(item.Index);
+                var ext = Path.GetExtension(item.FileName).ToLower();
+                var size = _cachedThumbnailSize;  // 使用快取值，避免從背景執行緒存取 UI 控制項
+
+                SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32> image = null;
+
+                switch (ext)
+                {
+                    case ".spr":
+                        var frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
+                        if (frames?.Length > 0)
+                            image = frames[0].Image;
+                        break;
+
+                    case ".tbt":
+                        image = L1ImageConverter.LoadTbt(data);
+                        break;
+
+                    case ".img":
+                        image = L1ImageConverter.LoadImg(data);
+                        break;
+
+                    case ".png":
+                    case ".gif":
+                        // PNG/GIF 在 UI 執行緒載入並縮放 (WPF 需要)
+                        Bitmap pngResult = null;
+                        Application.Instance.Invoke(() =>
+                        {
+                            using (var ms = new MemoryStream(data))
+                            {
+                                using var originalBitmap = new Bitmap(ms);
+                                // 計算縮放後的大小
+                                int thumbWidth, thumbHeight;
+                                if (originalBitmap.Width > originalBitmap.Height)
+                                {
+                                    thumbWidth = size;
+                                    thumbHeight = (int)((double)originalBitmap.Height / originalBitmap.Width * size);
+                                }
+                                else
+                                {
+                                    thumbHeight = size;
+                                    thumbWidth = (int)((double)originalBitmap.Width / originalBitmap.Height * size);
+                                }
+                                if (thumbWidth <= 0) thumbWidth = 1;
+                                if (thumbHeight <= 0) thumbHeight = 1;
+
+                                // 縮放並返回
+                                pngResult = new Bitmap(thumbWidth, thumbHeight, PixelFormat.Format32bppRgba);
+                                using (var g = new Graphics(pngResult))
+                                {
+                                    g.DrawImage(originalBitmap, 0, 0, thumbWidth, thumbHeight);
+                                }
+                            }
+                        });
+                        return pngResult;
+
+                    case ".til":
+                        image = RenderTilThumbnail(data);
+                        break;
+                }
+
+                if (image == null)
+                    return null;
+
+                return CreateThumbnailBitmap(image, size);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void OnRightGalleryItemSelected(object sender, Controls.GalleryItem item)
+        {
+            if (item?.Tag is FileItem fileItem)
+            {
+                _statusLabel.Text = $"Selected: {fileItem.FileName} ({fileItem.SizeText})";
+            }
+        }
+
+        private void OnRightGalleryItemDoubleClicked(object sender, Controls.GalleryItem item)
+        {
+            if (item?.Tag is FileItem fileItem)
+            {
+                var pak = fileItem.SourcePak ?? _currentPak;
+                if (pak == null) return;
+
+                // 開啟詳細檢視視窗
+                var dialog = new ViewerDialog(pak, _rightGalleryItems, item.Index);
+                dialog.Show();
+            }
+        }
+
+        private void OnRightGalleryItemRightClicked(object sender, Controls.GalleryItem item)
+        {
+            if (item?.Tag is not FileItem fileItem) return;
+
+            // 建立右鍵選單
+            var menu = new ContextMenu();
+
+            var openInTabMenuItem = new ButtonMenuItem { Text = I18n.T("Context.OpenInNewTab") };
+            openInTabMenuItem.Click += (s, e) =>
+            {
+                var pak = fileItem.SourcePak ?? _currentPak;
+                if (pak == null) return;
+                var dialog = new ViewerDialog(pak, _rightGalleryItems, item.Index);
+                dialog.Show();
+            };
+            menu.Items.Add(openInTabMenuItem);
+
+            menu.Items.Add(new SeparatorMenuItem());
+
+            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
+            exportMenuItem.Click += (s, e) =>
+            {
+                var pak = fileItem.SourcePak ?? _currentPak;
+                if (pak == null) return;
+                try
+                {
+                    var data = pak.Extract(fileItem.Index);
+                    var savePath = Path.Combine(_selectedFolder ?? ".", fileItem.FileName);
+                    File.WriteAllBytes(savePath, data);
+                    _statusLabel.Text = I18n.T("Status.Exported", 1);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, ex.Message, I18n.T("Dialog.Error"), MessageBoxType.Error);
+                }
+            };
+            menu.Items.Add(exportMenuItem);
+
+            var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
+            exportToMenuItem.Click += (s, e) =>
+            {
+                var pak = fileItem.SourcePak ?? _currentPak;
+                if (pak == null) return;
+
+                var dialog = new SaveFileDialog
+                {
+                    Title = I18n.T("Dialog.SaveFile"),
+                    FileName = fileItem.FileName
+                };
+
+                if (dialog.ShowDialog(this) == DialogResult.Ok)
+                {
+                    try
+                    {
+                        var data = pak.Extract(fileItem.Index);
+                        File.WriteAllBytes(dialog.FileName, data);
+                        _statusLabel.Text = I18n.T("Status.Exported", 1);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(this, ex.Message, I18n.T("Dialog.Error"), MessageBoxType.Error);
+                    }
+                }
+            };
+            menu.Items.Add(exportToMenuItem);
+
+            menu.Items.Add(new SeparatorMenuItem());
+
+            var copyFileNameMenuItem = new ButtonMenuItem { Text = I18n.T("Context.CopyFilename") };
+            copyFileNameMenuItem.Click += (s, e) =>
+            {
+                new Clipboard().Text = fileItem.FileName;
+            };
+            menu.Items.Add(copyFileNameMenuItem);
+
+            // 顯示選單
+            menu.Show(_rightGalleryPanel);
         }
 
         /// <summary>
@@ -1555,19 +1889,28 @@ namespace PakViewer
         private void OnSearchChanged(object sender, EventArgs e)
         {
             _currentFilter = _searchBox.Text ?? "";
-            var mode = _viewModeRadio.SelectedIndex;
-            if (mode == MODE_SPR)
+
+            // 使用 debounce 避免打字時卡頓
+            _searchDebounceTimer?.Stop();
+            _searchDebounceTimer = new UITimer { Interval = 0.3 };
+            _searchDebounceTimer.Elapsed += (s, ev) =>
             {
-                UpdateSprGroupDisplay();
-            }
-            else if (mode == MODE_SPR_LIST)
-            {
-                UpdateSprListDisplay();
-            }
-            else
-            {
-                RefreshFileList();
-            }
+                _searchDebounceTimer.Stop();
+                var mode = _viewModeRadio.SelectedIndex;
+                if (mode == MODE_SPR)
+                {
+                    UpdateSprGroupDisplay();
+                }
+                else if (mode == MODE_SPR_LIST)
+                {
+                    UpdateSprListDisplay();
+                }
+                else
+                {
+                    RefreshFileList();
+                }
+            };
+            _searchDebounceTimer.Start();
         }
 
         private void OnExtFilterChanged(object sender, EventArgs e)
@@ -1738,6 +2081,12 @@ namespace PakViewer
 
             _fileGrid.DataStore = items;
             _recordCountLabel.Text = $"Records: {items.Count} / {totalCount}";
+
+            // 如果相簿模式開啟，同步更新相簿
+            if (_galleryModeRadio?.Checked == true)
+            {
+                RefreshRightGallery();
+            }
         }
 
         private void OnFileSelected(object sender, EventArgs e)
@@ -1767,6 +2116,97 @@ namespace PakViewer
                 _statusLabel.Text = $"Error: {ex.Message}";
             }
         }
+
+        #region 縮圖工具函數
+
+        private Bitmap CreateThumbnailBitmap(SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32> source, int size)
+        {
+            // 等比縮放
+            int width, height;
+            if (source.Width > source.Height)
+            {
+                width = size;
+                height = (int)((double)source.Height / source.Width * size);
+            }
+            else
+            {
+                height = size;
+                width = (int)((double)source.Width / source.Height * size);
+            }
+
+            if (width <= 0) width = 1;
+            if (height <= 0) height = 1;
+
+            // 縮放圖片
+            source.Mutate(ctx => ctx.Resize(width, height));
+
+            // 轉換為 byte array (可以在背景執行緒執行)
+            using var ms = new MemoryStream();
+            source.Save(ms, new PngEncoder());
+            var pngBytes = ms.ToArray();
+
+            // 在 UI 執行緒建立 Bitmap (WPF 需要)
+            Bitmap result = null;
+            Application.Instance.Invoke(() =>
+            {
+                result = new Bitmap(pngBytes);
+            });
+            return result;
+        }
+
+        private SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32> RenderTilThumbnail(byte[] data)
+        {
+            try
+            {
+                var blocks = L1Til.Parse(data);
+                if (blocks == null || blocks.Count == 0) return null;
+
+                var tileSize = L1Til.GetTileSize(data);
+                int cols = Math.Min(8, blocks.Count);
+                int rows = Math.Min(4, (blocks.Count + cols - 1) / cols);
+                int width = cols * tileSize;
+                int height = rows * tileSize;
+
+                var image = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(width, height);
+
+                for (int i = 0; i < Math.Min(blocks.Count, cols * rows); i++)
+                {
+                    int col = i % cols;
+                    int row = i / cols;
+                    int destX = col * tileSize;
+                    int destY = row * tileSize;
+
+                    var rgb555Canvas = new ushort[tileSize * tileSize];
+                    L1Til.RenderBlock(blocks[i], 0, 0, rgb555Canvas, tileSize, tileSize);
+
+                    for (int py = 0; py < tileSize; py++)
+                    {
+                        for (int px = 0; px < tileSize; px++)
+                        {
+                            ushort rgb555 = rgb555Canvas[py * tileSize + px];
+                            if (rgb555 != 0)
+                            {
+                                int r5 = (rgb555 >> 10) & 0x1F;
+                                int g5 = (rgb555 >> 5) & 0x1F;
+                                int b5 = rgb555 & 0x1F;
+                                byte r = (byte)((r5 << 3) | (r5 >> 2));
+                                byte g = (byte)((g5 << 3) | (g5 >> 2));
+                                byte b = (byte)((b5 << 3) | (b5 >> 2));
+                                image[destX + px, destY + py] = new SixLabors.ImageSharp.PixelFormats.Rgba32(r, g, b, 255);
+                            }
+                        }
+                    }
+                }
+
+                return image;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        #endregion
 
         private void OnExportSelected(object sender, EventArgs e)
         {

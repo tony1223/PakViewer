@@ -76,6 +76,18 @@ namespace PakViewer.Viewers
         }
 
         /// <summary>
+        /// 根據檔案內容判斷是否為 GIF 圖片
+        /// </summary>
+        public static bool IsGifContent(byte[] data)
+        {
+            if (data == null || data.Length < 6) return false;
+
+            // GIF magic bytes: "GIF87a" or "GIF89a"
+            return data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38
+                && (data[4] == 0x37 || data[4] == 0x39) && data[5] == 0x61;
+        }
+
+        /// <summary>
         /// 根據副檔名和內容智慧選擇 Viewer
         /// </summary>
         public static IFileViewer CreateViewerSmart(string extension, byte[] data, string fileName = null)
@@ -107,7 +119,7 @@ namespace PakViewer.Viewers
             if (IsTextContent(data))
                 return new TextViewer();
 
-            if (IsPngContent(data))
+            if (IsPngContent(data) || IsGifContent(data))
                 return new ImageViewer();
 
             // Fallback to HexViewer
