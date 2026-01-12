@@ -45,10 +45,11 @@ namespace PakViewer.Viewers
 
         // Icon 定義
         private static readonly (string icon0, string icon1)[] BitIcons = {
-            ("◀", "▶"),  // bit 0
-            ("◆", "◇"),  // bit 1
-            ("○", "●"),  // bit 2
-            ("■", "□")   // bit 4
+            ("◀", "▶"),  // bit 0: 對齊
+            ("◆", "◇"),  // bit 1: 模式
+            ("○", "●"),  // bit 2: 半透明
+            ("■", "□"),  // bit 4: 透明背景
+            ("☁", "🔥")  // bit 4/5: 雲/煙 (inverted alpha)
         };
 
         public override string[] SupportedExtensions => new[] { ".til" };
@@ -266,7 +267,7 @@ namespace PakViewer.Viewers
             _editDialog = new Dialog
             {
                 Title = $"編輯 Block #{index}",
-                Size = new Eto.Drawing.Size(280, 280),
+                Size = new Eto.Drawing.Size(280, 360),
                 Padding = 10
             };
 
@@ -305,19 +306,32 @@ namespace PakViewer.Viewers
                 Items = { new StackLayoutItem(null, true), previewDrawable, new StackLayoutItem(null, true) }
             });
 
-            // 設定項
-            string[] labels = { "對齊", "模式", "半透", "背景" };
-            int[] bits = { 0, 1, 2, 4 };
+            // 顯示原始 type code
+            layout.AddRow(new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 10,
+                Items =
+                {
+                    new Label { Text = "Type:", Width = 50, VerticalAlignment = VerticalAlignment.Center },
+                    new Label { Text = $"0x{flags:X2}", Font = new Font(SystemFont.Bold), VerticalAlignment = VerticalAlignment.Center }
+                }
+            });
+
+            // 設定項 - 使用 bitwise 操作保留原始值
+            string[] labels = { "對齊", "模式", "半透", "雲效果", "煙效果" };
+            int[] bits = { 0, 1, 2, 4, 5 };
             string[][] options = {
-                new[] { "向左 ◀", "向右 ▶" },
-                new[] { "完整 ◆", "部分 ◇" },
+                new[] { "向右 ◀", "向左 ▶" },
+                new[] { "菱形 ◆", "壓縮 ◇" },
                 new[] { "否 ○", "是 ●" },
-                new[] { "填滿", "透明" }
+                new[] { "否", "是 (白透明)" },
+                new[] { "否", "是 (黑透明)" }
             };
 
-            var dropdowns = new DropDown[4];
+            var dropdowns = new DropDown[5];
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 5; i++)
             {
                 int bitIndex = bits[i];
                 bool currentValue = (flags & (1 << bitIndex)) != 0;
@@ -332,7 +346,7 @@ namespace PakViewer.Viewers
                     {
                         Text = currentValue ? options[i][1] : options[i][0],
                         TextColor = Colors.Gray,
-                        Width = 100
+                        Width = 120
                     });
                     dropdowns[i] = null;
                 }
@@ -347,6 +361,7 @@ namespace PakViewer.Viewers
                     dropdown.SelectedIndexChanged += (s, ev) =>
                     {
                         bool newVal = dropdown.SelectedIndex == 1;
+                        // 使用 bitwise 操作，只修改特定 bit，保留其他 bits
                         if (newVal)
                             flags |= (byte)(1 << capturedBit);
                         else
@@ -402,16 +417,20 @@ namespace PakViewer.Viewers
             parts.Add((type & 0x01) != 0 ? "左對齊" : "右對齊");
             parts.Add((type & 0x02) != 0 ? "壓縮" : "菱形");
             if ((type & 0x04) != 0) parts.Add("半透明");
-            if ((type & 0x10) != 0) parts.Add("透明背景");
+            if ((type & 0x10) != 0) parts.Add("雲(白透明)");
+            if ((type & 0x20) != 0) parts.Add("煙(黑透明)");
             return string.Join(", ", parts);
         }
 
         private Eto.Drawing.Color GetPreviewBackColor(byte flags)
         {
-            bool hasBit4 = (flags & 0x10) != 0;
+            bool hasBit4 = (flags & 0x10) != 0;  // 雲 (白透明)
+            bool hasBit5 = (flags & 0x20) != 0;  // 煙 (黑透明)
 
-            if (hasBit4)
-                return Eto.Drawing.Color.FromArgb(70, 90, 120);   // 藍色 (透明背景標記)
+            if (hasBit5)
+                return Eto.Drawing.Color.FromArgb(100, 60, 60);   // 紅褐色 (煙霧標記)
+            else if (hasBit4)
+                return Eto.Drawing.Color.FromArgb(70, 90, 120);   // 藍色 (雲霧標記)
             else if (_useWhiteBackground)
                 return Eto.Drawing.Color.FromArgb(220, 220, 220); // 白色背景
             else
@@ -423,7 +442,8 @@ namespace PakViewer.Viewers
             try
             {
                 byte flags = blockData.Length > 0 ? blockData[0] : (byte)0;
-                bool hasBit2 = (flags & 0x04) != 0;
+                bool hasBit2 = (flags & 0x04) != 0;  // 半透明
+                bool hasInvertedAlpha = L1Til.HasInvertedAlpha(flags);  // bit4 or bit5
 
                 var rgb555Canvas = new ushort[_tileSize * _tileSize];
                 L1Til.RenderBlock(blockData, 0, 0, rgb555Canvas, _tileSize, _tileSize);
@@ -439,6 +459,26 @@ namespace PakViewer.Viewers
                         if (rgb555 == 0)
                         {
                             img[px, py] = new Bgra32(0, 0, 0, 0);
+                        }
+                        else if (hasInvertedAlpha)
+                        {
+                            // 計算 inverted alpha
+                            byte alpha = L1Til.CalculateInvertedAlpha(rgb555, flags);
+                            if (alpha < 8)
+                            {
+                                img[px, py] = new Bgra32(0, 0, 0, 0);
+                            }
+                            else
+                            {
+                                ushort renderColor = L1Til.GetInvertedAlphaRenderColor(rgb555, flags);
+                                int r5 = (renderColor >> 10) & 0x1F;
+                                int g5 = (renderColor >> 5) & 0x1F;
+                                int b5 = renderColor & 0x1F;
+                                byte r = (byte)((r5 << 3) | (r5 >> 2));
+                                byte g = (byte)((g5 << 3) | (g5 >> 2));
+                                byte b = (byte)((b5 << 3) | (b5 >> 2));
+                                img[px, py] = new Bgra32(r, g, b, alpha);
+                            }
                         }
                         else
                         {
