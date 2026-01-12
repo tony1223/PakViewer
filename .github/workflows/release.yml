@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'  # 觸發條件：推送 v 開頭的 tag，例如 v1.24.1225143000
+      - 'v*'  # 觸發條件：推送 v 開頭的 tag，例如 v1.26.0
 
 env:
   DOTNET_VERSION: '10.0.x'
@@ -36,7 +36,7 @@ jobs:
 
     - name: Build and Publish
       run: |
-        dotnet publish --configuration Release --runtime win-x64 --self-contained true -o publish /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+        dotnet publish --configuration Release --runtime win-x64 --self-contained true -o publish /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 
     - name: Create ZIP archive
       shell: pwsh
@@ -75,7 +75,7 @@ jobs:
 
     - name: Build and Publish
       run: |
-        dotnet publish --configuration Release --runtime linux-x64 --self-contained true -o publish /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+        dotnet publish --configuration Release --runtime linux-x64 --self-contained true -o publish /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 
     - name: Create ZIP archive
       run: |
@@ -115,11 +115,11 @@ jobs:
 
     - name: Build x64
       run: |
-        dotnet publish --configuration Release --runtime osx-x64 --self-contained true -o publish-x64 /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+        dotnet publish --configuration Release --runtime osx-x64 --self-contained true -o publish-x64 /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 
     - name: Build arm64
       run: |
-        dotnet publish --configuration Release --runtime osx-arm64 --self-contained true -o publish-arm64 /p:Version=${{ steps.get_version.outputs.VERSION }} /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+        dotnet publish --configuration Release --runtime osx-arm64 --self-contained true -o publish-arm64 /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 
     - name: Create Universal Binary
       run: |
