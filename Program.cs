@@ -747,14 +747,32 @@ namespace PakViewer
             _currentViewer = null;
 
             // 使用 ViewerFactory 建立新的 viewer
-            _currentViewer = Viewers.ViewerFactory.CreateViewerSmart(ext, data);
+            _currentViewer = Viewers.ViewerFactory.CreateViewerSmart(ext, data, fileName);
             _currentViewer.LoadData(data, fileName);
 
             // 訂閱儲存事件
             _currentViewer.SaveRequested += OnViewerSaveRequested;
 
-            // 顯示 viewer 控件
-            _viewerPanel.Content = _currentViewer.GetControl();
+            // 顯示 viewer 控件 (含編輯工具列)
+            var viewerControl = _currentViewer.GetControl();
+            var editToolbar = _currentViewer.CanEdit ? _currentViewer.GetEditToolbar() : null;
+
+            if (editToolbar != null)
+            {
+                _viewerPanel.Content = new TableLayout
+                {
+                    Spacing = new Size(0, 5),
+                    Rows =
+                    {
+                        new TableRow(editToolbar),
+                        new TableRow(viewerControl) { ScaleHeight = true }
+                    }
+                };
+            }
+            else
+            {
+                _viewerPanel.Content = viewerControl;
+            }
 
             // 重置搜尋狀態
             _textSearchResultLabel.Text = "";
@@ -1876,9 +1894,16 @@ namespace PakViewer
             var selected = _fileGrid.SelectedItem as FileItem;
             if (selected == null) return;
 
+            // 格式: pakFileName#fileName (例如 tile.pak#SummonUi.xml)
+            var pak = selected.SourcePak ?? _currentPak;
+            var pakName = pak != null ? Path.GetFileName(pak.PakPath) : "";
+            var copyText = string.IsNullOrEmpty(pakName)
+                ? selected.FileName
+                : $"{pakName}#{selected.FileName}";
+
             var clipboard = new Clipboard();
-            clipboard.Text = selected.FileName;
-            _statusLabel.Text = $"Copied: {selected.FileName}";
+            clipboard.Text = copyText;
+            _statusLabel.Text = $"Copied: {copyText}";
         }
 
         private void OnSelectAll(object sender, EventArgs e)
@@ -1957,7 +1982,7 @@ namespace PakViewer
         private Control CreateTabContent(string ext, byte[] data, string fileName)
         {
             // 使用模組化的 ViewerFactory
-            var viewer = Viewers.ViewerFactory.CreateViewerSmart(ext, data);
+            var viewer = Viewers.ViewerFactory.CreateViewerSmart(ext, data, fileName);
             viewer.LoadData(data, fileName);
 
             // 如果 viewer 支援搜尋，加上搜尋工具列

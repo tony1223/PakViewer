@@ -295,6 +295,7 @@ namespace PakViewer.Localization
             { "Status.UseViewerSearch", "請使用檢視器內建搜尋" },
             { "Status.NotFound", "找不到" },
             { "Status.BinaryFile", "二進制檔案" },
+            { "Status.Encrypted", "已加密" },
             { "Status.Saving", "儲存中..." },
 
             // Errors
@@ -526,6 +527,7 @@ namespace PakViewer.Localization
             { "Status.UseViewerSearch", "ビューアの検索機能を使用してください" },
             { "Status.NotFound", "見つかりません" },
             { "Status.BinaryFile", "バイナリファイル" },
+            { "Status.Encrypted", "暗号化" },
             { "Status.Saving", "保存中..." },
 
             // Errors
@@ -757,6 +759,7 @@ namespace PakViewer.Localization
             { "Status.UseViewerSearch", "Use viewer's built-in search" },
             { "Status.NotFound", "Not found" },
             { "Status.BinaryFile", "Binary file" },
+            { "Status.Encrypted", "Encrypted" },
             { "Status.Saving", "Saving..." },
 
             // Errors
@@ -987,6 +990,7 @@ namespace PakViewer.Localization
             { "Status.UseViewerSearch", "뷰어의 내장 검색을 사용하세요" },
             { "Status.NotFound", "찾을 수 없음" },
             { "Status.BinaryFile", "바이너리 파일" },
+            { "Status.Encrypted", "암호화됨" },
             { "Status.Saving", "저장 중..." },
 
             // Errors

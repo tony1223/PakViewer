@@ -1,7 +1,9 @@
 using System;
+using System.IO;
 using System.Text;
 using Eto.Drawing;
 using Eto.Forms;
+using Lin.Helper.Core.Xml;
 using PakViewer.Localization;
 
 namespace PakViewer.Viewers
@@ -11,15 +13,18 @@ namespace PakViewer.Viewers
     /// </summary>
     public class TextViewer : BaseViewer
     {
-        private RichTextArea _textArea;
+        private TextArea _textArea;
         private TextBox _searchBox;
         private Label _searchResultLabel;
+        private Label _encryptLabel;
         private string _text;
         private int _lastSearchIndex;
 
-        public override string[] SupportedExtensions => new[] { ".txt", ".html", ".htm", ".xml", ".s", ".tbl", ".json" };
+        public override string[] SupportedExtensions => new[] { ".txt", ".html", ".htm", ".xml", ".s", ".tbl", ".json", ".list" };
 
         public override bool CanSearch => true;
+
+        public override bool CanEdit => true;
 
         public override void LoadData(byte[] data, string fileName)
         {
@@ -27,17 +32,133 @@ namespace PakViewer.Viewers
             _fileName = fileName;
             _lastSearchIndex = 0;
 
-            var encoding = DetectEncoding(data, fileName);
-            _text = encoding.GetString(data);
-
-            _textArea = new RichTextArea
+            // 建立 context 追蹤狀態
+            _context = new FileContext
             {
-                ReadOnly = true,
+                OriginalData = data,
+                FileName = fileName,
+                IsXmlEncrypted = false
+            };
+
+            byte[] displayData = data;
+
+            // 檢查並解密 XML
+            if (IsXmlFile(fileName) && XmlCracker.IsEncrypted(data))
+            {
+                _context.IsXmlEncrypted = true;
+                displayData = XmlCracker.Decrypt((byte[])data.Clone());
+            }
+
+            _context.DisplayData = displayData;
+
+            // 取得 encoding
+            var encoding = _context.IsXmlEncrypted
+                ? XmlCracker.GetXmlEncoding(displayData, fileName)
+                : DetectEncoding(displayData, fileName);
+            _context.FileEncoding = encoding;
+
+            _text = encoding.GetString(displayData);
+
+            _textArea = new TextArea
+            {
+                ReadOnly = false,
                 Text = _text,
-                Font = new Font("Menlo, Monaco, Consolas, monospace", 12)
+                Font = new Font("Consolas, monospace", 12),
+                Wrap = false  // 不自動換行，允許水平捲動
+            };
+
+            // 監聽文字變更
+            _textArea.TextChanged += (s, e) =>
+            {
+                _hasChanges = (_textArea.Text != _text);
             };
 
             _control = _textArea;
+        }
+
+        private bool IsXmlFile(string fileName)
+        {
+            var ext = Path.GetExtension(fileName)?.ToLower();
+            return ext == ".xml";
+        }
+
+        /// <summary>
+        /// 取得編輯工具列 (儲存按鈕 + 加密狀態 + 編碼)
+        /// </summary>
+        public override Control GetEditToolbar()
+        {
+            var saveBtn = new Button { Text = I18n.T("Button.Save") };
+            saveBtn.Click += OnSaveClick;
+
+            _encryptLabel = new Label
+            {
+                Text = _context?.IsXmlEncrypted == true
+                    ? $"[{I18n.T("Status.Encrypted")}]"
+                    : "",
+                TextColor = Colors.Orange,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var encodingLabel = new Label
+            {
+                Text = _context?.FileEncoding != null
+                    ? $"[{GetEncodingDisplayName(_context.FileEncoding)}]"
+                    : "",
+                TextColor = Colors.Gray,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            return new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 10,
+                Items = { saveBtn, _encryptLabel, encodingLabel }
+            };
+        }
+
+        private static string GetEncodingDisplayName(System.Text.Encoding encoding)
+        {
+            // 常見編碼的友善名稱
+            return encoding.WebName.ToUpper() switch
+            {
+                "UTF-8" => "UTF-8",
+                "UTF-16" => "UTF-16",
+                "BIG5" => "Big5",
+                "SHIFT_JIS" => "Shift-JIS",
+                "EUC-KR" => "EUC-KR",
+                "GB2312" => "GB2312",
+                _ => encoding.WebName.ToUpper()
+            };
+        }
+
+        private void OnSaveClick(object sender, EventArgs e)
+        {
+            if (_context == null || _textArea == null) return;
+
+            // 取得編輯後的內容
+            var editedText = _textArea.Text;
+            var editedBytes = _context.FileEncoding.GetBytes(editedText);
+
+            // 還原加密狀態
+            var saveData = _context.PrepareForSave(editedBytes);
+
+            // 觸發儲存事件
+            OnSaveRequested(saveData);
+
+            // 重置變更標記
+            _text = editedText;
+            _hasChanges = false;
+        }
+
+        public override byte[] GetModifiedData()
+        {
+            if (_textArea == null || _context == null) return _data;
+
+            var editedText = _textArea.Text;
+            var editedBytes = _context.FileEncoding.GetBytes(editedText);
+
+            // 還原加密狀態
+            return _context.PrepareForSave(editedBytes);
         }
 
         public override Control GetSearchToolbar()

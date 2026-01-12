@@ -12,8 +12,14 @@ namespace PakViewer.Viewers
         protected byte[] _data;
         protected string _fileName;
         protected bool _hasChanges;
+        protected FileContext _context;
 
         public event EventHandler<SaveRequestedEventArgs> SaveRequested;
+
+        /// <summary>
+        /// 檔案上下文 (追蹤加密狀態等)
+        /// </summary>
+        public FileContext Context => _context;
 
         protected void OnSaveRequested(byte[] data)
         {
@@ -35,6 +41,8 @@ namespace PakViewer.Viewers
         public virtual byte[] GetModifiedData() => _data;
 
         public virtual Control GetSearchToolbar() => null;
+
+        public virtual Control GetEditToolbar() => null;
 
         public virtual void Dispose()
         {

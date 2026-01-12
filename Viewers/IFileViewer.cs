@@ -1,15 +1,58 @@
 using System;
+using System.Text;
 using Eto.Forms;
+using Lin.Helper.Core.Pak;
+using Lin.Helper.Core.Xml;
 
 namespace PakViewer.Viewers
 {
+    /// <summary>
+    /// 檔案上下文 - 追蹤檔案的原始狀態和加密資訊
+    /// </summary>
+    public class FileContext
+    {
+        public byte[] OriginalData { get; set; }      // 原始資料 (PAK解密後)
+        public byte[] DisplayData { get; set; }        // 顯示用資料 (完全解密)
+        public string FileName { get; set; }
+        public PakFile SourcePak { get; set; }
+        public int FileIndex { get; set; }
+
+        // 加密狀態
+        public bool IsXmlEncrypted { get; set; }       // XML 層是否加密
+        public Encoding FileEncoding { get; set; }     // 檔案 encoding
+
+        /// <summary>
+        /// 準備儲存資料 - 依原始狀態還原加密
+        /// </summary>
+        public byte[] PrepareForSave(byte[] editedData)
+        {
+            var result = editedData;
+
+            // 如果原本是 XML 加密的，加密回去
+            if (IsXmlEncrypted)
+            {
+                result = XmlCracker.Encrypt(result);
+            }
+
+            return result;
+        }
+    }
+
     /// <summary>
     /// 儲存請求事件參數
     /// </summary>
     public class SaveRequestedEventArgs : EventArgs
     {
         public byte[] Data { get; }
+        public FileContext Context { get; }
+
         public SaveRequestedEventArgs(byte[] data) => Data = data;
+
+        public SaveRequestedEventArgs(byte[] data, FileContext context)
+        {
+            Data = data;
+            Context = context;
+        }
     }
 
     /// <summary>
@@ -62,5 +105,10 @@ namespace PakViewer.Viewers
         /// 是否支援搜尋
         /// </summary>
         bool CanSearch { get; }
+
+        /// <summary>
+        /// 取得編輯工具列（如果支援編輯）
+        /// </summary>
+        Control GetEditToolbar();
     }
 }

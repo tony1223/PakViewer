@@ -78,9 +78,22 @@ namespace PakViewer.Viewers
         /// <summary>
         /// 根據副檔名和內容智慧選擇 Viewer
         /// </summary>
-        public static IFileViewer CreateViewerSmart(string extension, byte[] data)
+        public static IFileViewer CreateViewerSmart(string extension, byte[] data, string fileName = null)
         {
             extension = extension?.ToLower() ?? "";
+            var lowerFileName = fileName?.ToLower() ?? "";
+
+            // 特殊處理: list.spr 是文字列表檔
+            if (lowerFileName.EndsWith("list.spr"))
+            {
+                return new TextViewer();
+            }
+
+            // 特殊處理: .spr 一般是二進制精靈
+            if (extension == ".spr")
+            {
+                return new SpriteViewer();
+            }
 
             // First try by extension
             foreach (var factory in _viewerFactories)
