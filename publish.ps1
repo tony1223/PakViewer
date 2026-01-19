@@ -35,6 +35,8 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 Write-Host "Building with version $version..." -ForegroundColor Yellow
 
 # Publish for Windows (platform-dependent, smaller size with compression)
+# AssemblyVersion format: major.minor.build.revision (max 65534 per component)
+$assemblyVersion = "{0}.{1}.{2}.0" -f $now.Year, $now.Month, $now.Day
 $publishArgs = @(
     "publish",
     $projectFile,
@@ -45,8 +47,8 @@ $publishArgs = @(
     "-p:EnableCompressionInSingleFile=true",
     "-p:PublishTrimmed=false",
     "-p:Version=$version",
-    "-p:AssemblyVersion=$version.0",
-    "-p:FileVersion=$version.0",
+    "-p:AssemblyVersion=$assemblyVersion",
+    "-p:FileVersion=$assemblyVersion",
     "-o", $outputDir
 )
 
