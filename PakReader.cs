@@ -265,6 +265,13 @@ namespace PakViewer
                     ShowMTilInfo(args[1], mblockId);
                     break;
 
+                case "mtil-analyze":
+                    // 分析 MTil 的 Flags 與轉換後 L1Til block type 分布
+                    // mtil-analyze <mtil_file>
+                    if (args.Length < 2) { Console.WriteLine("Usage: mtil-analyze <mtil_file>"); return; }
+                    AnalyzeMTilDistribution(args[1]);
+                    break;
+
                 default:
                     ShowHelp();
                     break;
@@ -5206,6 +5213,84 @@ namespace PakViewer
             {
                 Console.WriteLine();
                 Console.WriteLine($"  Rendered bounding box: EMPTY (no visible pixels)");
+            }
+        }
+
+        static void AnalyzeMTilDistribution(string mtilPath)
+        {
+            Console.WriteLine($"=== MTil Analyze ===");
+            Console.WriteLine($"File: {mtilPath}");
+            Console.WriteLine($"Size: {new FileInfo(mtilPath).Length} bytes");
+            Console.WriteLine();
+
+            byte[] data = File.ReadAllBytes(mtilPath);
+            var parsed = MTil.Parse(data);
+            Console.WriteLine($"Block count: {parsed.BlockCount}");
+            Console.WriteLine();
+
+            // Analyze MTil Flags distribution
+            var flagsDistribution = new Dictionary<byte, int>();
+            foreach (var block in parsed.Blocks)
+            {
+                if (!flagsDistribution.ContainsKey(block.Flags))
+                    flagsDistribution[block.Flags] = 0;
+                flagsDistribution[block.Flags]++;
+            }
+
+            Console.WriteLine("=== MTil Flags Distribution ===");
+            foreach (var kv in flagsDistribution.OrderBy(x => x.Key))
+            {
+                byte flags = kv.Key;
+                int count = kv.Value;
+
+                var bits = new List<string>();
+                if ((flags & 0x01) != 0) bits.Add("bit0(UseTableB/flip)");
+                if ((flags & 0x02) != 0) bits.Add("bit1(compress)");
+                if ((flags & 0x04) != 0) bits.Add("bit2(半透明)");
+                if ((flags & 0x08) != 0) bits.Add("bit3(shadow)");
+                if ((flags & 0x10) != 0) bits.Add("bit4(invAlpha-雲)");
+                if ((flags & 0x20) != 0) bits.Add("bit5(invAlpha-煙)");
+                if ((flags & 0x40) != 0) bits.Add("bit6(IsDefault)");
+                if ((flags & 0x80) != 0) bits.Add("bit7");
+
+                string bitsStr = bits.Count > 0 ? string.Join(", ", bits) : "(none)";
+                Console.WriteLine($"  0x{flags:X2} ({flags,3}): {count,4} blocks - {bitsStr}");
+            }
+
+            Console.WriteLine();
+
+            // Convert to L1Til and analyze block types
+            Console.WriteLine("=== L1Til Block Type Distribution (after conversion with & 0x3F) ===");
+            var tileBlocks = MTil.ConvertToL1Til(data);
+
+            var blockTypeDistribution = new Dictionary<byte, int>();
+            for (int i = 0; i < tileBlocks.Count; i++)
+            {
+                var blockData = tileBlocks.Get(i);
+                if (blockData != null && blockData.Length > 0)
+                {
+                    byte blockType = blockData[0];
+                    if (!blockTypeDistribution.ContainsKey(blockType))
+                        blockTypeDistribution[blockType] = 0;
+                    blockTypeDistribution[blockType]++;
+                }
+            }
+
+            foreach (var kv in blockTypeDistribution.OrderBy(x => x.Key))
+            {
+                byte blockType = kv.Key;
+                int count = kv.Value;
+
+                var bits = new List<string>();
+                if ((blockType & 0x01) != 0) bits.Add("bit0(flip)");
+                if ((blockType & 0x02) != 0) bits.Add("bit1(compress)");
+                if ((blockType & 0x04) != 0) bits.Add("bit2(半透明)");
+                if ((blockType & 0x08) != 0) bits.Add("bit3(shadow)");
+                if ((blockType & 0x10) != 0) bits.Add("bit4(invAlpha-雲)");
+                if ((blockType & 0x20) != 0) bits.Add("bit5(invAlpha-煙)");
+
+                string bitsStr = bits.Count > 0 ? string.Join(", ", bits) : "(none)";
+                Console.WriteLine($"  0x{blockType:X2} ({blockType,3}): {count,4} blocks - {bitsStr}");
             }
         }
 

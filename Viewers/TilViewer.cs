@@ -110,7 +110,7 @@ namespace PakViewer.Viewers
 
             _infoLabel = new Label
             {
-                Text = $"Blocks: {_blocks.Count}  Version: {versionText}",
+                Text = I18n.T("Til.BlocksCount", _blocks.Count) + "  " + I18n.T("Til.Version", versionText),
                 VerticalAlignment = VerticalAlignment.Center
             };
             toolbar.Items.Add(_infoLabel);
@@ -119,8 +119,8 @@ namespace PakViewer.Viewers
             toolbar.Items.Add(new Label { Text = "  |  ", VerticalAlignment = VerticalAlignment.Center });
             toolbar.Items.Add(new Label { Text = I18n.T("Til.Background"), VerticalAlignment = VerticalAlignment.Center });
             var bgDropdown = new DropDown { Width = 80 };
-            bgDropdown.Items.Add("黑色");
-            bgDropdown.Items.Add("白色");
+            bgDropdown.Items.Add(I18n.T("Color.Black"));
+            bgDropdown.Items.Add(I18n.T("Color.White"));
             bgDropdown.SelectedIndex = 0;
             bgDropdown.SelectedIndexChanged += (s, ev) =>
             {
@@ -246,7 +246,7 @@ namespace PakViewer.Viewers
                 _selectedBlock = index;
                 byte flags = _blocks[index].Length > 0 ? _blocks[index][0] : (byte)0;
                 string typeInfo = GetTypeInfo(flags);
-                _infoLabel.Text = $"Block #{index}  Type: 0x{flags:X2} ({typeInfo})  [雙擊編輯]";
+                _infoLabel.Text = $"Block #{index}  {I18n.T("Til.Type")} 0x{flags:X2} ({typeInfo})  {I18n.T("Til.DoubleClickEdit")}";
                 _drawable.Invalidate();
             }
         }
@@ -266,7 +266,7 @@ namespace PakViewer.Viewers
 
             _editDialog = new Dialog
             {
-                Title = $"編輯 Block #{index}",
+                Title = I18n.T("Til.EditBlock", index),
                 Size = new Eto.Drawing.Size(280, 360),
                 Padding = 10
             };
@@ -313,20 +313,20 @@ namespace PakViewer.Viewers
                 Spacing = 10,
                 Items =
                 {
-                    new Label { Text = "Type:", Width = 50, VerticalAlignment = VerticalAlignment.Center },
+                    new Label { Text = I18n.T("Til.Type"), Width = 50, VerticalAlignment = VerticalAlignment.Center },
                     new Label { Text = $"0x{flags:X2}", Font = new Font(SystemFont.Bold), VerticalAlignment = VerticalAlignment.Center }
                 }
             });
 
             // 設定項 - 使用 bitwise 操作保留原始值
-            string[] labels = { "對齊", "模式", "半透", "雲效果", "煙效果" };
+            string[] labels = { I18n.T("Til.Align"), I18n.T("Til.Mode"), I18n.T("Til.SemiTrans"), I18n.T("Til.CloudEffect"), I18n.T("Til.SmokeEffect") };
             int[] bits = { 0, 1, 2, 4, 5 };
             string[][] options = {
-                new[] { "向右 ◀", "向左 ▶" },
-                new[] { "菱形 ◆", "壓縮 ◇" },
-                new[] { "否 ○", "是 ●" },
-                new[] { "否", "是 (白透明)" },
-                new[] { "否", "是 (黑透明)" }
+                new[] { I18n.T("Til.AlignLeft"), I18n.T("Til.AlignRight") },
+                new[] { I18n.T("Til.Diamond"), I18n.T("Til.Compressed") },
+                new[] { I18n.T("Til.NoWithIcon"), I18n.T("Til.YesWithIcon") },
+                new[] { I18n.T("Til.No"), I18n.T("Til.YesWhiteTrans") },
+                new[] { I18n.T("Til.No"), I18n.T("Til.YesBlackTrans") }
             };
 
             var dropdowns = new DropDown[5];
@@ -395,7 +395,7 @@ namespace PakViewer.Viewers
                         _bitmaps[index] = newBmp;
 
                     _drawable.Invalidate();
-                    _infoLabel.Text = $"Blocks: {_blocks.Count}  (已修改)";
+                    _infoLabel.Text = I18n.T("Til.BlocksModified", _blocks.Count);
                 }
                 _editDialog.Close();
             };
@@ -414,11 +414,11 @@ namespace PakViewer.Viewers
         private string GetTypeInfo(byte type)
         {
             var parts = new List<string>();
-            parts.Add((type & 0x01) != 0 ? "左對齊" : "右對齊");
-            parts.Add((type & 0x02) != 0 ? "壓縮" : "菱形");
-            if ((type & 0x04) != 0) parts.Add("半透明");
-            if ((type & 0x10) != 0) parts.Add("雲(白透明)");
-            if ((type & 0x20) != 0) parts.Add("煙(黑透明)");
+            parts.Add((type & 0x01) != 0 ? I18n.T("Til.TypeAlignRight") : I18n.T("Til.TypeAlignLeft"));
+            parts.Add((type & 0x02) != 0 ? I18n.T("Til.TypeCompressed") : I18n.T("Til.TypeDiamond"));
+            if ((type & 0x04) != 0) parts.Add(I18n.T("Til.TypeSemiTrans"));
+            if ((type & 0x10) != 0) parts.Add(I18n.T("Til.TypeCloud"));
+            if ((type & 0x20) != 0) parts.Add(I18n.T("Til.TypeSmoke"));
             return string.Join(", ", parts);
         }
 
@@ -441,59 +441,12 @@ namespace PakViewer.Viewers
         {
             try
             {
-                byte flags = blockData.Length > 0 ? blockData[0] : (byte)0;
-                bool hasBit2 = (flags & 0x04) != 0;  // 半透明
-                bool hasInvertedAlpha = L1Til.HasInvertedAlpha(flags);  // bit4 or bit5
+                // 使用 L1Til.RenderBlockToBgra 統一渲染邏輯
+                var bgraCanvas = new byte[_tileSize * _tileSize * 4];
+                L1Til.RenderBlockToBgra(blockData, 0, 0, bgraCanvas, _tileSize, _tileSize,
+                    0, 0, 0, applyTypeAlpha: true, transparentBackground: true);
 
-                var rgb555Canvas = new ushort[_tileSize * _tileSize];
-                L1Til.RenderBlock(blockData, 0, 0, rgb555Canvas, _tileSize, _tileSize);
-
-                using var img = new Image<Bgra32>(_tileSize, _tileSize);
-                for (int py = 0; py < _tileSize; py++)
-                {
-                    for (int px = 0; px < _tileSize; px++)
-                    {
-                        int idx = py * _tileSize + px;
-                        ushort rgb555 = rgb555Canvas[idx];
-
-                        if (rgb555 == 0)
-                        {
-                            img[px, py] = new Bgra32(0, 0, 0, 0);
-                        }
-                        else if (hasInvertedAlpha)
-                        {
-                            // 計算 inverted alpha
-                            byte alpha = L1Til.CalculateInvertedAlpha(rgb555, flags);
-                            if (alpha < 8)
-                            {
-                                img[px, py] = new Bgra32(0, 0, 0, 0);
-                            }
-                            else
-                            {
-                                ushort renderColor = L1Til.GetInvertedAlphaRenderColor(rgb555, flags);
-                                int r5 = (renderColor >> 10) & 0x1F;
-                                int g5 = (renderColor >> 5) & 0x1F;
-                                int b5 = renderColor & 0x1F;
-                                byte r = (byte)((r5 << 3) | (r5 >> 2));
-                                byte g = (byte)((g5 << 3) | (g5 >> 2));
-                                byte b = (byte)((b5 << 3) | (b5 >> 2));
-                                img[px, py] = new Bgra32(r, g, b, alpha);
-                            }
-                        }
-                        else
-                        {
-                            int r5 = (rgb555 >> 10) & 0x1F;
-                            int g5 = (rgb555 >> 5) & 0x1F;
-                            int b5 = rgb555 & 0x1F;
-                            byte r = (byte)((r5 << 3) | (r5 >> 2));
-                            byte g = (byte)((g5 << 3) | (g5 >> 2));
-                            byte b = (byte)((b5 << 3) | (b5 >> 2));
-                            byte alpha = hasBit2 ? (byte)128 : (byte)255;
-                            img[px, py] = new Bgra32(r, g, b, alpha);
-                        }
-                    }
-                }
-
+                using var img = SixLabors.ImageSharp.Image.LoadPixelData<Bgra32>(bgraCanvas, _tileSize, _tileSize);
                 using var ms = new MemoryStream();
                 img.Save(ms, new PngEncoder());
                 ms.Position = 0;
@@ -523,13 +476,13 @@ namespace PakViewer.Viewers
 
                 _data = newData;
                 _hasChanges = false;
-                _infoLabel.Text = $"Blocks: {_blocks.Count}  (已儲存)";
+                _infoLabel.Text = I18n.T("Til.BlocksSaved", _blocks.Count);
                 _saveButton.Text = I18n.T("Button.Save");
                 // 儲存成功後按鈕保持禁用 (沒有變更)
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"儲存失敗: {ex.Message}", "錯誤", MessageBoxType.Error);
+                MessageBox.Show($"{I18n.T("Error.SaveFailed")}: {ex.Message}", I18n.T("Dialog.Error"), MessageBoxType.Error);
                 _saveButton.Enabled = true;
                 _saveButton.Text = I18n.T("Button.Save");
             }
