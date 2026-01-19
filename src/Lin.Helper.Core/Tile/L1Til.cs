@@ -1279,7 +1279,11 @@ namespace Lin.Helper.Core.Tile
         }
 
         /// <summary>
-        /// 將 block 渲染到 BGRA32 格式，支援 type 6/7 半透明渲染
+        /// 將 block 渲染到 BGRA32 格式，支援完整 type 特效
+        /// - bit0/1: 菱形方向/壓縮格式 (由 RenderBlock 處理)
+        /// - bit2 (0x04): 半透明 50%
+        /// - bit4 (0x10): Inverted alpha - 雲 (白=不透明，黑=透明)
+        /// - bit5 (0x20): Inverted alpha - 煙/血 (黑=不透明，白=透明)
         /// </summary>
         /// <param name="blockData">Block 資料</param>
         /// <param name="destX">目標 X 座標</param>
@@ -1290,8 +1294,9 @@ namespace Lin.Helper.Core.Tile
         /// <param name="bgR">背景紅色分量</param>
         /// <param name="bgG">背景綠色分量</param>
         /// <param name="bgB">背景藍色分量</param>
-        /// <param name="applyTypeAlpha">是否根據 block type 套用透明度 (type 6/7 = 50% opacity)</param>
-        public static void RenderBlockToBgra(byte[] blockData, int destX, int destY, byte[] canvas, int canvasWidth, int canvasHeight, byte bgR, byte bgG, byte bgB, bool applyTypeAlpha)
+        /// <param name="applyTypeAlpha">是否根據 block type 套用透明度效果</param>
+        /// <param name="transparentBackground">是否使用透明背景 (true 時忽略 bgR/bgG/bgB)</param>
+        public static void RenderBlockToBgra(byte[] blockData, int destX, int destY, byte[] canvas, int canvasWidth, int canvasHeight, byte bgR, byte bgG, byte bgB, bool applyTypeAlpha, bool transparentBackground = false)
         {
             if (blockData == null || blockData.Length < 1)
                 return;
@@ -1299,10 +1304,9 @@ namespace Lin.Helper.Core.Tile
             var rgb555Canvas = new ushort[canvasWidth * canvasHeight];
             RenderBlock(blockData, destX, destY, rgb555Canvas, canvasWidth, canvasHeight);
 
-            // 檢查 block type 是否有 bit2 (type 6/7)
             byte blockType = blockData[0];
-            bool hasTypeBit2 = (blockType & 0x04) != 0;
-            byte alpha = (applyTypeAlpha && hasTypeBit2) ? (byte)128 : (byte)255;
+            bool hasBit2 = (blockType & 0x04) != 0;         // 半透明
+            bool hasInvAlpha = HasInvertedAlpha(blockType); // bit4 or bit5
 
             // Convert RGB555 to BGRA32
             for (int y = 0; y < canvasHeight; y++)
@@ -1315,10 +1319,43 @@ namespace Lin.Helper.Core.Tile
 
                     if (rgb555 == 0)
                     {
-                        canvas[dstIdx + 0] = bgB; // B
-                        canvas[dstIdx + 1] = bgG; // G
-                        canvas[dstIdx + 2] = bgR; // R
-                        canvas[dstIdx + 3] = 255; // A (背景不透明)
+                        if (transparentBackground)
+                        {
+                            canvas[dstIdx + 0] = 0;
+                            canvas[dstIdx + 1] = 0;
+                            canvas[dstIdx + 2] = 0;
+                            canvas[dstIdx + 3] = 0; // 全透明
+                        }
+                        else
+                        {
+                            canvas[dstIdx + 0] = bgB; // B
+                            canvas[dstIdx + 1] = bgG; // G
+                            canvas[dstIdx + 2] = bgR; // R
+                            canvas[dstIdx + 3] = 255; // A (背景不透明)
+                        }
+                    }
+                    else if (applyTypeAlpha && hasInvAlpha)
+                    {
+                        // Inverted alpha: bit4 (雲) 或 bit5 (煙/血)
+                        byte alpha = CalculateInvertedAlpha(rgb555, blockType);
+                        if (alpha < 8)
+                        {
+                            canvas[dstIdx + 0] = 0;
+                            canvas[dstIdx + 1] = 0;
+                            canvas[dstIdx + 2] = 0;
+                            canvas[dstIdx + 3] = 0; // 全透明
+                        }
+                        else
+                        {
+                            ushort renderColor = GetInvertedAlphaRenderColor(rgb555, blockType);
+                            int b5 = renderColor & 0x1F;
+                            int g5 = (renderColor >> 5) & 0x1F;
+                            int r5 = (renderColor >> 10) & 0x1F;
+                            canvas[dstIdx + 0] = (byte)((b5 << 3) | (b5 >> 2)); // B
+                            canvas[dstIdx + 1] = (byte)((g5 << 3) | (g5 >> 2)); // G
+                            canvas[dstIdx + 2] = (byte)((r5 << 3) | (r5 >> 2)); // R
+                            canvas[dstIdx + 3] = alpha;
+                        }
                     }
                     else
                     {
@@ -1328,7 +1365,8 @@ namespace Lin.Helper.Core.Tile
                         canvas[dstIdx + 0] = (byte)((b5 << 3) | (b5 >> 2)); // B
                         canvas[dstIdx + 1] = (byte)((g5 << 3) | (g5 >> 2)); // G
                         canvas[dstIdx + 2] = (byte)((r5 << 3) | (r5 >> 2)); // R
-                        canvas[dstIdx + 3] = alpha; // A (type 6/7 半透明)
+                        // bit2 半透明 (50% opacity)
+                        canvas[dstIdx + 3] = (applyTypeAlpha && hasBit2) ? (byte)128 : (byte)255;
                     }
                 }
             }
@@ -1436,7 +1474,229 @@ namespace Lin.Helper.Core.Tile
         }
 
         /// <summary>
-        /// 直接渲染到 unsafe byte* 緩衝區 (高效能版本，RGB555 格式)，支援 type 6/7 半透明渲染
+        /// RGB555 轉 RGB565
+        /// RGB555: 0RRRRRGGGGGBBBBB -> RGB565: RRRRRGGGGGGBBBBB
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static ushort Rgb555ToRgb565(ushort rgb555)
+        {
+            // RGB555: 0RRRRR GGGGG BBBBB (bit 15 unused)
+            // RGB565: RRRRR GGGGGG BBBBB
+            int r = (rgb555 >> 10) & 0x1F;  // 5 bits
+            int g = (rgb555 >> 5) & 0x1F;   // 5 bits -> 6 bits
+            int b = rgb555 & 0x1F;          // 5 bits
+            // G 從 5 bits 擴展到 6 bits: 左移 1 位並複製最高位到最低位
+            int g6 = (g << 1) | (g >> 4);
+            return (ushort)((r << 11) | (g6 << 5) | b);
+        }
+
+        /// <summary>
+        /// 直接渲染到 unsafe byte* 緩衝區 (高效能版本，RGB565 格式)，支援完整 type 特效
+        /// - bit2 (0x04): 半透明 50%
+        /// - bit4 (0x10): Inverted alpha - 雲 (白=不透明，黑=透明)
+        /// - bit5 (0x20): Inverted alpha - 煙/血 (黑=不透明，白=透明)
+        /// </summary>
+        public static unsafe void RenderBlockDirectRgb565(byte[] blockData, int destX, int destY, byte* buffer, int rowPitch, int maxWidth, int maxHeight, bool applyTypeAlpha)
+        {
+            if (blockData == null || blockData.Length < 2) return;
+
+            byte blockType = blockData[0];
+            bool hasBit2 = applyTypeAlpha && (blockType & 0x04) != 0;         // 半透明
+            bool hasInvAlpha = applyTypeAlpha && HasInvertedAlpha(blockType); // bit4 or bit5
+            bool needsBlend = hasBit2 || hasInvAlpha;
+
+            fixed (byte* tilPtr = blockData)
+            {
+                byte* ptr = tilPtr;
+                byte type = *(ptr++);
+
+                // Type 1: 左對齊菱形
+                if ((type & 0x02) == 0 && (type & 0x01) != 0)
+                {
+                    for (int ty = 0; ty < 24; ty++)
+                    {
+                        int n = (ty <= 11) ? (ty + 1) * 2 : (23 - ty) * 2;
+                        int tx = 0;
+                        for (int p = 0; p < n; p++)
+                        {
+                            ushort srcColor = (ushort)(*(ptr++) | (*(ptr++) << 8));
+                            int px = destX + tx;
+                            int py = destY + ty;
+                            if (px >= 0 && px < maxWidth && py >= 0 && py < maxHeight)
+                            {
+                                int offset = py * rowPitch + (px * 2);
+                                ushort result;
+                                if (needsBlend)
+                                {
+                                    ushort dstColor565 = (ushort)(*(buffer + offset) | (*(buffer + offset + 1) << 8));
+                                    result = BlendPixelWithAlphaRgb565(srcColor, dstColor565, type, hasInvAlpha, hasBit2);
+                                }
+                                else
+                                {
+                                    result = Rgb555ToRgb565(srcColor);
+                                }
+                                *(buffer + offset) = (byte)(result & 0xFF);
+                                *(buffer + offset + 1) = (byte)(result >> 8);
+                            }
+                            tx++;
+                        }
+                    }
+                }
+                // Type 0: 靠右對齊菱形
+                else if ((type & 0x02) == 0 && (type & 0x01) == 0)
+                {
+                    for (int ty = 0; ty < 24; ty++)
+                    {
+                        int n = (ty <= 11) ? (ty + 1) * 2 : (23 - ty) * 2;
+                        int tx = 24 - n;
+                        for (int p = 0; p < n; p++)
+                        {
+                            ushort srcColor = (ushort)(*(ptr++) | (*(ptr++) << 8));
+                            int px = destX + tx;
+                            int py = destY + ty;
+                            if (px >= 0 && px < maxWidth && py >= 0 && py < maxHeight)
+                            {
+                                int offset = py * rowPitch + (px * 2);
+                                ushort result;
+                                if (needsBlend)
+                                {
+                                    ushort dstColor565 = (ushort)(*(buffer + offset) | (*(buffer + offset + 1) << 8));
+                                    result = BlendPixelWithAlphaRgb565(srcColor, dstColor565, type, hasInvAlpha, hasBit2);
+                                }
+                                else
+                                {
+                                    result = Rgb555ToRgb565(srcColor);
+                                }
+                                *(buffer + offset) = (byte)(result & 0xFF);
+                                *(buffer + offset + 1) = (byte)(result >> 8);
+                            }
+                            tx++;
+                        }
+                    }
+                }
+                // 壓縮格式
+                else
+                {
+                    byte xOffset = *(ptr++);
+                    byte yOffset = *(ptr++);
+                    byte xxLen = *(ptr++);
+                    byte yLen = *(ptr++);
+
+                    for (int ty = 0; ty < yLen; ty++)
+                    {
+                        int tx = xOffset;
+                        byte segCount = *(ptr++);
+                        for (int seg = 0; seg < segCount; seg++)
+                        {
+                            tx += *(ptr++) / 2;
+                            int count = *(ptr++);
+                            for (int p = 0; p < count; p++)
+                            {
+                                ushort srcColor = (ushort)(*(ptr++) | (*(ptr++) << 8));
+                                int px = destX + tx;
+                                int py = destY + ty + yOffset;
+                                if (px >= 0 && px < maxWidth && py >= 0 && py < maxHeight)
+                                {
+                                    int offset = py * rowPitch + (px * 2);
+                                    ushort result;
+                                    if (needsBlend)
+                                    {
+                                        ushort dstColor565 = (ushort)(*(buffer + offset) | (*(buffer + offset + 1) << 8));
+                                        result = BlendPixelWithAlphaRgb565(srcColor, dstColor565, type, hasInvAlpha, hasBit2);
+                                    }
+                                    else
+                                    {
+                                        result = Rgb555ToRgb565(srcColor);
+                                    }
+                                    *(buffer + offset) = (byte)(result & 0xFF);
+                                    *(buffer + offset + 1) = (byte)(result >> 8);
+                                }
+                                tx++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 混合像素並輸出 RGB565 (支援 bit2 半透明和 bit4/5 inverted alpha)
+        /// srcColor 為 RGB555，dstColor 為 RGB565
+        /// </summary>
+        private static ushort BlendPixelWithAlphaRgb565(ushort srcColor, ushort dstColor565, byte blockType, bool hasInvAlpha, bool hasBit2)
+        {
+            if (hasInvAlpha)
+            {
+                // Inverted alpha: 根據亮度計算 alpha
+                byte alpha = CalculateInvertedAlpha(srcColor, blockType);
+                if (alpha < 8) return dstColor565; // 幾乎透明，保留背景
+                ushort renderColor = GetInvertedAlphaRenderColor(srcColor, blockType);
+                ushort renderColor565 = Rgb555ToRgb565(renderColor);
+                return BlendRgb565WithAlpha(dstColor565, renderColor565, alpha);
+            }
+            else if (hasBit2)
+            {
+                // bit2: 50% 混合
+                ushort srcColor565 = Rgb555ToRgb565(srcColor);
+                return BlendRgb565(srcColor565, dstColor565);
+            }
+            return Rgb555ToRgb565(srcColor);
+        }
+
+        /// <summary>
+        /// RGB565 顏色混合 (50% opacity)
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static ushort BlendRgb565(ushort src, ushort dst)
+        {
+            // RGB565 格式: RRRRRGGGGGGBBBBB
+            int srcR = (src >> 11) & 0x1F;
+            int srcG = (src >> 5) & 0x3F;
+            int srcB = src & 0x1F;
+
+            int dstR = (dst >> 11) & 0x1F;
+            int dstG = (dst >> 5) & 0x3F;
+            int dstB = dst & 0x1F;
+
+            // 50% blend: (src + dst) / 2
+            int blendR = (srcR + dstR) >> 1;
+            int blendG = (srcG + dstG) >> 1;
+            int blendB = (srcB + dstB) >> 1;
+
+            return (ushort)((blendR << 11) | (blendG << 5) | blendB);
+        }
+
+        /// <summary>
+        /// RGB565 alpha blending
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static ushort BlendRgb565WithAlpha(ushort bg, ushort fg, byte alpha)
+        {
+            if (alpha == 255) return fg;
+            if (alpha == 0) return bg;
+
+            uint invAlpha = (uint)(255 - alpha);
+
+            uint bgR = (uint)((bg >> 11) & 0x1F);
+            uint bgG = (uint)((bg >> 5) & 0x3F);
+            uint bgB = (uint)(bg & 0x1F);
+
+            uint fgR = (uint)((fg >> 11) & 0x1F);
+            uint fgG = (uint)((fg >> 5) & 0x3F);
+            uint fgB = (uint)(fg & 0x1F);
+
+            uint outR = (bgR * invAlpha + fgR * alpha) / 255;
+            uint outG = (bgG * invAlpha + fgG * alpha) / 255;
+            uint outB = (bgB * invAlpha + fgB * alpha) / 255;
+
+            return (ushort)((outR << 11) | (outG << 5) | outB);
+        }
+
+        /// <summary>
+        /// 直接渲染到 unsafe byte* 緩衝區 (高效能版本，RGB555 格式)，支援完整 type 特效
+        /// - bit2 (0x04): 半透明 50%
+        /// - bit4 (0x10): Inverted alpha - 雲 (白=不透明，黑=透明)
+        /// - bit5 (0x20): Inverted alpha - 煙/血 (黑=不透明，白=透明)
         /// </summary>
         /// <param name="blockData">block 資料</param>
         /// <param name="destX">目標 X 座標</param>
@@ -1445,22 +1705,23 @@ namespace Lin.Helper.Core.Tile
         /// <param name="rowPitch">每行的 byte 數</param>
         /// <param name="maxWidth">最大寬度</param>
         /// <param name="maxHeight">最大高度</param>
-        /// <param name="applyTypeAlpha">是否根據 block type 套用透明度 (type 6/7 = 50% opacity)</param>
+        /// <param name="applyTypeAlpha">是否根據 block type 套用透明度效果</param>
         public static unsafe void RenderBlockDirect(byte[] blockData, int destX, int destY, byte* buffer, int rowPitch, int maxWidth, int maxHeight, bool applyTypeAlpha)
         {
             if (blockData == null || blockData.Length < 2) return;
 
-            // 檢查是否需要半透明渲染 (type 6/7 = bit2 設定)
-            bool useAlpha = applyTypeAlpha && (blockData[0] & 0x04) != 0;
+            byte blockType = blockData[0];
+            bool hasBit2 = (blockType & 0x04) != 0;         // 半透明
+            bool hasInvAlpha = HasInvertedAlpha(blockType); // bit4 or bit5
 
-            if (!useAlpha)
+            // 不需要任何 alpha 效果，使用原本的高效能版本
+            if (!applyTypeAlpha || (!hasBit2 && !hasInvAlpha))
             {
-                // 不需要 alpha，使用原本的高效能版本
                 RenderBlockDirect(blockData, destX, destY, buffer, rowPitch, maxWidth, maxHeight);
                 return;
             }
 
-            // 需要 alpha blending (50% opacity)
+            // 需要 alpha 處理
             fixed (byte* tilPtr = blockData)
             {
                 byte* ptr = tilPtr;
@@ -1482,7 +1743,7 @@ namespace Lin.Helper.Core.Tile
                             {
                                 int offset = py * rowPitch + (px * 2);
                                 ushort dstColor = (ushort)(*(buffer + offset) | (*(buffer + offset + 1) << 8));
-                                ushort blended = BlendRgb555(srcColor, dstColor);
+                                ushort blended = BlendPixelWithAlpha(srcColor, dstColor, type, hasInvAlpha, hasBit2);
                                 *(buffer + offset) = (byte)(blended & 0xFF);
                                 *(buffer + offset + 1) = (byte)(blended >> 8);
                             }
@@ -1506,7 +1767,7 @@ namespace Lin.Helper.Core.Tile
                             {
                                 int offset = py * rowPitch + (px * 2);
                                 ushort dstColor = (ushort)(*(buffer + offset) | (*(buffer + offset + 1) << 8));
-                                ushort blended = BlendRgb555(srcColor, dstColor);
+                                ushort blended = BlendPixelWithAlpha(srcColor, dstColor, type, hasInvAlpha, hasBit2);
                                 *(buffer + offset) = (byte)(blended & 0xFF);
                                 *(buffer + offset + 1) = (byte)(blended >> 8);
                             }
@@ -1539,7 +1800,7 @@ namespace Lin.Helper.Core.Tile
                                 {
                                     int offset = py * rowPitch + (px * 2);
                                     ushort dstColor = (ushort)(*(buffer + offset) | (*(buffer + offset + 1) << 8));
-                                    ushort blended = BlendRgb555(srcColor, dstColor);
+                                    ushort blended = BlendPixelWithAlpha(srcColor, dstColor, type, hasInvAlpha, hasBit2);
                                     *(buffer + offset) = (byte)(blended & 0xFF);
                                     *(buffer + offset + 1) = (byte)(blended >> 8);
                                 }
@@ -1549,6 +1810,27 @@ namespace Lin.Helper.Core.Tile
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// 混合像素 (支援 bit2 半透明和 bit4/5 inverted alpha)
+        /// </summary>
+        private static ushort BlendPixelWithAlpha(ushort srcColor, ushort dstColor, byte blockType, bool hasInvAlpha, bool hasBit2)
+        {
+            if (hasInvAlpha)
+            {
+                // Inverted alpha: 根據亮度計算 alpha
+                byte alpha = CalculateInvertedAlpha(srcColor, blockType);
+                if (alpha < 8) return dstColor; // 幾乎透明，保留背景
+                ushort renderColor = GetInvertedAlphaRenderColor(srcColor, blockType);
+                return BlendRgb555WithAlpha(dstColor, renderColor, alpha);
+            }
+            else if (hasBit2)
+            {
+                // bit2: 50% 混合
+                return BlendRgb555(srcColor, dstColor);
+            }
+            return srcColor;
         }
 
         /// <summary>

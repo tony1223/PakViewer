@@ -29,13 +29,8 @@ namespace PakViewer
             // Register Big5, GB2312, Shift_JIS, EUC-KR etc. encoding support
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-            // CLI mode
-            if (args.Length > 0 && args[0] == "-cli")
-            {
-                Console.WriteLine("CLI mode not yet implemented in cross-platform version.");
-                Console.WriteLine("Use Lin.Helper.Core library directly for CLI operations.");
-                return;
-            }
+            // CLI mode - not implemented in cross-platform version
+            // Use the AnalyzeMTil tool or Lin.Helper.Core library directly for CLI operations
 
             // GUI mode - use Eto.Forms for cross-platform
             new Application(Platform.Detect).Run(new MainForm());

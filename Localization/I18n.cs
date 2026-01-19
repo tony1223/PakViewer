@@ -327,6 +327,38 @@ namespace PakViewer.Localization
 
             // Viewer Dialog
             { "ViewerDialog.Title", "詳細檢視" },
+
+            // TIL Viewer - Edit Dialog
+            { "Til.DoubleClickEdit", "[雙擊編輯]" },
+            { "Til.EditBlock", "編輯 Block #{0}" },
+            { "Til.Type", "Type:" },
+            { "Til.Align", "對齊" },
+            { "Til.Mode", "模式" },
+            { "Til.SemiTrans", "半透" },
+            { "Til.CloudEffect", "雲效果" },
+            { "Til.SmokeEffect", "煙效果" },
+            { "Til.AlignLeft", "向左 ◀" },
+            { "Til.AlignRight", "向右 ▶" },
+            { "Til.Diamond", "菱形 ◆" },
+            { "Til.Compressed", "壓縮 ◇" },
+            { "Til.No", "否" },
+            { "Til.Yes", "是" },
+            { "Til.YesWithIcon", "是 ●" },
+            { "Til.NoWithIcon", "否 ○" },
+            { "Til.YesWhiteTrans", "是 (白透明)" },
+            { "Til.YesBlackTrans", "是 (黑透明)" },
+            // TIL Viewer - Type Info
+            { "Til.TypeAlignLeft", "左對齊" },
+            { "Til.TypeAlignRight", "右對齊" },
+            { "Til.TypeCompressed", "壓縮" },
+            { "Til.TypeDiamond", "菱形" },
+            { "Til.TypeSemiTrans", "半透明" },
+            { "Til.TypeCloud", "雲(白透明)" },
+            { "Til.TypeSmoke", "煙(黑透明)" },
+            { "Til.BlocksCount", "Blocks: {0}" },
+            { "Til.BlocksModified", "Blocks: {0}  (已修改)" },
+            { "Til.BlocksSaved", "Blocks: {0}  (已儲存)" },
+            { "Til.Version", "Version: {0}" },
         };
         #endregion
 
@@ -573,6 +605,38 @@ namespace PakViewer.Localization
 
             // Viewer Dialog
             { "ViewerDialog.Title", "詳細ビュー" },
+
+            // TIL Viewer - Edit Dialog
+            { "Til.DoubleClickEdit", "[ダブルクリックで編集]" },
+            { "Til.EditBlock", "ブロック #{0} を編集" },
+            { "Til.Type", "Type:" },
+            { "Til.Align", "配置" },
+            { "Til.Mode", "モード" },
+            { "Til.SemiTrans", "半透明" },
+            { "Til.CloudEffect", "雲効果" },
+            { "Til.SmokeEffect", "煙効果" },
+            { "Til.AlignLeft", "左寄せ ◀" },
+            { "Til.AlignRight", "右寄せ ▶" },
+            { "Til.Diamond", "ダイヤ ◆" },
+            { "Til.Compressed", "圧縮 ◇" },
+            { "Til.No", "いいえ" },
+            { "Til.Yes", "はい" },
+            { "Til.YesWithIcon", "はい ●" },
+            { "Til.NoWithIcon", "いいえ ○" },
+            { "Til.YesWhiteTrans", "はい (白透明)" },
+            { "Til.YesBlackTrans", "はい (黒透明)" },
+            // TIL Viewer - Type Info
+            { "Til.TypeAlignLeft", "左寄せ" },
+            { "Til.TypeAlignRight", "右寄せ" },
+            { "Til.TypeCompressed", "圧縮" },
+            { "Til.TypeDiamond", "ダイヤ" },
+            { "Til.TypeSemiTrans", "半透明" },
+            { "Til.TypeCloud", "雲(白透明)" },
+            { "Til.TypeSmoke", "煙(黒透明)" },
+            { "Til.BlocksCount", "ブロック: {0}" },
+            { "Til.BlocksModified", "ブロック: {0}  (変更済み)" },
+            { "Til.BlocksSaved", "ブロック: {0}  (保存済み)" },
+            { "Til.Version", "バージョン: {0}" },
         };
         #endregion
 
@@ -819,6 +883,38 @@ namespace PakViewer.Localization
 
             // Viewer Dialog
             { "ViewerDialog.Title", "Detail View" },
+
+            // TIL Viewer - Edit Dialog
+            { "Til.DoubleClickEdit", "[Double-click to edit]" },
+            { "Til.EditBlock", "Edit Block #{0}" },
+            { "Til.Type", "Type:" },
+            { "Til.Align", "Align" },
+            { "Til.Mode", "Mode" },
+            { "Til.SemiTrans", "Semi-Trans" },
+            { "Til.CloudEffect", "Cloud Effect" },
+            { "Til.SmokeEffect", "Smoke Effect" },
+            { "Til.AlignLeft", "Left ◀" },
+            { "Til.AlignRight", "Right ▶" },
+            { "Til.Diamond", "Diamond ◆" },
+            { "Til.Compressed", "Compressed ◇" },
+            { "Til.No", "No" },
+            { "Til.Yes", "Yes" },
+            { "Til.YesWithIcon", "Yes ●" },
+            { "Til.NoWithIcon", "No ○" },
+            { "Til.YesWhiteTrans", "Yes (White Trans)" },
+            { "Til.YesBlackTrans", "Yes (Black Trans)" },
+            // TIL Viewer - Type Info
+            { "Til.TypeAlignLeft", "Left-aligned" },
+            { "Til.TypeAlignRight", "Right-aligned" },
+            { "Til.TypeCompressed", "Compressed" },
+            { "Til.TypeDiamond", "Diamond" },
+            { "Til.TypeSemiTrans", "Semi-transparent" },
+            { "Til.TypeCloud", "Cloud (White Trans)" },
+            { "Til.TypeSmoke", "Smoke (Black Trans)" },
+            { "Til.BlocksCount", "Blocks: {0}" },
+            { "Til.BlocksModified", "Blocks: {0}  (Modified)" },
+            { "Til.BlocksSaved", "Blocks: {0}  (Saved)" },
+            { "Til.Version", "Version: {0}" },
         };
         #endregion
 
@@ -1064,6 +1160,38 @@ namespace PakViewer.Localization
 
             // Viewer Dialog
             { "ViewerDialog.Title", "상세 보기" },
+
+            // TIL Viewer - Edit Dialog
+            { "Til.DoubleClickEdit", "[더블클릭하여 편집]" },
+            { "Til.EditBlock", "블록 #{0} 편집" },
+            { "Til.Type", "Type:" },
+            { "Til.Align", "정렬" },
+            { "Til.Mode", "모드" },
+            { "Til.SemiTrans", "반투명" },
+            { "Til.CloudEffect", "구름 효과" },
+            { "Til.SmokeEffect", "연기 효과" },
+            { "Til.AlignLeft", "왼쪽 ◀" },
+            { "Til.AlignRight", "오른쪽 ▶" },
+            { "Til.Diamond", "다이아 ◆" },
+            { "Til.Compressed", "압축 ◇" },
+            { "Til.No", "아니오" },
+            { "Til.Yes", "예" },
+            { "Til.YesWithIcon", "예 ●" },
+            { "Til.NoWithIcon", "아니오 ○" },
+            { "Til.YesWhiteTrans", "예 (흰색 투명)" },
+            { "Til.YesBlackTrans", "예 (검은색 투명)" },
+            // TIL Viewer - Type Info
+            { "Til.TypeAlignLeft", "왼쪽 정렬" },
+            { "Til.TypeAlignRight", "오른쪽 정렬" },
+            { "Til.TypeCompressed", "압축" },
+            { "Til.TypeDiamond", "다이아" },
+            { "Til.TypeSemiTrans", "반투명" },
+            { "Til.TypeCloud", "구름(흰색 투명)" },
+            { "Til.TypeSmoke", "연기(검은색 투명)" },
+            { "Til.BlocksCount", "블록: {0}" },
+            { "Til.BlocksModified", "블록: {0}  (수정됨)" },
+            { "Til.BlocksSaved", "블록: {0}  (저장됨)" },
+            { "Til.Version", "버전: {0}" },
         };
         #endregion
     }
