@@ -235,7 +235,8 @@ namespace Lin.Helper.Core.Pak
 
                 for (int i = 0; i < recordCount; i++)
                 {
-                    int offset = BitConverter.ToInt32(idxData, pos);
+                    // 使用 unsigned 讀取以支援超過 2GB 的 PAK
+                    long offset = BitConverter.ToUInt32(idxData, pos);
                     pos += 4;
                     int size = BitConverter.ToInt32(idxData, pos);
                     pos += 4;
@@ -657,7 +658,7 @@ namespace Lin.Helper.Core.Pak
                 string tempIdx = _idxPath + ".tmp";
 
                 var newRecords = new List<IndexRecord>();
-                int currentOffset = 0;
+                long currentOffset = 0;  // 使用 long 支援大型 PAK
 
                 using (var srcStream = new FileStream(_pakPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 using (var dstStream = new FileStream(tempPak, FileMode.Create, FileAccess.Write))
@@ -730,7 +731,10 @@ namespace Lin.Helper.Core.Pak
             {
                 int offset = i * recordSize;
 
-                byte[] offsetBytes = BitConverter.GetBytes(records[i].Offset);
+                // 將 long offset 寫為 uint (限制最大 2GB 以確保相容性)
+                if (records[i].Offset > int.MaxValue)
+                    throw new InvalidOperationException($"File offset exceeds 2GB limit: {records[i].FileName}");
+                byte[] offsetBytes = BitConverter.GetBytes((uint)records[i].Offset);
                 Array.Copy(offsetBytes, 0, indexData, offset, 4);
 
                 byte[] nameBytes = Encoding.Default.GetBytes(records[i].FileName);

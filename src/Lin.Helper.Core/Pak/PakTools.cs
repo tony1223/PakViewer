@@ -291,7 +291,10 @@ namespace Lin.Helper.Core.Pak
     /// </summary>
     public struct IndexRecord
     {
-        public int Offset;
+        /// <summary>
+        /// 檔案在 PAK 中的偏移量 (使用 long 支援超過 2GB 的 PAK 讀取)
+        /// </summary>
+        public long Offset;
         public string FileName;
         public int FileSize;
         public string SourcePak;
@@ -302,14 +305,15 @@ namespace Lin.Helper.Core.Pak
 
         public IndexRecord(byte[] data, int index)
         {
-            Offset = BitConverter.ToInt32(data, index);
+            // 使用 unsigned 讀取以支援超過 2GB 的 PAK
+            Offset = BitConverter.ToUInt32(data, index);
             FileName = Encoding.Default.GetString(data, index + 4, 20).TrimEnd('\0');
             FileSize = BitConverter.ToInt32(data, index + 24);
             SourcePak = null;
             CompressedSize = 0;
         }
 
-        public IndexRecord(string filename, int size, int offset)
+        public IndexRecord(string filename, int size, long offset)
         {
             Offset = offset;
             FileName = filename;
@@ -318,7 +322,7 @@ namespace Lin.Helper.Core.Pak
             CompressedSize = 0;
         }
 
-        public IndexRecord(string filename, int size, int offset, string sourcePak)
+        public IndexRecord(string filename, int size, long offset, string sourcePak)
         {
             Offset = offset;
             FileName = filename;

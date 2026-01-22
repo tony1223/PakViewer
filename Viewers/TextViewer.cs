@@ -199,13 +199,17 @@ namespace PakViewer.Viewers
         private void SearchNext()
         {
             var keyword = _searchBox?.Text?.Trim();
-            if (string.IsNullOrEmpty(keyword) || _text == null) return;
+            if (string.IsNullOrEmpty(keyword) || _textArea == null) return;
 
-            var idx = _text.IndexOf(keyword, _lastSearchIndex + 1, StringComparison.OrdinalIgnoreCase);
+            // 使用 TextArea 的當前文字進行搜尋（支援編輯後的內容）
+            var currentText = _textArea.Text;
+            if (string.IsNullOrEmpty(currentText)) return;
+
+            var idx = currentText.IndexOf(keyword, _lastSearchIndex + 1, StringComparison.OrdinalIgnoreCase);
             if (idx < 0)
             {
                 // Wrap around
-                idx = _text.IndexOf(keyword, 0, StringComparison.OrdinalIgnoreCase);
+                idx = currentText.IndexOf(keyword, 0, StringComparison.OrdinalIgnoreCase);
             }
 
             if (idx >= 0)
@@ -213,7 +217,7 @@ namespace PakViewer.Viewers
                 _lastSearchIndex = idx;
                 _textArea.Selection = new Range<int>(idx, idx + keyword.Length);
                 _textArea.Focus();
-                UpdateSearchResult(keyword);
+                UpdateSearchResult(keyword, currentText);
             }
             else
             {
@@ -224,14 +228,18 @@ namespace PakViewer.Viewers
         private void SearchPrev()
         {
             var keyword = _searchBox?.Text?.Trim();
-            if (string.IsNullOrEmpty(keyword) || _text == null) return;
+            if (string.IsNullOrEmpty(keyword) || _textArea == null) return;
 
-            var searchStart = _lastSearchIndex > 0 ? _lastSearchIndex - 1 : _text.Length - 1;
-            var idx = _text.LastIndexOf(keyword, searchStart, StringComparison.OrdinalIgnoreCase);
+            // 使用 TextArea 的當前文字進行搜尋（支援編輯後的內容）
+            var currentText = _textArea.Text;
+            if (string.IsNullOrEmpty(currentText)) return;
+
+            var searchStart = _lastSearchIndex > 0 ? _lastSearchIndex - 1 : currentText.Length - 1;
+            var idx = currentText.LastIndexOf(keyword, searchStart, StringComparison.OrdinalIgnoreCase);
             if (idx < 0)
             {
                 // Wrap around
-                idx = _text.LastIndexOf(keyword, _text.Length - 1, StringComparison.OrdinalIgnoreCase);
+                idx = currentText.LastIndexOf(keyword, currentText.Length - 1, StringComparison.OrdinalIgnoreCase);
             }
 
             if (idx >= 0)
@@ -239,7 +247,7 @@ namespace PakViewer.Viewers
                 _lastSearchIndex = idx;
                 _textArea.Selection = new Range<int>(idx, idx + keyword.Length);
                 _textArea.Focus();
-                UpdateSearchResult(keyword);
+                UpdateSearchResult(keyword, currentText);
             }
             else
             {
@@ -247,13 +255,13 @@ namespace PakViewer.Viewers
             }
         }
 
-        private void UpdateSearchResult(string keyword)
+        private void UpdateSearchResult(string keyword, string text)
         {
             // Count total matches
             int count = 0;
             int pos = 0;
             int currentMatch = 0;
-            while ((pos = _text.IndexOf(keyword, pos, StringComparison.OrdinalIgnoreCase)) >= 0)
+            while ((pos = text.IndexOf(keyword, pos, StringComparison.OrdinalIgnoreCase)) >= 0)
             {
                 count++;
                 if (pos <= _lastSearchIndex) currentMatch = count;

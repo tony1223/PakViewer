@@ -53,6 +53,12 @@ namespace PakViewer
         private string _contentSearchKeyword = "";
         private HashSet<int> _contentSearchResults;
 
+        // File grid sorting
+        private enum SortColumn { None, Index, FileName, Size, IdxName }
+        private SortColumn _currentSortColumn = SortColumn.None;
+        private bool _sortAscending = true;
+        private GridColumn _sortedGridColumn;  // Track the currently sorted column for header update
+
         // SPR List Mode
         private SprListFile _sprListFile;
         private List<SprListEntry> _filteredSprListEntries;
@@ -125,6 +131,8 @@ namespace PakViewer
         private Button _textSearchNextBtn;
         private Button _textSearchPrevBtn;
         private Label _textSearchResultLabel;
+        private Panel _searchToolbarContainer;  // 用於動態替換搜尋工具列
+        private Control _defaultSearchToolbar;  // 預設搜尋工具列
 
         // Settings
         private AppSettings _settings;
@@ -483,30 +491,39 @@ namespace PakViewer
             {
                 HeaderText = I18n.T("Grid.No"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.Index.ToString()) },
-                Width = 60
+                Width = 60,
+                Sortable = true,
+                ID = "Index"
             });
 
             _fileGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.FileName"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.FileName) },
-                Width = 180
+                Width = 180,
+                Sortable = true,
+                ID = "FileName"
             });
 
             _fileGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.Size"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.SizeText) },
-                Width = 80
+                Width = 80,
+                Sortable = true,
+                ID = "Size"
             });
 
             _fileGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.IDX"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.IdxName ?? "") },
-                Width = 100
+                Width = 100,
+                Sortable = true,
+                ID = "IdxName"
             });
 
+            _fileGrid.ColumnHeaderClick += OnFileGridColumnHeaderClick;
             _fileGrid.SelectionChanged += OnFileSelected;
             _fileGrid.CellDoubleClick += OnFileDoubleClick;
 
@@ -819,7 +836,7 @@ namespace PakViewer
 
             _textSearchResultLabel = new Label { Text = "" };
 
-            var searchToolbar = new StackLayout
+            _defaultSearchToolbar = new StackLayout
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 5,
@@ -835,6 +852,9 @@ namespace PakViewer
                 }
             };
 
+            // 搜尋工具列容器 - 可動態替換為 viewer 自帶的搜尋工具列
+            _searchToolbarContainer = new Panel { Content = _defaultSearchToolbar };
+
             _viewerPanel = new Panel { BackgroundColor = Colors.DarkGray };
 
             // 預覽模式的完整容器 (含搜尋工具列)
@@ -842,7 +862,7 @@ namespace PakViewer
             {
                 Rows =
                 {
-                    new TableRow(searchToolbar),
+                    new TableRow(_searchToolbarContainer),
                     new TableRow(_viewerPanel) { ScaleHeight = true }
                 }
             };
@@ -880,28 +900,12 @@ namespace PakViewer
             }
             else
             {
-                // 切換回預覽模式
-                var searchToolbar = new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 5,
-                    Padding = new Padding(5),
-                    VerticalContentAlignment = VerticalAlignment.Center,
-                    Items =
-                    {
-                        new Label { Text = I18n.T("Label.Find") },
-                        _textSearchBox,
-                        _textSearchPrevBtn,
-                        _textSearchNextBtn,
-                        _textSearchResultLabel
-                    }
-                };
-
+                // 切換回預覽模式 - 使用現有的 _searchToolbarContainer
                 var previewContainer = new TableLayout
                 {
                     Rows =
                     {
-                        new TableRow(searchToolbar),
+                        new TableRow(_searchToolbarContainer),
                         new TableRow(_viewerPanel) { ScaleHeight = true }
                     }
                 };
@@ -1376,8 +1380,25 @@ namespace PakViewer
                 _viewerPanel.Content = viewerControl;
             }
 
-            // 重置搜尋狀態
-            _textSearchResultLabel.Text = "";
+            // 如果 viewer 支援搜尋，使用 viewer 自帶的搜尋工具列
+            if (_currentViewer.CanSearch)
+            {
+                var viewerSearchToolbar = _currentViewer.GetSearchToolbar();
+                if (viewerSearchToolbar != null)
+                {
+                    _searchToolbarContainer.Content = viewerSearchToolbar;
+                }
+                else
+                {
+                    _searchToolbarContainer.Content = _defaultSearchToolbar;
+                    _textSearchResultLabel.Text = "";
+                }
+            }
+            else
+            {
+                _searchToolbarContainer.Content = _defaultSearchToolbar;
+                _textSearchResultLabel.Text = "";
+            }
         }
 
         /// <summary>
@@ -2359,6 +2380,9 @@ namespace PakViewer
                 }
             }
 
+            // Apply sorting if any
+            items = ApplySorting(items);
+
             _fileGrid.DataStore = items;
             _recordCountLabel.Text = $"Records: {items.Count} / {totalCount}";
 
@@ -2367,6 +2391,96 @@ namespace PakViewer
             {
                 RefreshRightGallery();
             }
+        }
+
+        private List<FileItem> ApplySorting(List<FileItem> items)
+        {
+            if (_currentSortColumn == SortColumn.None || items == null || items.Count == 0)
+                return items;
+
+            IEnumerable<FileItem> sorted = _currentSortColumn switch
+            {
+                SortColumn.Index => _sortAscending
+                    ? items.OrderBy(x => x.Index)
+                    : items.OrderByDescending(x => x.Index),
+                SortColumn.FileName => _sortAscending
+                    ? items.OrderBy(x => x.FileName, NaturalStringComparer.Instance)
+                    : items.OrderByDescending(x => x.FileName, NaturalStringComparer.Instance),
+                SortColumn.Size => _sortAscending
+                    ? items.OrderBy(x => x.FileSize)
+                    : items.OrderByDescending(x => x.FileSize),
+                SortColumn.IdxName => _sortAscending
+                    ? items.OrderBy(x => x.IdxName ?? "", NaturalStringComparer.Instance)
+                    : items.OrderByDescending(x => x.IdxName ?? "", NaturalStringComparer.Instance),
+                _ => items
+            };
+
+            return sorted.ToList();
+        }
+
+        private void OnFileGridColumnHeaderClick(object sender, GridColumnEventArgs e)
+        {
+            var columnId = e.Column.ID;
+            SortColumn newSortColumn = columnId switch
+            {
+                "Index" => SortColumn.Index,
+                "FileName" => SortColumn.FileName,
+                "Size" => SortColumn.Size,
+                "IdxName" => SortColumn.IdxName,
+                _ => SortColumn.None
+            };
+
+            if (newSortColumn == SortColumn.None)
+                return;
+
+            // Toggle direction if same column, otherwise default to ascending
+            if (_currentSortColumn == newSortColumn)
+            {
+                _sortAscending = !_sortAscending;
+            }
+            else
+            {
+                _currentSortColumn = newSortColumn;
+                _sortAscending = true;
+            }
+
+            // Update column header to show sort indicator
+            UpdateSortIndicator(e.Column);
+
+            // Refresh the list with new sorting
+            RefreshFileList();
+        }
+
+        private void UpdateSortIndicator(GridColumn column)
+        {
+            // Reset previous sorted column header
+            if (_sortedGridColumn != null && _sortedGridColumn != column)
+            {
+                var prevId = _sortedGridColumn.ID;
+                _sortedGridColumn.HeaderText = prevId switch
+                {
+                    "Index" => I18n.T("Grid.No"),
+                    "FileName" => I18n.T("Grid.FileName"),
+                    "Size" => I18n.T("Grid.Size"),
+                    "IdxName" => I18n.T("Grid.IDX"),
+                    _ => _sortedGridColumn.HeaderText
+                };
+            }
+
+            // Update current column header with sort indicator
+            string baseHeader = column.ID switch
+            {
+                "Index" => I18n.T("Grid.No"),
+                "FileName" => I18n.T("Grid.FileName"),
+                "Size" => I18n.T("Grid.Size"),
+                "IdxName" => I18n.T("Grid.IDX"),
+                _ => column.HeaderText
+            };
+
+            string indicator = _sortAscending ? " ▲" : " ▼";
+            column.HeaderText = baseHeader + indicator;
+
+            _sortedGridColumn = column;
         }
 
         private void OnFileSelected(object sender, EventArgs e)
@@ -3892,7 +4006,7 @@ namespace PakViewer
         public int Index { get; set; }
         public string FileName { get; set; }
         public int FileSize { get; set; }
-        public int Offset { get; set; }
+        public long Offset { get; set; }  // 使用 long 支援超過 2GB 的 PAK
         public string IdxName { get; set; }  // 來源 IDX 檔名
         public PakFile SourcePak { get; set; }  // 來源 PAK 檔案
 
@@ -3978,6 +4092,56 @@ namespace PakViewer
                 File.WriteAllText(SettingsPath, json);
             }
             catch { }
+        }
+    }
+
+    /// <summary>
+    /// Natural string comparer for sorting filenames like 1.til, 2.til, 10.til, 100.til correctly
+    /// </summary>
+    public class NaturalStringComparer : IComparer<string>
+    {
+        public static readonly NaturalStringComparer Instance = new NaturalStringComparer();
+
+        public int Compare(string x, string y)
+        {
+            if (x == y) return 0;
+            if (x == null) return -1;
+            if (y == null) return 1;
+
+            int ix = 0, iy = 0;
+            while (ix < x.Length && iy < y.Length)
+            {
+                // Check if both are digits
+                if (char.IsDigit(x[ix]) && char.IsDigit(y[iy]))
+                {
+                    // Extract numeric parts
+                    long numX = 0, numY = 0;
+                    while (ix < x.Length && char.IsDigit(x[ix]))
+                    {
+                        numX = numX * 10 + (x[ix] - '0');
+                        ix++;
+                    }
+                    while (iy < y.Length && char.IsDigit(y[iy]))
+                    {
+                        numY = numY * 10 + (y[iy] - '0');
+                        iy++;
+                    }
+
+                    int numCompare = numX.CompareTo(numY);
+                    if (numCompare != 0) return numCompare;
+                }
+                else
+                {
+                    // Compare characters (case-insensitive)
+                    int charCompare = char.ToLowerInvariant(x[ix]).CompareTo(char.ToLowerInvariant(y[iy]));
+                    if (charCompare != 0) return charCompare;
+                    ix++;
+                    iy++;
+                }
+            }
+
+            // Shorter string comes first
+            return x.Length.CompareTo(y.Length);
         }
     }
 }

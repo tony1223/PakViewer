@@ -25,6 +25,7 @@
   <ItemGroup>
     <Compile Remove="Backup\**" />
     <Compile Remove="src\**" />
+    <Compile Remove="tools\**" />
     <!-- Exclude Windows Forms UI files for cross-platform build -->
     <Compile Remove="frmMain.cs" />
     <Compile Remove="frmMain.Designer.cs" />
@@ -53,6 +54,7 @@
     <Compile Remove="PakReader.cs" />
     <EmbeddedResource Remove="Backup\**" />
     <EmbeddedResource Remove="src\**" />
+    <EmbeddedResource Remove="tools\**" />
     <EmbeddedResource Remove="*.resx" />
     <EmbeddedResource Remove="Properties\*.resx" />
     <EmbeddedResource Remove="frmMain.resx" />
@@ -61,6 +63,7 @@
     <EmbeddedResource Remove="ucTextCompare.resx" />
     <None Remove="Backup\**" />
     <None Remove="src\**" />
+    <None Remove="tools\**" />
   </ItemGroup>
 
   <ItemGroup>
