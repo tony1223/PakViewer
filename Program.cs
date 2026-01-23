@@ -3874,6 +3874,21 @@ namespace PakViewer
             { 89, "雙斧攻擊" }
         };
 
+        // 攻擊動作對應的武器類型 Bit 值 (ActionId -> BitValue)
+        private static readonly Dictionary<int, int> AttackActionBits = new Dictionary<int, int>
+        {
+            { 47, 1 },     // 匕首
+            { 5, 2 },      // 劍
+            { 51, 4 },     // 雙手劍
+            { 12, 8 },     // 斧
+            { 25, 16 },    // 矛
+            { 41, 32 },    // 魔杖
+            { 55, 64 },    // 雙刀
+            { 59, 128 },   // 鋼爪
+            { 21, 256 },   // 弓
+            { 84, 1024 },  // 鎖鍊劍
+        };
+
         /// <summary>
         /// 匯出 Pivot Table (ID x 攻擊動作矩陣)
         /// </summary>
@@ -3906,20 +3921,31 @@ namespace PakViewer
 
                 using (var writer = new StreamWriter(dialog.FileName, false, Encoding.UTF8))
                 {
-                    // 寫入標題列: ID, Name, SpriteId, Type, 1(空手攻擊), 5(持劍攻擊), ...
-                    var headerParts = new List<string> { "ID", "Name", "SpriteId", "Type" };
+                    // 寫入標題列: ID, Name, SpriteId, Type, WeaponBits, 1(空手攻擊), 5(持劍攻擊), ...
+                    var headerParts = new List<string> { "ID", "Name", "SpriteId", "Type", "WeaponBits" };
                     headerParts.AddRange(AttackActions.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}({kv.Value})"));
                     writer.WriteLine(string.Join(",", headerParts.Select(EscapeCsv)));
 
                     // 寫入每個 Entry
                     foreach (var entry in entriesWithAttacks)
                     {
+                        // 計算武器類型 Bit OR 值
+                        int weaponBits = 0;
+                        foreach (var action in entry.Actions)
+                        {
+                            if (AttackActionBits.TryGetValue(action.ActionId, out int bitValue))
+                            {
+                                weaponBits |= bitValue;
+                            }
+                        }
+
                         var rowParts = new List<string>
                         {
                             entry.Id.ToString(),
                             entry.Name ?? "",
                             entry.SpriteId.ToString(),
-                            entry.TypeName ?? ""
+                            entry.TypeName ?? "",
+                            weaponBits.ToString()
                         };
 
                         // 每個攻擊動作欄位
