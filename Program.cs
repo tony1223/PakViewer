@@ -133,6 +133,7 @@ namespace PakViewer
         private Label _textSearchResultLabel;
         private Panel _searchToolbarContainer;  // 用於動態替換搜尋工具列
         private Control _defaultSearchToolbar;  // 預設搜尋工具列
+        private Button _exportPivotTableBtn;    // SPR List 模式的動作矩陣匯出按鈕
 
         // Settings
         private AppSettings _settings;
@@ -808,6 +809,10 @@ namespace PakViewer
                     _rightGalleryPanel.ThumbnailSize = _rightThumbnailSlider.Value;
             };
 
+            // 匯出動作矩陣按鈕 (只在 SPR List 模式顯示)
+            _exportPivotTableBtn = new Button { Text = I18n.T("Button.ExportPivotTable"), Visible = false };
+            _exportPivotTableBtn.Click += OnExportPivotTable;
+
             var modeToolbar = new StackLayout
             {
                 Orientation = Orientation.Horizontal,
@@ -820,7 +825,8 @@ namespace PakViewer
                     _galleryModeRadio,
                     new Label { Text = "|", VerticalAlignment = VerticalAlignment.Center },
                     new Label { Text = I18n.T("RightPanel.ThumbnailSize"), VerticalAlignment = VerticalAlignment.Center },
-                    _rightThumbnailSlider
+                    _rightThumbnailSlider,
+                    _exportPivotTableBtn
                 }
             };
 
@@ -3224,6 +3230,9 @@ namespace PakViewer
                 return null;
             });
 
+            // 設定 SprListFile (用於產生 Pivot Table)
+            viewer.SetSprListFile(_sprListFile);
+
             _currentViewer = viewer;
             _viewerPanel.Content = viewer.GetControl();
         }
@@ -3636,6 +3645,12 @@ namespace PakViewer
             _sprTypeFilterDropDown.Visible = showTypeFilter;
             _sprTypeLabel.Visible = showTypeFilter;
 
+            // 匯出動作矩陣按鈕: 只在有載入 SPR List 且有資料時顯示
+            if (_exportPivotTableBtn != null)
+            {
+                _exportPivotTableBtn.Visible = _sprListFile != null && _sprListFile.Entries.Count > 0;
+            }
+
             // 根據模式更新顯示
             switch (mode)
             {
@@ -3839,6 +3854,119 @@ namespace PakViewer
                     MessageBox.Show($"{I18n.T("Error.SaveFailed")}: {ex.Message}", I18n.T("Dialog.Error"));
                 }
             }
+        }
+
+        // 攻擊動作定義 (ActionId -> 名稱) - 用於 Pivot Table 匯出
+        private static readonly Dictionary<int, string> AttackActions = new Dictionary<int, string>
+        {
+            { 1, "空手攻擊" },
+            { 5, "持劍攻擊" },
+            { 12, "持斧攻擊" },
+            { 21, "持弓攻擊" },
+            { 25, "持矛攻擊" },
+            { 41, "持杖攻擊" },
+            { 47, "持匕首攻擊" },
+            { 51, "持雙手劍攻擊" },
+            { 55, "雙刀攻擊" },
+            { 59, "持爪攻擊" },
+            { 63, "持飛鏢攻擊" },
+            { 84, "鎖鍊攻擊" },
+            { 89, "雙斧攻擊" }
+        };
+
+        /// <summary>
+        /// 匯出 Pivot Table (ID x 攻擊動作矩陣)
+        /// </summary>
+        private void OnExportPivotTable(object sender, EventArgs e)
+        {
+            if (_sprListFile == null || _sprListFile.Entries.Count == 0)
+            {
+                MessageBox.Show(I18n.T("Error.NoSprListLoaded"), I18n.T("Dialog.Error"), MessageBoxType.Error);
+                return;
+            }
+
+            // 選擇儲存位置
+            var dialog = new SaveFileDialog
+            {
+                Title = I18n.T("Dialog.SavePivotTable"),
+                Filters = { new FileFilter("CSV Files", ".csv"), new FileFilter("All Files", ".*") },
+                FileName = "spr_attack_pivot.csv"
+            };
+
+            if (dialog.ShowDialog(this) != DialogResult.Ok)
+                return;
+
+            try
+            {
+                // 只匯出有攻擊動作的條目
+                var entriesWithAttacks = _sprListFile.Entries
+                    .Where(entry => entry.Actions.Any(a => AttackActions.ContainsKey(a.ActionId)))
+                    .OrderBy(entry => entry.Id)
+                    .ToList();
+
+                using (var writer = new StreamWriter(dialog.FileName, false, Encoding.UTF8))
+                {
+                    // 寫入標題列: ID, Name, SpriteId, Type, 1(空手攻擊), 5(持劍攻擊), ...
+                    var headerParts = new List<string> { "ID", "Name", "SpriteId", "Type" };
+                    headerParts.AddRange(AttackActions.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}({kv.Value})"));
+                    writer.WriteLine(string.Join(",", headerParts.Select(EscapeCsv)));
+
+                    // 寫入每個 Entry
+                    foreach (var entry in entriesWithAttacks)
+                    {
+                        var rowParts = new List<string>
+                        {
+                            entry.Id.ToString(),
+                            entry.Name ?? "",
+                            entry.SpriteId.ToString(),
+                            entry.TypeName ?? ""
+                        };
+
+                        // 每個攻擊動作欄位
+                        foreach (var actionId in AttackActions.Keys.OrderBy(id => id))
+                        {
+                            var action = entry.Actions.FirstOrDefault(a => a.ActionId == actionId);
+                            if (action != null)
+                            {
+                                // 有此動作: 寫 1
+                                rowParts.Add("1");
+                            }
+                            else
+                            {
+                                // 無此動作: 空白
+                                rowParts.Add("");
+                            }
+                        }
+
+                        writer.WriteLine(string.Join(",", rowParts.Select(EscapeCsv)));
+                    }
+                }
+
+                MessageBox.Show(
+                    I18n.T("Status.PivotTableExported", entriesWithAttacks.Count, AttackActions.Count),
+                    I18n.T("Dialog.Info"),
+                    MessageBoxType.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, I18n.T("Dialog.Error"), MessageBoxType.Error);
+            }
+        }
+
+        /// <summary>
+        /// CSV 欄位轉義
+        /// </summary>
+        private static string EscapeCsv(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return "";
+
+            // 如果包含逗號、引號或換行，需要用引號包住並轉義內部引號
+            if (value.Contains(",") || value.Contains("\"") || value.Contains("\n") || value.Contains("\r"))
+            {
+                return "\"" + value.Replace("\"", "\"\"") + "\"";
+            }
+            return value;
         }
 
         private void OnSprGroupSelectAll(object sender, EventArgs e)

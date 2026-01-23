@@ -146,6 +146,7 @@ namespace PakViewer.Localization
             { "Button.Save", "儲存變更" },
             { "Button.Export", "匯出" },
             { "Button.LoadMore", "顯示更多 (+500)" },
+            { "Button.ExportPivotTable", "匯出動作矩陣 (CSV)" },
 
             // Grid Headers
             { "Grid.No", "編號" },
@@ -228,9 +229,15 @@ namespace PakViewer.Localization
             { "Error.NoItemSelected", "請先勾選要操作的條目" },
             { "Error.NoFileLoaded", "尚未載入檔案" },
             { "Error.SaveFailed", "儲存失敗" },
+            { "Error.NoSprListLoaded", "尚未載入 SPR List 檔案" },
+            { "Error.NoActionsFound", "找不到任何動作資料" },
 
             // Dialog
             { "Dialog.SaveAs", "另存新檔" },
+            { "Dialog.SavePivotTable", "儲存動作矩陣" },
+
+            // Status (Pivot Table)
+            { "Status.PivotTableExported", "已匯出動作矩陣: {0} 個條目, {1} 種動作" },
 
             // Filter
             { "Filter.SprList", "SPR List 檔案" },
@@ -424,6 +431,7 @@ namespace PakViewer.Localization
             { "Button.Save", "保存" },
             { "Button.Export", "エクスポート" },
             { "Button.LoadMore", "もっと表示 (+500)" },
+            { "Button.ExportPivotTable", "アクションマトリックスをエクスポート (CSV)" },
 
             // Grid Headers
             { "Grid.No", "番号" },
@@ -506,9 +514,15 @@ namespace PakViewer.Localization
             { "Error.NoItemSelected", "操作するエントリをチェックしてください" },
             { "Error.NoFileLoaded", "ファイルが読み込まれていません" },
             { "Error.SaveFailed", "保存に失敗しました" },
+            { "Error.NoSprListLoaded", "SPR List ファイルが読み込まれていません" },
+            { "Error.NoActionsFound", "アクションデータが見つかりません" },
 
             // Dialog
             { "Dialog.SaveAs", "名前を付けて保存" },
+            { "Dialog.SavePivotTable", "アクションマトリックスを保存" },
+
+            // Status (Pivot Table)
+            { "Status.PivotTableExported", "アクションマトリックスをエクスポートしました: {0} エントリ, {1} アクション" },
 
             // Filter
             { "Filter.SprList", "SPR List ファイル" },
@@ -702,6 +716,7 @@ namespace PakViewer.Localization
             { "Button.Save", "Save Changes" },
             { "Button.Export", "Export" },
             { "Button.LoadMore", "Load More (+500)" },
+            { "Button.ExportPivotTable", "Export Action Matrix (CSV)" },
 
             // Grid Headers
             { "Grid.No", "No." },
@@ -784,9 +799,15 @@ namespace PakViewer.Localization
             { "Error.NoItemSelected", "Please check the items to operate on" },
             { "Error.NoFileLoaded", "No file loaded" },
             { "Error.SaveFailed", "Save failed" },
+            { "Error.NoSprListLoaded", "No SPR List file loaded" },
+            { "Error.NoActionsFound", "No action data found" },
 
             // Dialog
             { "Dialog.SaveAs", "Save As" },
+            { "Dialog.SavePivotTable", "Save Action Matrix" },
+
+            // Status (Pivot Table)
+            { "Status.PivotTableExported", "Action matrix exported: {0} entries, {1} actions" },
 
             // Filter
             { "Filter.SprList", "SPR List Files" },
@@ -980,6 +1001,7 @@ namespace PakViewer.Localization
             { "Button.Save", "변경사항 저장" },
             { "Button.Export", "내보내기" },
             { "Button.LoadMore", "더 보기 (+500)" },
+            { "Button.ExportPivotTable", "동작 매트릭스 내보내기 (CSV)" },
 
             // Grid Headers
             { "Grid.No", "번호" },
@@ -1061,9 +1083,15 @@ namespace PakViewer.Localization
             { "Error.NoItemSelected", "작업할 항목을 체크하세요" },
             { "Error.NoFileLoaded", "파일이 로드되지 않았습니다" },
             { "Error.SaveFailed", "저장 실패" },
+            { "Error.NoSprListLoaded", "SPR List 파일이 로드되지 않았습니다" },
+            { "Error.NoActionsFound", "동작 데이터를 찾을 수 없습니다" },
 
             // Dialog
             { "Dialog.SaveAs", "다른 이름으로 저장" },
+            { "Dialog.SavePivotTable", "동작 매트릭스 저장" },
+
+            // Status (Pivot Table)
+            { "Status.PivotTableExported", "동작 매트릭스 내보내기 완료: {0}개 항목, {1}개 동작" },
 
             // Filter
             { "Filter.SprList", "SPR List 파일" },

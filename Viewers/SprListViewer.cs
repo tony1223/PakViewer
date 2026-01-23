@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 using Eto.Forms;
 using Eto.Drawing;
 using Lin.Helper.Core.Sprite;
@@ -56,6 +58,9 @@ namespace PakViewer.Viewers
         private string _loadedSpriteKey;  // 目前載入的 sprite key
         private StackLayout _playingActionPanel;  // 目前播放中的動作面板
 
+        // Pivot Table 功能 (按鈕已移至主程式工具列)
+        private SprListFile _sprListFile;  // 完整的 SPR List 資料
+
         public SprListViewer()
         {
             BuildUI();
@@ -97,6 +102,14 @@ namespace PakViewer.Viewers
         public void SetSpriteByKeyProvider(Func<string, byte[]> getByKeyFunc)
         {
             _getSpriteByKeyFunc = getByKeyFunc;
+        }
+
+        /// <summary>
+        /// 設定 SPR List 資料 (保留供未來使用)
+        /// </summary>
+        public void SetSprListFile(SprListFile sprListFile)
+        {
+            _sprListFile = sprListFile;
         }
 
         /// <summary>
