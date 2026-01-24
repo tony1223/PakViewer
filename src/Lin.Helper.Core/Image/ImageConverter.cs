@@ -345,17 +345,46 @@ namespace Lin.Helper.Core.Image
                 result.XOffset = reader.ReadByte();
                 result.YOffset = reader.ReadByte();
 
-                int width = reader.ReadByte();
-                int height = reader.ReadByte();
+                int headerWidth = reader.ReadByte();
+                int headerHeight = reader.ReadByte();
 
-                if (width == 0 || height == 0)
+                if (headerWidth == 0 || headerHeight == 0)
                 {
                     result.Image = null;
                     return result;
                 }
 
+                // 先掃描一次來確定實際需要的寬度
+                // skip 值是 bytes 單位，需要除以 2 轉成 pixels
+                long startPos = reader.BaseStream.Position;
+                int maxX = headerWidth;
+
+                for (int y = 0; y < headerHeight; y++)
+                {
+                    int segmentCount = reader.ReadByte();
+                    int x = 0;
+                    for (int seg = 0; seg < segmentCount; seg++)
+                    {
+                        // skip 值是 bytes 單位，需要除以 2 轉成 pixels
+                        int skip = reader.ReadByte() / 2;
+                        int pixelCount = reader.ReadByte();
+
+                        x += skip;
+                        int endX = x + pixelCount;
+                        if (endX > maxX) maxX = endX;
+                        reader.BaseStream.Position += pixelCount * 2;
+                        x = endX;
+                    }
+                }
+
+                int actualWidth = maxX;
+                int height = headerHeight;
+
+                // 回到資料起始位置重新解析
+                reader.BaseStream.Position = startPos;
+
                 // 建立 RGB555 緩衝區
-                ushort[] pixels = new ushort[width * height];
+                ushort[] pixels = new ushort[actualWidth * height];
 
                 for (int y = 0; y < height; y++)
                 {
@@ -364,19 +393,18 @@ namespace Lin.Helper.Core.Image
 
                     for (int seg = 0; seg < segmentCount; seg++)
                     {
-                        x += reader.ReadByte();
+                        // skip 值是 bytes 單位，需要除以 2 轉成 pixels
+                        int skip = reader.ReadByte() / 2;
                         int pixelCount = reader.ReadByte();
+
+                        x += skip;
 
                         for (int p = 0; p < pixelCount; p++)
                         {
-                            if (x + p < width)
+                            ushort rgb555 = reader.ReadUInt16();
+                            if (x + p < actualWidth)
                             {
-                                ushort rgb555 = reader.ReadUInt16();
-                                pixels[y * width + x + p] = rgb555;
-                            }
-                            else
-                            {
-                                reader.ReadUInt16(); // 跳過超出範圍的像素
+                                pixels[y * actualWidth + x + p] = rgb555;
                             }
                         }
                         x += pixelCount;
@@ -384,12 +412,12 @@ namespace Lin.Helper.Core.Image
                 }
 
                 // 轉換為 Image<Rgba32>
-                result.Image = new Image<Rgba32>(width, height);
+                result.Image = new Image<Rgba32>(actualWidth, height);
                 for (int y = 0; y < height; y++)
                 {
-                    for (int x = 0; x < width; x++)
+                    for (int x = 0; x < actualWidth; x++)
                     {
-                        ushort rgb555 = pixels[y * width + x];
+                        ushort rgb555 = pixels[y * actualWidth + x];
                         if (rgb555 == 0)
                         {
                             result.Image[x, y] = new Rgba32(0, 0, 0, 0); // 透明

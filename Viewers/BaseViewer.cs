@@ -44,6 +44,8 @@ namespace PakViewer.Viewers
 
         public virtual Control GetEditToolbar() => null;
 
+        public virtual string GetTextContent(byte[] data, string fileName) => null;
+
         public virtual void Dispose()
         {
             _control?.Dispose();

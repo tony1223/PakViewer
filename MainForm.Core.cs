@@ -340,6 +340,14 @@ namespace PakViewer
 
             // Content search
             _contentSearchBox = new TextBox { PlaceholderText = I18n.T("Label.Search") };
+            _contentSearchBox.KeyDown += (s, e) =>
+            {
+                if (e.Key == Keys.Enter)
+                {
+                    OnContentSearch(s, e);
+                    e.Handled = true;
+                }
+            };
             _contentSearchBtn = new Button { Text = I18n.T("Button.Search") };
             _contentSearchBtn.Click += OnContentSearch;
             _clearSearchBtn = new Button { Text = I18n.T("Button.Clear") };
@@ -933,7 +941,16 @@ namespace PakViewer
                     break;
 
                 case ".tbt":
-                    image = L1ImageConverter.LoadTbt(data);
+                    // TBT 有 offset，需要先取得 offset 資訊，再用正確畫布大小載入
+                    var tbtInfo = L1ImageConverter.LoadL1Image(data);
+                    int canvasW = tbtInfo.XOffset + (tbtInfo.Image?.Width ?? 0);
+                    int canvasH = tbtInfo.YOffset + (tbtInfo.Image?.Height ?? 0);
+                    tbtInfo.Image?.Dispose();
+                    if (canvasW > 0 && canvasH > 0)
+                    {
+                        var tbtResult = L1ImageConverter.LoadL1Image(data, canvasW, canvasH);
+                        image = tbtResult.Image;
+                    }
                     break;
 
                 case ".img":
@@ -2125,40 +2142,41 @@ namespace PakViewer
                 return;
 
             _contentSearchKeyword = keyword;
-            _contentSearchResults = new HashSet<int>();
             _statusLabel.Text = I18n.T("Status.SearchingContent");
 
-            int found = 0;
+            // 先提取所有檔案資料（PAK 提取不一定 thread-safe）
+            var fileDataList = new List<(int Index, string FileName, string Ext, byte[] Data)>();
             for (int i = 0; i < _currentPak.Count; i++)
             {
                 try
                 {
                     var file = _currentPak.Files[i];
                     var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                    var data = _currentPak.Extract(i);
+                    fileDataList.Add((i, file.FileName, ext, data));
+                }
+                catch { }
+            }
 
-                    // Only search text files
-                    if (ext == ".txt" || ext == ".html" || ext == ".htm" || ext == ".xml" || ext == ".s" || ext == ".tbl")
+            // 平行搜尋
+            var results = new System.Collections.Concurrent.ConcurrentBag<int>();
+            System.Threading.Tasks.Parallel.ForEach(fileDataList, item =>
+            {
+                try
+                {
+                    using var viewer = Viewers.ViewerFactory.CreateViewer(item.Ext);
+                    var text = viewer.GetTextContent(item.Data, item.FileName);
+
+                    if (text != null && text.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                     {
-                        var data = _currentPak.Extract(i);
-                        var encoding = DetectEncoding(data, file.FileName);
-                        var text = encoding.GetString(data);
-
-                        if (text.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                        {
-                            _contentSearchResults.Add(i);
-                            found++;
-                        }
+                        results.Add(item.Index);
                     }
                 }
                 catch { }
+            });
 
-                if (i % 100 == 0)
-                {
-                    _statusLabel.Text = $"Searching... {i}/{_currentPak.Count}";
-                }
-            }
-
-            _statusLabel.Text = $"Content search: found {found} files containing '{keyword}'";
+            _contentSearchResults = new HashSet<int>(results);
+            _statusLabel.Text = $"Content search: found {_contentSearchResults.Count} files containing '{keyword}'";
             RefreshFileList();
         }
 
@@ -2231,7 +2249,7 @@ namespace PakViewer
                     }
 
                     // Apply content search filter (only for single PAK mode)
-                    if (!_isAllIdxMode && _contentSearchResults != null && _contentSearchResults.Count > 0)
+                    if (!_isAllIdxMode && _contentSearchResults != null)
                     {
                         if (!_contentSearchResults.Contains(i))
                             continue;

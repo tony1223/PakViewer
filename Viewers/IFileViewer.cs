@@ -110,5 +110,13 @@ namespace PakViewer.Viewers
         /// 取得編輯工具列（如果支援編輯）
         /// </summary>
         Control GetEditToolbar();
+
+        /// <summary>
+        /// 取得檔案的文字內容（用於內容搜尋）
+        /// 回傳 null 表示不支援文字搜尋
+        /// </summary>
+        /// <param name="data">檔案二進制資料</param>
+        /// <param name="fileName">檔案名稱</param>
+        string GetTextContent(byte[] data, string fileName);
     }
 }

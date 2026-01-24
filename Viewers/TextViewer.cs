@@ -296,6 +296,29 @@ namespace PakViewer.Viewers
             return Encoding.GetEncoding("big5");
         }
 
+        /// <summary>
+        /// 取得檔案的文字內容（用於內容搜尋）
+        /// 會自動處理加密 XML 的解密
+        /// </summary>
+        public override string GetTextContent(byte[] data, string fileName)
+        {
+            if (data == null || data.Length == 0) return null;
+
+            byte[] displayData = data;
+
+            // 檢查並解密 XML
+            if (IsXmlFile(fileName) && XmlCracker.IsEncrypted(data))
+            {
+                displayData = XmlCracker.Decrypt((byte[])data.Clone());
+            }
+
+            var encoding = IsXmlFile(fileName) && XmlCracker.IsEncrypted(data)
+                ? XmlCracker.GetXmlEncoding(displayData, fileName)
+                : DetectEncoding(displayData, fileName);
+
+            return encoding.GetString(displayData);
+        }
+
         public override void Dispose()
         {
             _textArea = null;

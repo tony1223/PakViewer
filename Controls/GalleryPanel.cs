@@ -182,10 +182,22 @@ namespace PakViewer.Controls
 
             if (_thumbnailCache.TryGetValue(index, out var thumbnail) && thumbnail != null)
             {
+                // 計算縮放後的尺寸（確保圖片適應格子）
+                int drawWidth = thumbnail.Width;
+                int drawHeight = thumbnail.Height;
+
+                if (drawWidth > thumbSize || drawHeight > thumbSize)
+                {
+                    // 需要縮放
+                    float scale = Math.Min((float)thumbSize / drawWidth, (float)thumbSize / drawHeight);
+                    drawWidth = (int)(drawWidth * scale);
+                    drawHeight = (int)(drawHeight * scale);
+                }
+
                 // 置中繪製縮圖
-                int imgX = thumbX + (thumbSize - thumbnail.Width) / 2;
-                int imgY = thumbY + (thumbSize - thumbnail.Height) / 2;
-                g.DrawImage(thumbnail, imgX, imgY);
+                int imgX = thumbX + (thumbSize - drawWidth) / 2;
+                int imgY = thumbY + (thumbSize - drawHeight) / 2;
+                g.DrawImage(thumbnail, imgX, imgY, drawWidth, drawHeight);
             }
             else
             {
