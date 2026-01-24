@@ -185,7 +185,7 @@ namespace PakViewer
         public SprListEntry Entry { get; set; }
         public bool? IsChecked { get; set; } = false;  // 勾選狀態
 
-        public string TypeName => Entry?.TypeName ?? "未知";
+        public string TypeName => Entry?.TypeName ?? I18n.T("Filter.Unknown");
     }
 
     /// <summary>

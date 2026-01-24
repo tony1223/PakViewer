@@ -37,7 +37,7 @@ namespace PakViewer
 
                 _idxDropDown.Items.Clear();
                 if (idxFiles.Length > 1)
-                    _idxDropDown.Items.Add("全部");  // Add "All" option when multiple IDX files
+                    _idxDropDown.Items.Add(I18n.T("Filter.All"));  // Add "All" option when multiple IDX files
                 foreach (var file in idxFiles.OrderBy(f => f))
                 {
                     _idxDropDown.Items.Add(Path.GetFileName(file));
@@ -1347,7 +1347,7 @@ namespace PakViewer
 
             if (_currentViewerPak == null || string.IsNullOrEmpty(_currentViewerFileName))
             {
-                MessageBox.Show(this, "無法儲存：找不到來源 PAK 檔案\n\n請確保是從檔案列表選取的檔案。", "錯誤", MessageBoxType.Error);
+                MessageBox.Show(this, I18n.T("Error.CannotSaveNoPak"), I18n.T("Dialog.Error"), MessageBoxType.Error);
                 return;
             }
 
@@ -1357,12 +1357,12 @@ namespace PakViewer
                 _currentViewerPak.Replace(_currentViewerFileName, e.Data);
                 _currentViewerPak.Save();
 
-                _statusLabel.Text = $"已儲存: {_currentViewerFileName}";
-                ShowToast("儲存成功", _currentViewerFileName);
+                _statusLabel.Text = I18n.T("Status.Saved") + ": " + _currentViewerFileName;
+                ShowToast(I18n.T("Toast.SaveSuccess"), _currentViewerFileName);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, $"儲存失敗: {ex.Message}", "錯誤", MessageBoxType.Error);
+                MessageBox.Show(this, I18n.T("Error.SaveFailed") + ": " + ex.Message, I18n.T("Dialog.Error"), MessageBoxType.Error);
             }
         }
 
@@ -2434,7 +2434,7 @@ namespace PakViewer
                 return;
 
             var selectedLegacy = _idxDropDown.SelectedValue.ToString();
-            if (selectedLegacy == "全部")
+            if (selectedLegacy == I18n.T("Filter.All"))
             {
                 LoadAllIdxFiles();
             }
@@ -3856,8 +3856,8 @@ namespace PakViewer
             }
             catch (Exception ex)
             {
-                _statusLabel.Text = "載入失敗";
-                MessageBox.Show(this, $"Error loading SPR List: {ex.Message}", "Error", MessageBoxType.Error);
+                _statusLabel.Text = I18n.T("Status.LoadFailed");
+                MessageBox.Show(this, I18n.T("Error.LoadSprList") + ": " + ex.Message, I18n.T("Dialog.Error"), MessageBoxType.Error);
             }
         }
 
@@ -4074,7 +4074,7 @@ namespace PakViewer
             _idxDropDown.Items.Clear();
             var idxFiles = Directory.GetFiles(_selectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
             if (idxFiles.Length > 1)
-                _idxDropDown.Items.Add("全部");
+                _idxDropDown.Items.Add(I18n.T("Filter.All"));
             foreach (var file in idxFiles.OrderBy(f => f))
             {
                 _idxDropDown.Items.Add(Path.GetFileName(file));

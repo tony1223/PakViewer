@@ -166,6 +166,7 @@ namespace PakViewer.Localization
             { "Filter.All", "全部" },
             { "Filter.AllTypes", "全部類型" },
             { "Filter.Unreferenced", "未引用" },
+            { "Filter.Unknown", "未知" },
 
             // SPR Types
             { "SprType.0", "影子/法術" },
@@ -219,6 +220,7 @@ namespace PakViewer.Localization
             { "Status.SelectionCleared", "已清除選取" },
             { "Status.ItemsDeleted", "已刪除 {0} 個條目" },
             { "Status.Saved", "已儲存" },
+            { "Status.LoadFailed", "載入失敗" },
 
             // Confirm
             { "Confirm.DeleteItems", "確定要刪除 {0} 個選取的條目嗎？" },
@@ -233,6 +235,8 @@ namespace PakViewer.Localization
             { "Error.SaveFailed", "儲存失敗" },
             { "Error.NoSprListLoaded", "尚未載入 SPR List 檔案" },
             { "Error.NoActionsFound", "找不到任何動作資料" },
+            { "Error.CannotSaveNoPak", "無法儲存：找不到來源 PAK 檔案\n\n請確保是從檔案列表選取的檔案。" },
+            { "Error.LoadSprList", "載入 SPR List 失敗" },
 
             // Dialog
             { "Dialog.SaveAs", "另存新檔" },
@@ -456,6 +460,7 @@ namespace PakViewer.Localization
             { "Filter.All", "すべて" },
             { "Filter.AllTypes", "すべてのタイプ" },
             { "Filter.Unreferenced", "未参照" },
+            { "Filter.Unknown", "不明" },
 
             // SPR Types
             { "SprType.0", "影/魔法" },
@@ -509,6 +514,7 @@ namespace PakViewer.Localization
             { "Status.SelectionCleared", "選択を解除しました" },
             { "Status.ItemsDeleted", "{0} エントリを削除しました" },
             { "Status.Saved", "保存しました" },
+            { "Status.LoadFailed", "読み込み失敗" },
 
             // Confirm
             { "Confirm.DeleteItems", "{0} 個の選択されたエントリを削除しますか？" },
@@ -523,6 +529,8 @@ namespace PakViewer.Localization
             { "Error.SaveFailed", "保存に失敗しました" },
             { "Error.NoSprListLoaded", "SPR List ファイルが読み込まれていません" },
             { "Error.NoActionsFound", "アクションデータが見つかりません" },
+            { "Error.CannotSaveNoPak", "保存できません：ソースPAKファイルが見つかりません。\n\nファイルリストから選択したファイルであることを確認してください。" },
+            { "Error.LoadSprList", "SPR Listの読み込みに失敗しました" },
 
             // Dialog
             { "Dialog.SaveAs", "名前を付けて保存" },
@@ -746,6 +754,7 @@ namespace PakViewer.Localization
             { "Filter.All", "All" },
             { "Filter.AllTypes", "All Types" },
             { "Filter.Unreferenced", "Unreferenced" },
+            { "Filter.Unknown", "Unknown" },
 
             // SPR Types
             { "SprType.0", "Shadow/Magic" },
@@ -799,6 +808,7 @@ namespace PakViewer.Localization
             { "Status.SelectionCleared", "Selection cleared" },
             { "Status.ItemsDeleted", "{0} entries deleted" },
             { "Status.Saved", "Saved" },
+            { "Status.LoadFailed", "Load failed" },
 
             // Confirm
             { "Confirm.DeleteItems", "Are you sure you want to delete {0} selected entries?" },
@@ -813,6 +823,8 @@ namespace PakViewer.Localization
             { "Error.SaveFailed", "Save failed" },
             { "Error.NoSprListLoaded", "No SPR List file loaded" },
             { "Error.NoActionsFound", "No action data found" },
+            { "Error.CannotSaveNoPak", "Cannot save: Source PAK file not found.\n\nPlease ensure the file is selected from the file list." },
+            { "Error.LoadSprList", "Failed to load SPR List" },
 
             // Dialog
             { "Dialog.SaveAs", "Save As" },
@@ -1036,6 +1048,7 @@ namespace PakViewer.Localization
             { "Filter.All", "전체" },
             { "Filter.AllTypes", "모든 유형" },
             { "Filter.Unreferenced", "미참조" },
+            { "Filter.Unknown", "알 수 없음" },
 
             // SPR Types
             { "SprType.0", "그림자/마법" },
@@ -1088,6 +1101,7 @@ namespace PakViewer.Localization
             { "Status.SelectionCleared", "선택 해제됨" },
             { "Status.ItemsDeleted", "{0}개 항목 삭제됨" },
             { "Status.Saved", "저장됨" },
+            { "Status.LoadFailed", "로드 실패" },
 
             // Confirm
             { "Confirm.DeleteItems", "{0}개의 선택된 항목을 삭제하시겠습니까?" },
@@ -1102,6 +1116,8 @@ namespace PakViewer.Localization
             { "Error.SaveFailed", "저장 실패" },
             { "Error.NoSprListLoaded", "SPR List 파일이 로드되지 않았습니다" },
             { "Error.NoActionsFound", "동작 데이터를 찾을 수 없습니다" },
+            { "Error.CannotSaveNoPak", "저장할 수 없습니다: 원본 PAK 파일을 찾을 수 없습니다.\n\n파일 목록에서 선택한 파일인지 확인하세요." },
+            { "Error.LoadSprList", "SPR List 로드 실패" },
 
             // Dialog
             { "Dialog.SaveAs", "다른 이름으로 저장" },

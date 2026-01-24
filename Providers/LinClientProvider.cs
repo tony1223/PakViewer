@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Lin.Helper.Core.Pak;
+using PakViewer.Localization;
 
 namespace PakViewer.Providers
 {
@@ -11,7 +12,7 @@ namespace PakViewer.Providers
     /// </summary>
     public class LinClientProvider : IFileProvider
     {
-        public const string AllSourcesOption = "全部";
+        public static string AllSourcesOption => I18n.T("Filter.All");
 
         private readonly string _folderPath;
         private readonly Dictionary<string, PakFile> _pakFiles;  // IdxName -> PakFile
