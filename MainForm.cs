@@ -18,6 +18,7 @@ using Lin.Helper.Core.Tile;
 using System.Text.Json;
 using PakViewer.Utility;
 using PakViewer.Localization;
+using PakViewer.Providers;
 
 namespace PakViewer
 {
@@ -29,6 +30,7 @@ namespace PakViewer
         // Data
         private string _selectedFolder;
         private PakFile _currentPak;
+        private IFileProvider _currentProvider;  // 檔案提供者 (資料夾/單一檔案模式)
         private List<int> _filteredIndexes;
         private HashSet<int> _checkedIndexes = new HashSet<int>();
         private string _currentFilter = "";
@@ -147,6 +149,7 @@ namespace PakViewer
         {
             _currentViewer?.Dispose();
             _currentPak?.Dispose();
+            _currentProvider?.Dispose();
             base.OnClosed(e);
         }
     }

@@ -92,7 +92,9 @@ namespace PakViewer.Localization
 
             // Menu - File
             { "Menu.File", "檔案(&F)" },
-            { "Menu.File.OpenFolder", "開啟資料夾(&O)..." },
+            { "Menu.File.OpenClientFolder", "開啟天堂客戶端資料夾(&O)..." },
+            { "Menu.File.OpenFileFolder", "開啟檔案資料夾..." },
+            { "Menu.File.OpenFile", "開啟檔案(&F)..." },
             { "Menu.File.OpenIdx", "開啟 IDX 檔案(&I)..." },
             { "Menu.File.OpenSprList", "開啟 SPR List (list.spr)(&L)..." },
             { "Menu.File.OpenDat", "開啟 Lineage M Icon/Image DAT(&M)..." },
@@ -273,6 +275,9 @@ namespace PakViewer.Localization
 
             // Dialogs
             { "Dialog.OpenFolder", "選擇資料夾" },
+            { "Dialog.OpenClientFolder", "選擇天堂客戶端資料夾" },
+            { "Dialog.SelectFileFolder", "選擇檔案資料夾" },
+            { "Dialog.SelectFile", "選擇檔案" },
             { "Dialog.OpenFile", "開啟檔案" },
             { "Dialog.SaveFile", "儲存檔案" },
             { "Dialog.ExportFolder", "選擇匯出資料夾" },
@@ -377,7 +382,9 @@ namespace PakViewer.Localization
 
             // Menu - File
             { "Menu.File", "ファイル(&F)" },
-            { "Menu.File.OpenFolder", "フォルダを開く(&O)..." },
+            { "Menu.File.OpenClientFolder", "Lineage クライアントフォルダを開く(&O)..." },
+            { "Menu.File.OpenFileFolder", "ファイルフォルダを開く..." },
+            { "Menu.File.OpenFile", "ファイルを開く(&F)..." },
             { "Menu.File.OpenIdx", "IDX ファイルを開く(&I)..." },
             { "Menu.File.OpenSprList", "SPR List を開く (list.spr)(&L)..." },
             { "Menu.File.OpenDat", "Lineage M Icon/Image DAT を開く(&M)..." },
@@ -558,6 +565,9 @@ namespace PakViewer.Localization
 
             // Dialogs
             { "Dialog.OpenFolder", "フォルダを選択" },
+            { "Dialog.OpenClientFolder", "Lineage クライアントフォルダを選択" },
+            { "Dialog.SelectFileFolder", "ファイルフォルダを選択" },
+            { "Dialog.SelectFile", "ファイルを選択" },
             { "Dialog.OpenFile", "ファイルを開く" },
             { "Dialog.SaveFile", "ファイルを保存" },
             { "Dialog.ExportFolder", "エクスポート先を選択" },
@@ -662,7 +672,9 @@ namespace PakViewer.Localization
 
             // Menu - File
             { "Menu.File", "&File" },
-            { "Menu.File.OpenFolder", "&Open Folder..." },
+            { "Menu.File.OpenClientFolder", "&Open Lineage Client Folder..." },
+            { "Menu.File.OpenFileFolder", "Open File Folder..." },
+            { "Menu.File.OpenFile", "Open &File..." },
             { "Menu.File.OpenIdx", "Open &IDX File..." },
             { "Menu.File.OpenSprList", "Open SPR &List (list.spr)..." },
             { "Menu.File.OpenDat", "Open Lineage &M Icon/Image DAT..." },
@@ -843,6 +855,9 @@ namespace PakViewer.Localization
 
             // Dialogs
             { "Dialog.OpenFolder", "Select Folder" },
+            { "Dialog.OpenClientFolder", "Select Lineage Client Folder" },
+            { "Dialog.SelectFileFolder", "Select File Folder" },
+            { "Dialog.SelectFile", "Select File" },
             { "Dialog.OpenFile", "Open File" },
             { "Dialog.SaveFile", "Save File" },
             { "Dialog.ExportFolder", "Select Export Folder" },
@@ -947,7 +962,9 @@ namespace PakViewer.Localization
 
             // Menu - File
             { "Menu.File", "파일(&F)" },
-            { "Menu.File.OpenFolder", "폴더 열기(&O)..." },
+            { "Menu.File.OpenClientFolder", "Lineage 클라이언트 폴더 열기(&O)..." },
+            { "Menu.File.OpenFileFolder", "파일 폴더 열기..." },
+            { "Menu.File.OpenFile", "파일 열기(&F)..." },
             { "Menu.File.OpenIdx", "IDX 파일 열기(&I)..." },
             { "Menu.File.OpenSprList", "SPR List 열기 (list.spr)(&L)..." },
             { "Menu.File.OpenDat", "Lineage M Icon/Image DAT 열기(&M)..." },
@@ -1127,6 +1144,9 @@ namespace PakViewer.Localization
 
             // Dialogs
             { "Dialog.OpenFolder", "폴더 선택" },
+            { "Dialog.OpenClientFolder", "Lineage 클라이언트 폴더 선택" },
+            { "Dialog.SelectFileFolder", "파일 폴더 선택" },
+            { "Dialog.SelectFile", "파일 선택" },
             { "Dialog.OpenFile", "파일 열기" },
             { "Dialog.SaveFile", "파일 저장" },
             { "Dialog.ExportFolder", "내보내기 폴더 선택" },

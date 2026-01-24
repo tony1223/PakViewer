@@ -18,6 +18,7 @@ using Lin.Helper.Core.Tile;
 using System.Text.Json;
 using PakViewer.Utility;
 using PakViewer.Localization;
+using PakViewer.Providers;
 
 namespace PakViewer
 {
@@ -69,9 +70,9 @@ namespace PakViewer
             // File menu
             var fileMenu = new SubMenuItem { Text = I18n.T("Menu.File") };
 
-            var openFolderCmd = new Command { MenuText = I18n.T("Menu.File.OpenFolder"), Shortcut = Keys.Control | Keys.O };
-            openFolderCmd.Executed += OnOpenFolder;
-            fileMenu.Items.Add(openFolderCmd);
+            var openClientFolderCmd = new Command { MenuText = I18n.T("Menu.File.OpenClientFolder"), Shortcut = Keys.Control | Keys.O };
+            openClientFolderCmd.Executed += OnOpenFolder;
+            fileMenu.Items.Add(openClientFolderCmd);
 
             var openIdxCmd = new Command { MenuText = I18n.T("Menu.File.OpenIdx"), Shortcut = Keys.Control | Keys.I };
             openIdxCmd.Executed += OnOpenIdxFile;
@@ -80,6 +81,16 @@ namespace PakViewer
             var openDatCmd = new Command { MenuText = I18n.T("Menu.File.OpenDat"), Shortcut = Keys.Control | Keys.M };
             openDatCmd.Executed += OnOpenDatFile;
             fileMenu.Items.Add(openDatCmd);
+
+            fileMenu.Items.Add(new SeparatorMenuItem());
+
+            var openFileFolderCmd = new Command { MenuText = I18n.T("Menu.File.OpenFileFolder"), Shortcut = Keys.Control | Keys.Shift | Keys.O };
+            openFileFolderCmd.Executed += OnOpenFileFolder;
+            fileMenu.Items.Add(openFileFolderCmd);
+
+            var openFileCmd = new Command { MenuText = I18n.T("Menu.File.OpenFile"), Shortcut = Keys.Control | Keys.F };
+            openFileCmd.Executed += OnOpenFile;
+            fileMenu.Items.Add(openFileCmd);
 
             fileMenu.Items.Add(new SeparatorMenuItem());
 
@@ -924,74 +935,113 @@ namespace PakViewer
 
         private Bitmap LoadThumbnailForFileItem(FileItem fileItem, int size)
         {
-            var pak = fileItem.SourcePak ?? _currentPak;
-            if (pak == null) return null;
+            // 使用 _currentProvider 或 PAK 模式
+            if (_currentProvider != null)
+            {
+                return LoadThumbnailForFileItem(fileItem, size, _currentProvider);
+            }
+            else
+            {
+                var pak = fileItem.SourcePak ?? _currentPak;
+                if (pak == null) return null;
+                var data = pak.Extract(fileItem.Index);
+                return LoadThumbnailFromData(data, fileItem.FileName, size);
+            }
+        }
 
-            var data = pak.Extract(fileItem.Index);
-            var ext = Path.GetExtension(fileItem.FileName).ToLower();
+        /// <summary>
+        /// 從 Provider 載入檔案縮圖 (供新分頁使用)
+        /// </summary>
+        private Bitmap LoadThumbnailForFileItem(FileItem fileItem, int size, IFileProvider provider)
+        {
+            var data = provider.Extract(fileItem.Index);
+            return LoadThumbnailFromData(data, fileItem.FileName, size);
+        }
+
+        /// <summary>
+        /// 從原始資料產生縮圖
+        /// </summary>
+        private Bitmap LoadThumbnailFromData(byte[] data, string fileName, int size)
+        {
+            if (data == null || data.Length == 0) return null;
+
+            var ext = Path.GetExtension(fileName).ToLower();
 
             SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32> image = null;
 
-            switch (ext)
+            try
             {
-                case ".spr":
-                    var frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
-                    if (frames?.Length > 0)
-                        image = frames[0].Image;
-                    break;
-
-                case ".tbt":
-                    // TBT 有 offset，需要先取得 offset 資訊，再用正確畫布大小載入
-                    var tbtInfo = L1ImageConverter.LoadL1Image(data);
-                    int canvasW = tbtInfo.XOffset + (tbtInfo.Image?.Width ?? 0);
-                    int canvasH = tbtInfo.YOffset + (tbtInfo.Image?.Height ?? 0);
-                    tbtInfo.Image?.Dispose();
-                    if (canvasW > 0 && canvasH > 0)
-                    {
-                        var tbtResult = L1ImageConverter.LoadL1Image(data, canvasW, canvasH);
-                        image = tbtResult.Image;
-                    }
-                    break;
-
-                case ".img":
-                    image = L1ImageConverter.LoadImg(data);
-                    break;
-
-                case ".png":
-                case ".gif":
-                    // PNG/GIF 在 UI 執行緒載入並縮放 (WPF 需要)
-                    Bitmap pngResult = null;
-                    Application.Instance.Invoke(() =>
-                    {
-                        using (var ms = new MemoryStream(data))
+                switch (ext)
+                {
+                    case ".spr":
+                        var frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
+                        if (frames?.Length > 0)
                         {
-                            using var originalBitmap = new Bitmap(ms);
-                            int thumbWidth, thumbHeight;
-                            if (originalBitmap.Width > originalBitmap.Height)
-                            {
-                                thumbWidth = size;
-                                thumbHeight = (int)((double)originalBitmap.Height / originalBitmap.Width * size);
-                            }
-                            else
-                            {
-                                thumbHeight = size;
-                                thumbWidth = (int)((double)originalBitmap.Width / originalBitmap.Height * size);
-                            }
-                            if (thumbWidth <= 0) thumbWidth = 1;
-                            if (thumbHeight <= 0) thumbHeight = 1;
-
-                            pngResult = new Bitmap(thumbWidth, thumbHeight, PixelFormat.Format32bppRgba);
-                            using (var g = new Graphics(pngResult))
-                            {
-                                g.DrawImage(originalBitmap, 0, 0, thumbWidth, thumbHeight);
-                            }
+                            image = frames[0].Image;
+                            // 釋放其他 frame 避免記憶體洩漏
+                            for (int i = 1; i < frames.Length; i++)
+                                frames[i].Image?.Dispose();
                         }
-                    });
-                    return pngResult;
+                        break;
 
-                case ".til":
-                    image = RenderTilThumbnail(data);
-                    break;
+                    case ".tbt":
+                        // TBT 有 offset，需要先取得 offset 資訊，再用正確畫布大小載入
+                        var tbtInfo = L1ImageConverter.LoadL1Image(data);
+                        int canvasW = tbtInfo.XOffset + (tbtInfo.Image?.Width ?? 0);
+                        int canvasH = tbtInfo.YOffset + (tbtInfo.Image?.Height ?? 0);
+                        tbtInfo.Image?.Dispose();
+                        if (canvasW > 0 && canvasH > 0)
+                        {
+                            var tbtResult = L1ImageConverter.LoadL1Image(data, canvasW, canvasH);
+                            image = tbtResult.Image;
+                        }
+                        break;
+
+                    case ".img":
+                        image = L1ImageConverter.LoadImg(data);
+                        break;
+
+                    case ".png":
+                    case ".gif":
+                        // PNG/GIF 在 UI 執行緒載入並縮放 (WPF 需要)
+                        Bitmap pngResult = null;
+                        Application.Instance.Invoke(() =>
+                        {
+                            using (var ms = new MemoryStream(data))
+                            {
+                                using var originalBitmap = new Bitmap(ms);
+                                int thumbWidth, thumbHeight;
+                                if (originalBitmap.Width > originalBitmap.Height)
+                                {
+                                    thumbWidth = size;
+                                    thumbHeight = (int)((double)originalBitmap.Height / originalBitmap.Width * size);
+                                }
+                                else
+                                {
+                                    thumbHeight = size;
+                                    thumbWidth = (int)((double)originalBitmap.Width / originalBitmap.Height * size);
+                                }
+                                if (thumbWidth <= 0) thumbWidth = 1;
+                                if (thumbHeight <= 0) thumbHeight = 1;
+
+                                pngResult = new Bitmap(thumbWidth, thumbHeight, PixelFormat.Format32bppRgba);
+                                using (var g = new Graphics(pngResult))
+                                {
+                                    g.DrawImage(originalBitmap, 0, 0, thumbWidth, thumbHeight);
+                                }
+                            }
+                        });
+                        return pngResult;
+
+                    case ".til":
+                        image = RenderTilThumbnail(data);
+                        break;
+                }
+            }
+            catch
+            {
+                // 載入失敗，返回 null
+                return null;
             }
 
             if (image == null)
@@ -1397,7 +1447,7 @@ namespace PakViewer
         {
             using var dialog = new SelectFolderDialog
             {
-                Title = "Select Lineage Client Folder"
+                Title = I18n.T("Dialog.OpenClientFolder")
             };
 
             // Use last folder as starting point
@@ -1408,33 +1458,181 @@ namespace PakViewer
 
             if (dialog.ShowDialog(this) == DialogResult.Ok)
             {
-                _selectedFolder = dialog.Directory;
-                _folderLabel.Text = Path.GetFileName(_selectedFolder);
+                try
+                {
+                    // 清除舊的 PAK 模式
+                    _currentPak?.Dispose();
+                    _currentPak = null;
+                    _allPakFiles?.Values.ToList().ForEach(p => p?.Dispose());
+                    _allPakFiles = null;
+                    _isAllIdxMode = false;
+                    _currentProvider?.Dispose();
 
-                // Save to settings (這是有效的 client 資料夾)
-                _settings.LastFolder = _selectedFolder;
-                _settings.LastClientFolder = _selectedFolder;
+                    // 建立 LinClientProvider
+                    _currentProvider = new LinClientProvider(dialog.Directory);
+
+                    _selectedFolder = dialog.Directory;
+                    _folderLabel.Text = Path.GetFileName(_selectedFolder);
+
+                    // Save to settings (這是有效的 client 資料夾)
+                    _settings.LastFolder = _selectedFolder;
+                    _settings.LastClientFolder = _selectedFolder;
+                    _settings.Save();
+
+                    // 顯示模式選擇器 (Lin Client 模式需要)
+                    _viewModeRadio.Visible = true;
+
+                    // 從 Provider 取得選項填入下拉選單
+                    _idxDropDown.Items.Clear();
+                    foreach (var option in _currentProvider.GetSourceOptions())
+                    {
+                        _idxDropDown.Items.Add(option);
+                    }
+
+                    // 選取 Provider 的預設選項
+                    if (_idxDropDown.Items.Count > 0)
+                    {
+                        var currentOption = _currentProvider.CurrentSourceOption;
+                        var matchItem = _idxDropDown.Items.FirstOrDefault(i => i.Text == currentOption);
+                        _idxDropDown.SelectedIndex = matchItem != null ? _idxDropDown.Items.IndexOf(matchItem) : 0;
+                    }
+
+                    // 更新副檔名篩選和檔案列表
+                    UpdateExtensionFilter();
+                    RefreshFileList();
+
+                    _statusLabel.Text = $"Loaded: {_currentProvider.Name} ({_currentProvider.Count} files)";
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, $"Error: {ex.Message}", "Error", MessageBoxType.Error);
+                }
+            }
+        }
+
+        private void OnOpenFileFolder(object sender, EventArgs e)
+        {
+            using var dialog = new SelectFolderDialog
+            {
+                Title = I18n.T("Dialog.SelectFileFolder")
+            };
+
+            // Use last folder as starting point
+            if (!string.IsNullOrEmpty(_settings.LastFolder) && Directory.Exists(_settings.LastFolder))
+            {
+                dialog.Directory = _settings.LastFolder;
+            }
+
+            if (dialog.ShowDialog(this) == DialogResult.Ok)
+            {
+                OpenFolderInNewTab(dialog.Directory);
+            }
+        }
+
+        private void OpenFolderInNewTab(string folderPath)
+        {
+            var tabKey = $"folder:{folderPath}";
+
+            // Check if already open
+            if (_openTabs.ContainsKey(tabKey))
+            {
+                _mainTabControl.SelectedPage = _openTabs[tabKey];
+                return;
+            }
+
+            try
+            {
+                var provider = new FolderFileProvider(folderPath);
+                var folderName = Path.GetFileName(folderPath);
+
+                // Create browser content for this folder
+                var browserContent = CreateProviderBrowserContent(provider);
+
+                var docPage = new TabPage
+                {
+                    Text = $"📁 {folderName}",
+                    Content = browserContent
+                };
+                docPage.Tag = tabKey;
+
+                _openTabs[tabKey] = docPage;
+                _mainTabControl.Pages.Add(docPage);
+                _mainTabControl.SelectedPage = docPage;
+
+                // Save to settings
+                _settings.LastFolder = folderPath;
                 _settings.Save();
 
-                // Find .idx files
-                var idxFiles = Directory.GetFiles(_selectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
+                _statusLabel.Text = $"Opened folder: {folderName} ({provider.Count} files)";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Error opening folder: {ex.Message}", "Error", MessageBoxType.Error);
+            }
+        }
 
-                _idxDropDown.Items.Clear();
-                if (idxFiles.Length > 1)
-                    _idxDropDown.Items.Add("全部");  // Add "All" option when multiple IDX files
-                foreach (var file in idxFiles.OrderBy(f => f))
-                {
-                    _idxDropDown.Items.Add(Path.GetFileName(file));
+        private void OnOpenFile(object sender, EventArgs e)
+        {
+            using var dialog = new OpenFileDialog
+            {
+                Title = I18n.T("Dialog.SelectFile"),
+                Filters = {
+                    new FileFilter("Image Files", ".tbt", ".spr", ".img", ".til", ".png", ".gif", ".jpg", ".bmp"),
+                    new FileFilter("All Files", ".*")
                 }
+            };
 
-                if (_idxDropDown.Items.Count > 0)
+            // Use last folder as starting point
+            if (!string.IsNullOrEmpty(_settings.LastFolder) && Directory.Exists(_settings.LastFolder))
+            {
+                dialog.Directory = new Uri(_settings.LastFolder);
+            }
+
+            if (dialog.ShowDialog(this) == DialogResult.Ok)
+            {
+                OpenFileInNewTab(dialog.FileName);
+            }
+        }
+
+        private void OpenFileInNewTab(string filePath)
+        {
+            var tabKey = $"file:{filePath}";
+
+            // Check if already open
+            if (_openTabs.ContainsKey(tabKey))
+            {
+                _mainTabControl.SelectedPage = _openTabs[tabKey];
+                return;
+            }
+
+            try
+            {
+                var provider = new SingleFileProvider(filePath);
+                var fileName = Path.GetFileName(filePath);
+
+                // Create browser content for this file
+                var browserContent = CreateProviderBrowserContent(provider);
+
+                var docPage = new TabPage
                 {
-                    // Prefer text.idx
-                    var textIdx = _idxDropDown.Items.FirstOrDefault(i => i.Text.Equals("text.idx", StringComparison.OrdinalIgnoreCase));
-                    _idxDropDown.SelectedIndex = textIdx != null ? _idxDropDown.Items.IndexOf(textIdx) : 0;
-                }
+                    Text = $"📄 {fileName}",
+                    Content = browserContent
+                };
+                docPage.Tag = tabKey;
 
-                _statusLabel.Text = $"Found {idxFiles.Length} IDX files";
+                _openTabs[tabKey] = docPage;
+                _mainTabControl.Pages.Add(docPage);
+                _mainTabControl.SelectedPage = docPage;
+
+                // Save to settings
+                _settings.LastFolder = Path.GetDirectoryName(filePath);
+                _settings.Save();
+
+                _statusLabel.Text = $"Opened: {fileName}";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Error opening file: {ex.Message}", "Error", MessageBoxType.Error);
             }
         }
 
@@ -1471,15 +1669,15 @@ namespace PakViewer
 
             try
             {
-                var pak = new PakFile(idxPath);
+                var provider = new PakProvider(idxPath);
                 var idxName = Path.GetFileName(idxPath);
 
-                // Create browser content for this IDX
-                var browserContent = CreateIdxBrowserContent(pak, idxPath);
+                // Create browser content using shared provider browser
+                var browserContent = CreateProviderBrowserContent(provider);
 
                 var docPage = new TabPage
                 {
-                    Text = $"{idxName}",
+                    Text = $"📦 {idxName}",
                     Content = browserContent
                 };
                 docPage.Tag = tabKey;
@@ -1493,7 +1691,7 @@ namespace PakViewer
                 _settings.LastIdxFile = idxName;
                 _settings.Save();
 
-                _statusLabel.Text = $"Opened: {idxName} ({pak.Count} files)";
+                _statusLabel.Text = $"Opened: {idxName} ({provider.Count} files)";
             }
             catch (Exception ex)
             {
@@ -1694,17 +1892,549 @@ namespace PakViewer
             return splitter;
         }
 
+        private Control CreateProviderBrowserContent(IFileProvider provider)
+        {
+            // === 狀態變數 ===
+            List<FileItem> allItems = null;
+            List<FileItem> filteredItems = null;
+            string currentExtFilter = "All";
+            string currentFilter = "";      // 篩選框 (即時，搜檔名)
+            HashSet<int> contentSearchResults = null;  // 內容搜尋結果
+            bool isGalleryMode = false;
+
+            // === 建立 UI 元件 ===
+
+            // 檔案列表 Grid
+            var fileGrid = new GridView
+            {
+                AllowMultipleSelection = true,
+                ShowHeader = true
+            };
+
+            fileGrid.Columns.Add(new GridColumn
+            {
+                HeaderText = I18n.T("Grid.No"),
+                DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.Index.ToString()) },
+                Width = 60
+            });
+
+            fileGrid.Columns.Add(new GridColumn
+            {
+                HeaderText = I18n.T("Grid.FileName"),
+                DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.FileName) },
+                Width = 180
+            });
+
+            fileGrid.Columns.Add(new GridColumn
+            {
+                HeaderText = I18n.T("Grid.Size"),
+                DataCell = new TextBoxCell { Binding = Binding.Property<FileItem, string>(r => r.SizeText) },
+                Width = 80
+            });
+
+            // 來源下拉選單 (資料夾名稱)
+            var sourceDropDown = new DropDown { Width = 200 };
+            foreach (var option in provider.GetSourceOptions())
+            {
+                sourceDropDown.Items.Add(option);
+            }
+            if (sourceDropDown.Items.Count > 0)
+                sourceDropDown.SelectedIndex = 0;
+
+            // 副檔名下拉選單
+            var extDropDown = new DropDown();
+            extDropDown.Items.Add("All");
+
+            // 篩選文字框
+            var filterBox = new TextBox { PlaceholderText = I18n.T("Placeholder.Filter") };
+
+            // 搜尋文字框和按鈕
+            var searchBox = new TextBox { PlaceholderText = I18n.T("Placeholder.Search") };
+            var searchBtn = new Button { Text = I18n.T("Button.Search") };
+            var clearBtn = new Button { Text = I18n.T("Button.Clear") };
+
+            // === 右側面板 ===
+            var viewerPanel = new Panel { BackgroundColor = Colors.DarkGray };
+
+            // 預覽模式元件 (for fallback text display)
+            var textViewer = new RichTextArea { ReadOnly = true, Font = new Font("Menlo, Monaco, Consolas, monospace", 12) };
+
+            // 相簿面板
+            var galleryPanel = new Controls.GalleryPanel();
+
+            // 目前預覽的 Viewer (用於統一處理各種格式)
+            Viewers.IFileViewer currentViewer = null;
+
+            // 預覽/相簿 模式切換
+            var previewRadio = new RadioButton { Text = I18n.T("RightPanel.Preview") };
+            var galleryRadio = new RadioButton(previewRadio) { Text = I18n.T("RightPanel.Gallery") };
+            previewRadio.Checked = true;
+
+            // 縮圖大小滑桿
+            var thumbnailSlider = new Slider
+            {
+                MinValue = 48,
+                MaxValue = 200,
+                Value = 80,
+                Width = 100
+            };
+            int cachedThumbSize = 80;  // 快取縮圖大小，避免在背景執行緒存取 UI
+
+            // 搜尋工具列
+            var textSearchBox = new TextBox { PlaceholderText = I18n.T("Placeholder.SearchInText"), Width = 200 };
+            var textSearchPrevBtn = new Button { Text = "◀", Width = 30 };
+            var textSearchNextBtn = new Button { Text = "▶", Width = 30 };
+
+            // 右側面板容器
+            var rightPanelContainer = new Panel { Content = viewerPanel };
+
+            // === 輔助函式 ===
+            Action refreshExtensions = () =>
+            {
+                var currentExt = extDropDown.SelectedValue?.ToString() ?? "All";
+                extDropDown.Items.Clear();
+                extDropDown.Items.Add("All");
+                foreach (var ext in provider.GetExtensions())
+                {
+                    extDropDown.Items.Add(ext);
+                }
+                var match = extDropDown.Items.FirstOrDefault(i => i.Text == currentExt);
+                extDropDown.SelectedIndex = match != null ? extDropDown.Items.IndexOf(match) : 0;
+            };
+
+            // 縮圖載入器 - 使用共用的 LoadThumbnailForFileItem 方法
+            // 注意：此 callback 會在背景執行緒呼叫，不能存取 UI 控制項
+            galleryPanel.ThumbnailLoader = (index) =>
+            {
+                try
+                {
+                    if (filteredItems == null || index < 0 || index >= filteredItems.Count)
+                        return null;
+
+                    var item = filteredItems[index];
+                    return LoadThumbnailForFileItem(item, cachedThumbSize, provider);
+                }
+                catch
+                {
+                    return null;
+                }
+            };
+
+            Action updateGalleryItems = () =>
+            {
+                if (filteredItems == null) return;
+                var galleryItems = filteredItems.Select((f, i) => new Controls.GalleryItem
+                {
+                    Index = i,
+                    FileName = f.FileName,
+                    FileSize = f.FileSize,
+                    Tag = f
+                }).ToList();
+                galleryPanel.SetItems(galleryItems);
+            };
+
+            Action refreshFileList = () =>
+            {
+                // 從 provider 重新載入
+                allItems = provider.Files.Select(f => new FileItem
+                {
+                    Index = f.Index,
+                    FileName = f.FileName,
+                    FileSize = (int)f.FileSize,
+                    Offset = f.Offset,
+                    IdxName = f.SourceName
+                }).ToList();
+
+                // 套用篩選
+                filteredItems = allItems.Where(item =>
+                {
+                    // 副檔名篩選
+                    if (currentExtFilter != "All")
+                    {
+                        var ext = Path.GetExtension(item.FileName)?.ToLowerInvariant() ?? "";
+                        if (ext != currentExtFilter) return false;
+                    }
+                    // 篩選框 (即時篩選檔名)
+                    if (!string.IsNullOrEmpty(currentFilter))
+                    {
+                        if (!item.FileName.Contains(currentFilter, StringComparison.OrdinalIgnoreCase))
+                            return false;
+                    }
+                    // 內容搜尋結果
+                    if (contentSearchResults != null)
+                    {
+                        if (!contentSearchResults.Contains(item.Index))
+                            return false;
+                    }
+                    return true;
+                }).ToList();
+
+                fileGrid.DataStore = filteredItems;
+
+                // 更新相簿
+                if (isGalleryMode)
+                {
+                    updateGalleryItems();
+                }
+            };
+
+            Action<bool> setGalleryMode = (gallery) =>
+            {
+                isGalleryMode = gallery;
+                if (gallery)
+                {
+                    updateGalleryItems();
+                    rightPanelContainer.Content = galleryPanel;
+                }
+                else
+                {
+                    rightPanelContainer.Content = viewerPanel;
+                }
+            };
+
+            // === 事件處理 ===
+
+            sourceDropDown.SelectedIndexChanged += (s, e) =>
+            {
+                var selected = sourceDropDown.SelectedValue?.ToString();
+                if (!string.IsNullOrEmpty(selected))
+                {
+                    provider.SetSourceOption(selected);
+                    refreshExtensions();
+                    refreshFileList();
+                }
+            };
+
+            extDropDown.SelectedIndexChanged += (s, e) =>
+            {
+                currentExtFilter = extDropDown.SelectedValue?.ToString() ?? "All";
+                refreshFileList();
+            };
+
+            filterBox.TextChanged += (s, e) =>
+            {
+                currentFilter = filterBox.Text ?? "";
+                refreshFileList();
+            };
+
+            // 內容搜尋動作 - 搜尋檔案內容
+            Action doContentSearch = () =>
+            {
+                var keyword = searchBox.Text?.Trim();
+                if (string.IsNullOrEmpty(keyword))
+                    return;
+
+                // 先提取所有檔案資料
+                var fileDataList = new List<(int Index, string FileName, string Ext, byte[] Data)>();
+                foreach (var file in provider.Files)
+                {
+                    try
+                    {
+                        var ext = Path.GetExtension(file.FileName)?.ToLowerInvariant() ?? "";
+                        var data = provider.Extract(file.Index);
+                        fileDataList.Add((file.Index, file.FileName, ext, data));
+                    }
+                    catch { }
+                }
+
+                // 平行搜尋內容
+                var results = new System.Collections.Concurrent.ConcurrentBag<int>();
+                System.Threading.Tasks.Parallel.ForEach(fileDataList, item =>
+                {
+                    try
+                    {
+                        using var viewer = Viewers.ViewerFactory.CreateViewer(item.Ext);
+                        var text = viewer.GetTextContent(item.Data, item.FileName);
+                        if (text != null && text.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                        {
+                            results.Add(item.Index);
+                        }
+                    }
+                    catch { }
+                });
+
+                contentSearchResults = new HashSet<int>(results);
+                refreshFileList();
+            };
+
+            searchBtn.Click += (s, e) => doContentSearch();
+
+            // Enter 鍵送出搜尋
+            searchBox.KeyDown += (s, e) =>
+            {
+                if (e.Key == Keys.Enter)
+                {
+                    doContentSearch();
+                    e.Handled = true;
+                }
+            };
+
+            clearBtn.Click += (s, e) =>
+            {
+                searchBox.Text = "";
+                contentSearchResults = null;
+                currentFilter = "";
+                filterBox.Text = "";
+                refreshFileList();
+            };
+
+            previewRadio.CheckedChanged += (s, e) =>
+            {
+                if (previewRadio.Checked) setGalleryMode(false);
+            };
+
+            galleryRadio.CheckedChanged += (s, e) =>
+            {
+                if (galleryRadio.Checked) setGalleryMode(true);
+            };
+
+            thumbnailSlider.ValueChanged += (s, e) =>
+            {
+                cachedThumbSize = thumbnailSlider.Value;
+                galleryPanel.ThumbnailSize = thumbnailSlider.Value;
+            };
+
+            galleryPanel.ItemSelected += (s, galleryItem) =>
+            {
+                if (galleryItem == null) return;
+                // 在 grid 中選取對應項目
+                if (galleryItem.Index >= 0 && galleryItem.Index < filteredItems?.Count)
+                {
+                    fileGrid.SelectedRow = galleryItem.Index;
+                }
+            };
+
+            galleryPanel.ItemDoubleClicked += (s, galleryItem) =>
+            {
+                if (galleryItem?.Tag is not FileItem fileItem) return;
+                try
+                {
+                    var data = provider.Extract(fileItem.Index);
+                    var ext = Path.GetExtension(fileItem.FileName).ToLowerInvariant();
+                    var content = CreateTabContent(ext, data, fileItem.FileName);
+                    if (content == null) return;
+
+                    var tabKey = $"{provider.Name}:{fileItem.Index}";
+                    if (_openTabs.ContainsKey(tabKey))
+                    {
+                        _mainTabControl.SelectedPage = _openTabs[tabKey];
+                        return;
+                    }
+
+                    var docPage = new TabPage
+                    {
+                        Text = fileItem.FileName,
+                        Content = content
+                    };
+                    docPage.Tag = tabKey;
+
+                    _openTabs[tabKey] = docPage;
+                    _mainTabControl.Pages.Add(docPage);
+                    _mainTabControl.SelectedPage = docPage;
+                }
+                catch { }
+            };
+
+            fileGrid.SelectionChanged += (s, e) =>
+            {
+                if (isGalleryMode) return;  // 相簿模式由相簿處理
+
+                var selected = fileGrid.SelectedItem as FileItem;
+                if (selected == null) return;
+
+                // 釋放舊的 viewer
+                currentViewer?.Dispose();
+                currentViewer = null;
+
+                try
+                {
+                    var data = provider.Extract(selected.Index);
+                    var ext = Path.GetExtension(selected.FileName).ToLowerInvariant();
+
+                    // 使用 ViewerFactory 建立適合的 viewer
+                    currentViewer = Viewers.ViewerFactory.CreateViewerSmart(ext, data, selected.FileName);
+                    currentViewer.LoadData(data, selected.FileName);
+
+                    // 顯示 viewer 控件
+                    viewerPanel.Content = currentViewer.GetControl();
+
+                    _statusLabel.Text = $"Selected: {selected.FileName} ({selected.SizeText})";
+                }
+                catch (Exception ex)
+                {
+                    _statusLabel.Text = $"Error: {ex.Message}";
+                }
+            };
+
+            fileGrid.CellDoubleClick += (s, e) =>
+            {
+                var selected = fileGrid.SelectedItem as FileItem;
+                if (selected == null) return;
+
+                try
+                {
+                    var data = provider.Extract(selected.Index);
+                    var ext = Path.GetExtension(selected.FileName).ToLowerInvariant();
+                    var content = CreateTabContent(ext, data, selected.FileName);
+                    if (content == null) return;
+
+                    var tabKey = $"{provider.Name}:{selected.Index}";
+                    if (_openTabs.ContainsKey(tabKey))
+                    {
+                        _mainTabControl.SelectedPage = _openTabs[tabKey];
+                        return;
+                    }
+
+                    var docPage = new TabPage
+                    {
+                        Text = selected.FileName,
+                        Content = content
+                    };
+                    docPage.Tag = tabKey;
+
+                    _openTabs[tabKey] = docPage;
+                    _mainTabControl.Pages.Add(docPage);
+                    _mainTabControl.SelectedPage = docPage;
+                }
+                catch { }
+            };
+
+            // === 初始化 ===
+            refreshExtensions();
+            refreshFileList();
+
+            // 自動選取第一個檔案
+            if (filteredItems != null && filteredItems.Count > 0)
+            {
+                fileGrid.SelectedRow = 0;
+            }
+
+            // === 佈局 ===
+            const int labelWidth = 50;
+
+            var leftTopBar = new TableLayout
+            {
+                Padding = new Padding(5),
+                Spacing = new Size(5, 5),
+                Rows =
+                {
+                    // 來源
+                    new TableRow(
+                        new TableCell(new Label { Text = I18n.T("Label.IDX"), Width = labelWidth }, false),
+                        new TableCell(sourceDropDown, true)
+                    ),
+                    // 副檔名
+                    new TableRow(
+                        new TableCell(new Label { Text = I18n.T("Label.Ext"), Width = labelWidth }, false),
+                        new TableCell(extDropDown, true)
+                    ),
+                    // 篩選
+                    new TableRow(
+                        new TableCell(new Label { Text = I18n.T("Label.Filter"), Width = labelWidth }, false),
+                        new TableCell(filterBox, true)
+                    ),
+                    // 搜尋
+                    new TableRow(
+                        new TableCell(new Label { Text = I18n.T("Label.Search"), Width = labelWidth }, false),
+                        new TableCell(new StackLayout
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Spacing = 2,
+                            Items = { new StackLayoutItem(searchBox, true), searchBtn, clearBtn }
+                        }, true)
+                    )
+                }
+            };
+
+            var leftPanel = new TableLayout
+            {
+                Rows =
+                {
+                    new TableRow(leftTopBar),
+                    new TableRow(fileGrid) { ScaleHeight = true }
+                }
+            };
+
+            var rightModeToolbar = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 10,
+                Padding = new Padding(5),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items =
+                {
+                    previewRadio,
+                    galleryRadio,
+                    new Label { Text = "|", VerticalAlignment = VerticalAlignment.Center },
+                    new Label { Text = I18n.T("RightPanel.ThumbnailSize"), VerticalAlignment = VerticalAlignment.Center },
+                    thumbnailSlider
+                }
+            };
+
+            var rightSearchToolbar = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                Padding = new Padding(5),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items =
+                {
+                    new Label { Text = I18n.T("Label.Find") },
+                    textSearchBox,
+                    textSearchPrevBtn,
+                    textSearchNextBtn
+                }
+            };
+
+            var rightPanel = new TableLayout
+            {
+                Rows =
+                {
+                    new TableRow(rightModeToolbar),
+                    new TableRow(rightSearchToolbar),
+                    new TableRow(rightPanelContainer) { ScaleHeight = true }
+                }
+            };
+
+            var splitter = new Splitter
+            {
+                Orientation = Orientation.Horizontal,
+                Position = 400,
+                FixedPanel = SplitterFixedPanel.Panel1,
+                Panel1 = leftPanel,
+                Panel2 = rightPanel
+            };
+
+            return splitter;
+        }
+
         private void OnIdxChanged(object sender, EventArgs e)
         {
-            if (_idxDropDown.SelectedIndex < 0 || string.IsNullOrEmpty(_selectedFolder))
+            if (_idxDropDown.SelectedIndex < 0)
+                return;
+
+            // Provider 模式 - 讓 Provider 處理選項變更
+            if (_currentProvider != null)
+            {
+                var selected = _idxDropDown.SelectedValue?.ToString();
+                if (!string.IsNullOrEmpty(selected))
+                {
+                    _currentProvider.SetSourceOption(selected);
+                    UpdateExtensionFilter();
+                    RefreshFileList();
+                }
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_selectedFolder))
                 return;
 
             // 在 SPR 或 SPR List 模式時，IDX 是鎖定的，不處理
             if (_viewModeRadio.SelectedIndex != MODE_NORMAL)
                 return;
 
-            var selected = _idxDropDown.SelectedValue.ToString();
-            if (selected == "全部")
+            var selectedLegacy = _idxDropDown.SelectedValue.ToString();
+            if (selectedLegacy == "全部")
             {
                 LoadAllIdxFiles();
             }
@@ -1712,7 +2442,7 @@ namespace PakViewer
             {
                 _isAllIdxMode = false;
                 _allPakFiles = null;
-                var idxFile = Path.Combine(_selectedFolder, selected);
+                var idxFile = Path.Combine(_selectedFolder, selectedLegacy);
                 LoadIdxFile(idxFile);
             }
         }
@@ -1779,17 +2509,15 @@ namespace PakViewer
 
             try
             {
-                var datFile = new DatTools.DatFile(datPath);
-                datFile.ReadFooter();
-                datFile.DecryptIndex();
-                datFile.ParseEntries();
-
+                var provider = new DatProvider(datPath);
                 var datName = Path.GetFileName(datPath);
-                var browserContent = CreateDatBrowserContent(datFile);
+
+                // Create browser content using shared provider browser
+                var browserContent = CreateProviderBrowserContent(provider);
 
                 var docPage = new TabPage
                 {
-                    Text = $"{datName}",
+                    Text = $"📀 {datName}",
                     Content = browserContent
                 };
                 docPage.Tag = tabKey;
@@ -1801,7 +2529,7 @@ namespace PakViewer
                 _settings.LastFolder = Path.GetDirectoryName(datPath);
                 _settings.Save();
 
-                _statusLabel.Text = $"Opened DAT: {datName} ({datFile.Entries.Count} files, Encrypted: {datFile.Footer.IsEncrypted})";
+                _statusLabel.Text = $"Opened DAT: {datName} ({provider.Count} files)";
             }
             catch (Exception ex)
             {
@@ -2043,7 +2771,13 @@ namespace PakViewer
         private void UpdateExtensionFilter()
         {
             IEnumerable<string> extensions;
-            if (_isAllIdxMode && _allPakFiles != null)
+
+            // Provider 模式
+            if (_currentProvider != null)
+            {
+                extensions = _currentProvider.GetExtensions();
+            }
+            else if (_isAllIdxMode && _allPakFiles != null)
             {
                 extensions = _allPakFiles.Values
                     .SelectMany(pak => pak.Files)
@@ -2195,31 +2929,14 @@ namespace PakViewer
             _filteredIndexes = new List<int>();
             int totalCount = 0;
 
-            // Get PAK files to iterate
-            IEnumerable<KeyValuePair<string, PakFile>> pakSources;
-            if (_isAllIdxMode && _allPakFiles != null)
+            // Provider 模式 (資料夾/單一檔案)
+            if (_currentProvider != null)
             {
-                pakSources = _allPakFiles;
-            }
-            else if (_currentPak != null)
-            {
-                var currentIdxName = _idxDropDown.SelectedValue?.ToString() ?? "";
-                pakSources = new[] { new KeyValuePair<string, PakFile>(currentIdxName, _currentPak) };
-            }
-            else
-            {
-                return;
-            }
+                totalCount = _currentProvider.Count;
 
-            foreach (var pakEntry in pakSources)
-            {
-                var idxName = pakEntry.Key;
-                var pak = pakEntry.Value;
-                totalCount += pak.Count;
-
-                for (int i = 0; i < pak.Count; i++)
+                for (int i = 0; i < _currentProvider.Count; i++)
                 {
-                    var file = pak.Files[i];
+                    var file = _currentProvider.Files[i];
                     var fileName = file.FileName;
                     var lowerName = fileName.ToLowerInvariant();
 
@@ -2231,27 +2948,10 @@ namespace PakViewer
                             continue;
                     }
 
-                    // Apply language filter
-                    if (_currentLangFilter != "All")
-                    {
-                        bool hasLangSuffix = lowerName.Contains(_currentLangFilter + ".") ||
-                                             lowerName.Contains(_currentLangFilter + "_") ||
-                                             lowerName.EndsWith(_currentLangFilter);
-                        if (!hasLangSuffix)
-                            continue;
-                    }
-
                     // Apply filename search filter
                     if (!string.IsNullOrEmpty(_currentFilter))
                     {
                         if (!fileName.Contains(_currentFilter, StringComparison.OrdinalIgnoreCase))
-                            continue;
-                    }
-
-                    // Apply content search filter (only for single PAK mode)
-                    if (!_isAllIdxMode && _contentSearchResults != null)
-                    {
-                        if (!_contentSearchResults.Contains(i))
                             continue;
                     }
 
@@ -2260,11 +2960,87 @@ namespace PakViewer
                     {
                         Index = i,
                         FileName = fileName,
-                        FileSize = file.FileSize,
+                        FileSize = (int)file.FileSize,
                         Offset = file.Offset,
-                        IdxName = _isAllIdxMode ? idxName : null,
-                        SourcePak = pak
+                        IdxName = file.SourceName,
+                        SourcePak = null  // Provider 模式不使用 SourcePak
                     });
+                }
+            }
+            else
+            {
+                // PAK 模式
+                // Get PAK files to iterate
+                IEnumerable<KeyValuePair<string, PakFile>> pakSources;
+                if (_isAllIdxMode && _allPakFiles != null)
+                {
+                    pakSources = _allPakFiles;
+                }
+                else if (_currentPak != null)
+                {
+                    var currentIdxName = _idxDropDown.SelectedValue?.ToString() ?? "";
+                    pakSources = new[] { new KeyValuePair<string, PakFile>(currentIdxName, _currentPak) };
+                }
+                else
+                {
+                    return;
+                }
+
+                foreach (var pakEntry in pakSources)
+                {
+                    var idxName = pakEntry.Key;
+                    var pak = pakEntry.Value;
+                    totalCount += pak.Count;
+
+                    for (int i = 0; i < pak.Count; i++)
+                    {
+                        var file = pak.Files[i];
+                        var fileName = file.FileName;
+                        var lowerName = fileName.ToLowerInvariant();
+
+                        // Apply extension filter
+                        if (_currentExtFilter != "All")
+                        {
+                            var ext = Path.GetExtension(fileName).ToLowerInvariant();
+                            if (ext != _currentExtFilter)
+                                continue;
+                        }
+
+                        // Apply language filter
+                        if (_currentLangFilter != "All")
+                        {
+                            bool hasLangSuffix = lowerName.Contains(_currentLangFilter + ".") ||
+                                                 lowerName.Contains(_currentLangFilter + "_") ||
+                                                 lowerName.EndsWith(_currentLangFilter);
+                            if (!hasLangSuffix)
+                                continue;
+                        }
+
+                        // Apply filename search filter
+                        if (!string.IsNullOrEmpty(_currentFilter))
+                        {
+                            if (!fileName.Contains(_currentFilter, StringComparison.OrdinalIgnoreCase))
+                                continue;
+                        }
+
+                        // Apply content search filter (only for single PAK mode)
+                        if (!_isAllIdxMode && _contentSearchResults != null)
+                        {
+                            if (!_contentSearchResults.Contains(i))
+                                continue;
+                        }
+
+                        _filteredIndexes.Add(i);
+                        items.Add(new FileItem
+                        {
+                            Index = i,
+                            FileName = fileName,
+                            FileSize = file.FileSize,
+                            Offset = file.Offset,
+                            IdxName = _isAllIdxMode ? idxName : null,
+                            SourcePak = pak
+                        });
+                    }
                 }
             }
 
@@ -2376,16 +3152,29 @@ namespace PakViewer
             var selected = _fileGrid.SelectedItem as FileItem;
             if (selected == null) return;
 
-            var pak = selected.SourcePak ?? _currentPak;
-            if (pak == null) return;
-
             try
             {
-                var data = pak.Extract(selected.Index);
+                byte[] data;
+
+                // Provider 模式
+                if (_currentProvider != null)
+                {
+                    data = _currentProvider.Extract(selected.Index);
+                    _currentViewerPak = null;
+                }
+                else
+                {
+                    // PAK 模式
+                    var pak = selected.SourcePak ?? _currentPak;
+                    if (pak == null) return;
+
+                    data = pak.Extract(selected.Index);
+                    _currentViewerPak = pak;
+                }
+
                 var ext = Path.GetExtension(selected.FileName).ToLowerInvariant();
 
                 // 記錄當前預覽的檔案來源（用於儲存功能）
-                _currentViewerPak = pak;
                 _currentViewerIndex = selected.Index;
                 _currentViewerFileName = selected.FileName;
 

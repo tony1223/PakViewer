@@ -108,9 +108,10 @@ namespace PakViewer.Controls
 
         private void UpdateContentSize()
         {
-            if (_items.Count == 0)
+            // 避免在 Width 尚未初始化時計算錯誤的高度
+            if (Width <= 0 || _items.Count == 0)
             {
-                _drawable.Size = new Size((int)Width, (int)Height);
+                _drawable.Size = new Size(Math.Max(1, (int)Width), Math.Max(1, (int)Height));
                 return;
             }
 
