@@ -297,14 +297,14 @@ namespace Lin.Helper.Core.Pak
                     // ExtB 格式需要解壓縮
                     data = new byte[rec.CompressedSize];
                     fs.Seek(rec.Offset, SeekOrigin.Begin);
-                    fs.Read(data, 0, rec.CompressedSize);
+                    fs.ReadExactly(data, 0, rec.CompressedSize);
                     data = DecompressExtB(data, rec.FileSize);
                 }
                 else
                 {
                     data = new byte[rec.FileSize];
                     fs.Seek(rec.Offset, SeekOrigin.Begin);
-                    fs.Read(data, 0, rec.FileSize);
+                    fs.ReadExactly(data, 0, rec.FileSize);
 
                     if (_isProtected && _encryptionType == "L1")
                     {
@@ -678,7 +678,7 @@ namespace Lin.Helper.Core.Pak
                             var rec = _records[srcIndex];
                             fileData = new byte[rec.FileSize];
                             srcStream.Seek(rec.Offset, SeekOrigin.Begin);
-                            srcStream.Read(fileData, 0, rec.FileSize);
+                            srcStream.ReadExactly(fileData, 0, rec.FileSize);
                         }
 
                         dstStream.Write(fileData, 0, fileData.Length);

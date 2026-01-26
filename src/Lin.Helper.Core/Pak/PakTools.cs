@@ -54,7 +54,7 @@ namespace Lin.Helper.Core.Pak
             {
                 if (stream == null) return null;
                 byte[] data = new byte[stream.Length];
-                stream.Read(data, 0, data.Length);
+                stream.ReadExactly(data, 0, data.Length);
                 return data;
             }
         }

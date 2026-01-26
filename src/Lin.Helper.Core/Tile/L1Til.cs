@@ -456,7 +456,7 @@ namespace Lin.Helper.Core.Tile
                             }
 
                             br.BaseStream.Seek(nPosition, SeekOrigin.Begin);
-                            byte[] data = br.ReadBytes(nSize + 1);
+                            byte[] data = br.ReadBytes(nSize);
                             uniqueBlocks[offset] = data;
                         }
                     }

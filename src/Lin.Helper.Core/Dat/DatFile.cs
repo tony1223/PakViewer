@@ -97,7 +97,7 @@ namespace Lin.Helper.Core.Dat
                 {
                     fs.Seek(-DatFooter.SIZE, SeekOrigin.End);
                     byte[] footerData = new byte[DatFooter.SIZE];
-                    fs.Read(footerData, 0, DatFooter.SIZE);
+                    fs.ReadExactly(footerData, 0, DatFooter.SIZE);
 
                     var footer = new DatFooter(footerData);
 
@@ -244,7 +244,7 @@ namespace Lin.Helper.Core.Dat
             {
                 fs.Seek(-DatFooter.SIZE, SeekOrigin.End);
                 byte[] footerData = new byte[DatFooter.SIZE];
-                fs.Read(footerData, 0, DatFooter.SIZE);
+                fs.ReadExactly(footerData, 0, DatFooter.SIZE);
                 Footer = new DatFooter(footerData);
             }
             return Footer;
@@ -262,7 +262,7 @@ namespace Lin.Helper.Core.Dat
             {
                 fs.Seek(Footer.IndexOffset, SeekOrigin.Begin);
                 byte[] encryptedIndex = new byte[Footer.IndexSize];
-                fs.Read(encryptedIndex, 0, Footer.IndexSize);
+                fs.ReadExactly(encryptedIndex, 0, Footer.IndexSize);
 
                 if (Footer.IsEncrypted)
                 {
@@ -307,7 +307,7 @@ namespace Lin.Helper.Core.Dat
             {
                 fs.Seek(entry.Offset, SeekOrigin.Begin);
                 data = new byte[entry.Size];
-                fs.Read(data, 0, entry.Size);
+                fs.ReadExactly(data, 0, entry.Size);
             }
 
             if (decrypt && Footer != null && Footer.IsEncrypted)
