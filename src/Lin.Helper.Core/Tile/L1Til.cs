@@ -380,7 +380,10 @@ namespace Lin.Helper.Core.Tile
         /// <summary>
         /// 解析 til 資料為 TileBlocks（支援共用 block 優化）
         /// </summary>
-        public static TileBlocks ParseToTileBlocks(byte[] srcData)
+        /// <param name="srcData">TIL 檔案資料</param>
+        /// <param name="validateFormat">是否驗證格式（預設 true）</param>
+        /// <returns>TileBlocks 或 null（解析失敗時）</returns>
+        public static TileBlocks ParseToTileBlocks(byte[] srcData, bool validateFormat = true)
         {
             try
             {
@@ -390,6 +393,10 @@ namespace Lin.Helper.Core.Tile
                 {
                     int nAllBlockCount = br.ReadInt32();
 
+                    // 基本驗證：block 數量
+                    if (nAllBlockCount <= 0 || nAllBlockCount > 65536)
+                        return null;
+
                     int[] nsBlockOffset = new int[nAllBlockCount];
                     for (int i = 0; i < nAllBlockCount; i++)
                     {
@@ -398,11 +405,37 @@ namespace Lin.Helper.Core.Tile
                     int endOffset = br.ReadInt32();
 
                     int nCurPosition = (int)br.BaseStream.Position;
+                    int dataLength = (int)(br.BaseStream.Length - nCurPosition);
+
+                    // 驗證 endOffset 是否合理
+                    if (validateFormat && endOffset > dataLength)
+                    {
+                        // 檔案被截斷：endOffset 超過實際資料長度
+                        return null;
+                    }
 
                     var uniqueOffsets = new SortedSet<int>(nsBlockOffset);
                     uniqueOffsets.Add(endOffset);
 
                     var offsetList = uniqueOffsets.ToList();
+
+                    // 驗證格式：檢查是否有太多異常小的 block
+                    if (validateFormat && offsetList.Count > 10)
+                    {
+                        int tinyBlockCount = 0;
+                        for (int i = 0; i < offsetList.Count - 1; i++)
+                        {
+                            int blockSize = offsetList[i + 1] - offsetList[i];
+                            // 正常的 block 至少應該有幾個 bytes（type + 一些資料）
+                            // 如果 blockSize <= 2，很可能是損壞的偏移表
+                            if (blockSize <= 2)
+                                tinyBlockCount++;
+                        }
+                        // 如果超過 10% 的 blocks 都是異常小的，視為格式錯誤
+                        if (tinyBlockCount > offsetList.Count / 10)
+                            return null;
+                    }
+
                     var uniqueBlocks = new Dictionary<int, byte[]>();
 
                     for (int i = 0; i < offsetList.Count - 1; i++)
@@ -414,6 +447,14 @@ namespace Lin.Helper.Core.Tile
                         if (nSize > 0)
                         {
                             int nPosition = nCurPosition + offset;
+
+                            // 驗證讀取位置是否在檔案範圍內
+                            if (validateFormat && (nPosition + nSize > br.BaseStream.Length))
+                            {
+                                // 資料被截斷
+                                return null;
+                            }
+
                             br.BaseStream.Seek(nPosition, SeekOrigin.Begin);
                             byte[] data = br.ReadBytes(nSize + 1);
                             uniqueBlocks[offset] = data;
