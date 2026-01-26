@@ -106,6 +106,10 @@ namespace PakViewer.Localization
             { "Menu.Tools.ExportAll", "匯出全部(&A)..." },
             { "Menu.Tools.DeleteSelected", "刪除選取(&D)" },
 
+            // Menu - Convert
+            { "Menu.Convert", "轉換(&C)" },
+            { "Menu.Convert.MergePngToSpr", "合併 PNG 為 SPR(&M)..." },
+
             // Menu - Edit
             { "Menu.Edit", "編輯(&E)" },
             { "Menu.Edit.Language", "語言(&L)" },
@@ -197,6 +201,7 @@ namespace PakViewer.Localization
             { "Context.OpenInNewTab", "在新分頁開啟" },
             { "Context.ExportSelected", "匯出選取" },
             { "Context.ExportSelectedTo", "匯出選取至..." },
+            { "Context.ExportSprAsPng", "匯出 SPR 為 PNG..." },
             { "Context.DeleteSelected", "刪除選取" },
             { "Context.CopyFilename", "複製檔名" },
             { "Context.SelectAll", "全選" },
@@ -237,6 +242,12 @@ namespace PakViewer.Localization
             { "Error.NoActionsFound", "找不到任何動作資料" },
             { "Error.CannotSaveNoPak", "無法儲存：找不到來源 PAK 檔案\n\n請確保是從檔案列表選取的檔案。" },
             { "Error.LoadSprList", "載入 SPR List 失敗" },
+            { "Error.NoPngSelected", "未選擇任何 PNG 檔案" },
+            { "Error.CreateSprFailed", "建立 SPR 失敗: {0}" },
+
+            // Status (Convert)
+            { "Status.ConvertingPngToSpr", "正在轉換 PNG 為 SPR..." },
+            { "Status.SprCreated", "已從 {0} 個 PNG 建立 SPR: {1}" },
 
             // Dialog
             { "Dialog.SaveAs", "另存新檔" },
@@ -290,6 +301,9 @@ namespace PakViewer.Localization
             { "Dialog.Warning", "警告" },
             { "Dialog.Info", "資訊" },
             { "Dialog.DeleteConfirm", "確定要刪除選取的 {0} 個檔案嗎？" },
+            { "Dialog.SelectPngFiles", "選擇 PNG 檔案" },
+            { "Dialog.SaveSprFile", "儲存 SPR 檔案" },
+            { "Dialog.Success", "成功" },
 
             // Toast
             { "Toast.SaveSuccess", "儲存成功" },
@@ -400,6 +414,10 @@ namespace PakViewer.Localization
             { "Menu.Tools.ExportAll", "すべてエクスポート(&A)..." },
             { "Menu.Tools.DeleteSelected", "選択を削除(&D)" },
 
+            // Menu - Convert
+            { "Menu.Convert", "変換(&C)" },
+            { "Menu.Convert.MergePngToSpr", "PNGをSPRに統合(&M)..." },
+
             // Menu - Edit
             { "Menu.Edit", "編集(&E)" },
             { "Menu.Edit.Language", "言語(&L)" },
@@ -491,6 +509,7 @@ namespace PakViewer.Localization
             { "Context.OpenInNewTab", "新しいタブで開く" },
             { "Context.ExportSelected", "選択をエクスポート" },
             { "Context.ExportSelectedTo", "選択をエクスポート先..." },
+            { "Context.ExportSprAsPng", "SPRをPNGでエクスポート..." },
             { "Context.DeleteSelected", "選択を削除" },
             { "Context.CopyFilename", "ファイル名をコピー" },
             { "Context.SelectAll", "すべて選択" },
@@ -531,6 +550,12 @@ namespace PakViewer.Localization
             { "Error.NoActionsFound", "アクションデータが見つかりません" },
             { "Error.CannotSaveNoPak", "保存できません：ソースPAKファイルが見つかりません。\n\nファイルリストから選択したファイルであることを確認してください。" },
             { "Error.LoadSprList", "SPR Listの読み込みに失敗しました" },
+            { "Error.NoPngSelected", "PNGファイルが選択されていません" },
+            { "Error.CreateSprFailed", "SPRの作成に失敗しました: {0}" },
+
+            // Status (Convert)
+            { "Status.ConvertingPngToSpr", "PNGをSPRに変換中..." },
+            { "Status.SprCreated", "{0}個のPNGからSPRを作成しました: {1}" },
 
             // Dialog
             { "Dialog.SaveAs", "名前を付けて保存" },
@@ -584,6 +609,9 @@ namespace PakViewer.Localization
             { "Dialog.Warning", "警告" },
             { "Dialog.Info", "情報" },
             { "Dialog.DeleteConfirm", "選択した {0} ファイルを削除しますか？" },
+            { "Dialog.SelectPngFiles", "PNGファイルを選択" },
+            { "Dialog.SaveSprFile", "SPRファイルを保存" },
+            { "Dialog.Success", "成功" },
 
             // Toast
             { "Toast.SaveSuccess", "保存成功" },
@@ -694,6 +722,10 @@ namespace PakViewer.Localization
             { "Menu.Tools.ExportAll", "Export &All..." },
             { "Menu.Tools.DeleteSelected", "&Delete Selected" },
 
+            // Menu - Convert
+            { "Menu.Convert", "&Convert" },
+            { "Menu.Convert.MergePngToSpr", "&Merge PNG to SPR..." },
+
             // Menu - Edit
             { "Menu.Edit", "&Edit" },
             { "Menu.Edit.Language", "&Language" },
@@ -785,6 +817,7 @@ namespace PakViewer.Localization
             { "Context.OpenInNewTab", "Open in New Tab" },
             { "Context.ExportSelected", "Export Selected" },
             { "Context.ExportSelectedTo", "Export Selected To..." },
+            { "Context.ExportSprAsPng", "Export SPR as PNG..." },
             { "Context.DeleteSelected", "Delete Selected" },
             { "Context.CopyFilename", "Copy Filename" },
             { "Context.SelectAll", "Select All" },
@@ -825,6 +858,12 @@ namespace PakViewer.Localization
             { "Error.NoActionsFound", "No action data found" },
             { "Error.CannotSaveNoPak", "Cannot save: Source PAK file not found.\n\nPlease ensure the file is selected from the file list." },
             { "Error.LoadSprList", "Failed to load SPR List" },
+            { "Error.NoPngSelected", "No PNG files selected" },
+            { "Error.CreateSprFailed", "Failed to create SPR: {0}" },
+
+            // Status (Convert)
+            { "Status.ConvertingPngToSpr", "Converting PNG to SPR..." },
+            { "Status.SprCreated", "Created SPR from {0} PNG files: {1}" },
 
             // Dialog
             { "Dialog.SaveAs", "Save As" },
@@ -878,6 +917,9 @@ namespace PakViewer.Localization
             { "Dialog.Warning", "Warning" },
             { "Dialog.Info", "Information" },
             { "Dialog.DeleteConfirm", "Are you sure you want to delete {0} selected files?" },
+            { "Dialog.SelectPngFiles", "Select PNG Files" },
+            { "Dialog.SaveSprFile", "Save SPR File" },
+            { "Dialog.Success", "Success" },
 
             // Toast
             { "Toast.SaveSuccess", "Save Successful" },
@@ -988,6 +1030,10 @@ namespace PakViewer.Localization
             { "Menu.Tools.ExportAll", "모두 내보내기(&A)..." },
             { "Menu.Tools.DeleteSelected", "선택 항목 삭제(&D)" },
 
+            // Menu - Convert
+            { "Menu.Convert", "변환(&C)" },
+            { "Menu.Convert.MergePngToSpr", "PNG를 SPR로 병합(&M)..." },
+
             // Menu - Edit
             { "Menu.Edit", "편집(&E)" },
             { "Menu.Edit.Language", "언어(&L)" },
@@ -1078,6 +1124,7 @@ namespace PakViewer.Localization
             { "Context.OpenInNewTab", "새 탭에서 열기" },
             { "Context.ExportSelected", "선택 항목 내보내기" },
             { "Context.ExportSelectedTo", "선택 항목 내보내기..." },
+            { "Context.ExportSprAsPng", "SPR을 PNG로 내보내기..." },
             { "Context.DeleteSelected", "선택 항목 삭제" },
             { "Context.CopyFilename", "파일명 복사" },
             { "Context.SelectAll", "모두 선택" },
@@ -1118,6 +1165,12 @@ namespace PakViewer.Localization
             { "Error.NoActionsFound", "동작 데이터를 찾을 수 없습니다" },
             { "Error.CannotSaveNoPak", "저장할 수 없습니다: 원본 PAK 파일을 찾을 수 없습니다.\n\n파일 목록에서 선택한 파일인지 확인하세요." },
             { "Error.LoadSprList", "SPR List 로드 실패" },
+            { "Error.NoPngSelected", "PNG 파일이 선택되지 않았습니다" },
+            { "Error.CreateSprFailed", "SPR 생성 실패: {0}" },
+
+            // Status (Convert)
+            { "Status.ConvertingPngToSpr", "PNG를 SPR로 변환 중..." },
+            { "Status.SprCreated", "{0}개의 PNG에서 SPR 생성: {1}" },
 
             // Dialog
             { "Dialog.SaveAs", "다른 이름으로 저장" },
@@ -1171,6 +1224,9 @@ namespace PakViewer.Localization
             { "Dialog.Warning", "경고" },
             { "Dialog.Info", "정보" },
             { "Dialog.DeleteConfirm", "선택한 {0}개 파일을 삭제하시겠습니까?" },
+            { "Dialog.SelectPngFiles", "PNG 파일 선택" },
+            { "Dialog.SaveSprFile", "SPR 파일 저장" },
+            { "Dialog.Success", "성공" },
 
             // Toast
             { "Toast.SaveSuccess", "저장 성공" },

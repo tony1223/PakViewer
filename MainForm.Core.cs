@@ -119,6 +119,15 @@ namespace PakViewer
 
             menu.Items.Add(toolsMenu);
 
+            // Convert menu
+            var convertMenu = new SubMenuItem { Text = I18n.T("Menu.Convert") };
+
+            var mergePngToSprCmd = new Command { MenuText = I18n.T("Menu.Convert.MergePngToSpr") };
+            mergePngToSprCmd.Executed += OnMergePngToSpr;
+            convertMenu.Items.Add(mergePngToSprCmd);
+
+            menu.Items.Add(convertMenu);
+
             // Language menu (top-level)
             var languageMenu = new SubMenuItem { Text = I18n.T("Menu.Language") };
             foreach (var lang in I18n.AvailableLanguages)
@@ -427,6 +436,10 @@ namespace PakViewer
             var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             exportToMenuItem.Click += OnExportSelectedTo;
             fileContextMenu.Items.Add(exportToMenuItem);
+
+            var exportSprAsPngMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSprAsPng") };
+            exportSprAsPngMenuItem.Click += OnExportSprAsPng;
+            fileContextMenu.Items.Add(exportSprAsPngMenuItem);
 
             fileContextMenu.Items.Add(new SeparatorMenuItem());
 
@@ -1932,6 +1945,29 @@ namespace PakViewer
                 Width = 80
             });
 
+            // Context menu for file grid (與主視窗相同)
+            var fileContextMenu = new ContextMenu();
+
+            // Open in New Tab will be added after allItems is defined
+
+            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.Export") };
+            var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportTo") };
+            var exportSprAsPngMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSprAsPng") };
+            var copyFileNameMenuItem = new ButtonMenuItem { Text = I18n.T("Context.CopyFileName") };
+            var selectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.SelectAll") };
+            var unselectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.UnselectAll") };
+
+            fileContextMenu.Items.Add(exportMenuItem);
+            fileContextMenu.Items.Add(exportToMenuItem);
+            fileContextMenu.Items.Add(exportSprAsPngMenuItem);
+            fileContextMenu.Items.Add(new SeparatorMenuItem());
+            fileContextMenu.Items.Add(copyFileNameMenuItem);
+            fileContextMenu.Items.Add(new SeparatorMenuItem());
+            fileContextMenu.Items.Add(selectAllMenuItem);
+            fileContextMenu.Items.Add(unselectAllMenuItem);
+
+            fileGrid.ContextMenu = fileContextMenu;
+
             // 來源下拉選單 (資料夾名稱)
             var sourceDropDown = new DropDown { Width = 200 };
             foreach (var option in provider.GetSourceOptions())
@@ -2192,6 +2228,142 @@ namespace PakViewer
             {
                 cachedThumbSize = thumbnailSlider.Value;
                 galleryPanel.ThumbnailSize = thumbnailSlider.Value;
+            };
+
+            // === Context Menu Event Handlers ===
+            exportMenuItem.Click += (s, e) =>
+            {
+                if (fileGrid.SelectedRows.Count() == 0) return;
+
+                using var dialog = new SaveFileDialog { Title = I18n.T("Dialog.Export") };
+                if (fileGrid.SelectedRows.Count() == 1)
+                {
+                    var selected = filteredItems[fileGrid.SelectedRows.First()];
+                    dialog.FileName = selected.FileName;
+                }
+                if (dialog.ShowDialog(this) != DialogResult.Ok) return;
+
+                try
+                {
+                    var selected = filteredItems[fileGrid.SelectedRows.First()];
+                    var data = provider.Extract(selected.Index);
+                    File.WriteAllBytes(dialog.FileName, data);
+                    _statusLabel.Text = $"Exported: {dialog.FileName}";
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, $"Export failed: {ex.Message}", "Error", MessageBoxType.Error);
+                }
+            };
+
+            exportToMenuItem.Click += (s, e) =>
+            {
+                if (fileGrid.SelectedRows.Count() == 0) return;
+
+                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.SelectExportFolder") };
+                if (dialog.ShowDialog(this) != DialogResult.Ok) return;
+
+                int exported = 0;
+                foreach (var row in fileGrid.SelectedRows)
+                {
+                    try
+                    {
+                        var item = filteredItems[row];
+                        var data = provider.Extract(item.Index);
+                        File.WriteAllBytes(Path.Combine(dialog.Directory, item.FileName), data);
+                        exported++;
+                    }
+                    catch { }
+                }
+                _statusLabel.Text = $"Exported {exported} files";
+                MessageBox.Show(this, $"Exported {exported} files", "Export Complete", MessageBoxType.Information);
+            };
+
+            exportSprAsPngMenuItem.Click += (s, e) =>
+            {
+                if (fileGrid.SelectedRows.Count() == 0) return;
+
+                var sprItems = fileGrid.SelectedRows
+                    .Select(row => filteredItems[row])
+                    .Where(item => item.FileName.EndsWith(".spr", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (sprItems.Count == 0)
+                {
+                    MessageBox.Show(this, "No SPR files selected", "Export", MessageBoxType.Information);
+                    return;
+                }
+
+                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.SelectExportFolder") };
+                if (dialog.ShowDialog(this) != DialogResult.Ok) return;
+
+                int exportedFiles = 0;
+                int exportedFrames = 0;
+                int failed = 0;
+
+                foreach (var item in sprItems)
+                {
+                    try
+                    {
+                        var data = provider.Extract(item.Index);
+                        var frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
+
+                        if (frames == null || frames.Length == 0)
+                        {
+                            failed++;
+                            continue;
+                        }
+
+                        var baseName = Path.GetFileNameWithoutExtension(item.FileName);
+
+                        for (int i = 0; i < frames.Length; i++)
+                        {
+                            if (frames[i].Image == null) continue;
+
+                            var pngPath = Path.Combine(dialog.Directory, $"{baseName}_{i}.png");
+                            using (var fs = new FileStream(pngPath, FileMode.Create))
+                            {
+                                frames[i].Image.Save(fs, new PngEncoder());
+                            }
+                            exportedFrames++;
+                            frames[i].Image.Dispose();
+                        }
+
+                        exportedFiles++;
+                    }
+                    catch
+                    {
+                        failed++;
+                    }
+                }
+
+                var message = $"Exported {exportedFrames} PNG files from {exportedFiles} SPR files";
+                if (failed > 0) message += $" ({failed} failed)";
+                _statusLabel.Text = message;
+                MessageBox.Show(this, message, "Export Complete", MessageBoxType.Information);
+            };
+
+            copyFileNameMenuItem.Click += (s, e) =>
+            {
+                var selectedItems = fileGrid.SelectedRows
+                    .Select(row => filteredItems[row])
+                    .ToList();
+
+                if (selectedItems.Count == 0) return;
+
+                var text = string.Join(Environment.NewLine, selectedItems.Select(i => i.FileName));
+                new Clipboard().Text = text;
+                _statusLabel.Text = $"Copied {selectedItems.Count} file name(s)";
+            };
+
+            selectAllMenuItem.Click += (s, e) =>
+            {
+                fileGrid.SelectAll();
+            };
+
+            unselectAllMenuItem.Click += (s, e) =>
+            {
+                fileGrid.UnselectAll();
             };
 
             galleryPanel.ItemSelected += (s, galleryItem) =>
@@ -3350,6 +3522,86 @@ namespace PakViewer
             MessageBox.Show(this, $"Exported {exported} files", "Export Complete", MessageBoxType.Information);
         }
 
+        private void OnExportSprAsPng(object sender, EventArgs e)
+        {
+            if (_fileGrid.SelectedRows.Count() == 0)
+            {
+                MessageBox.Show(this, "No files selected", "Export", MessageBoxType.Information);
+                return;
+            }
+
+            // 過濾只選取 .spr 檔案
+            var sprItems = _fileGrid.SelectedRows
+                .Select(row => (FileItem)_fileGrid.DataStore.ElementAt(row))
+                .Where(item => item.FileName.EndsWith(".spr", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (sprItems.Count == 0)
+            {
+                MessageBox.Show(this, "No SPR files selected", "Export", MessageBoxType.Information);
+                return;
+            }
+
+            using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.SelectExportFolder") };
+            if (!string.IsNullOrEmpty(_selectedFolder))
+                dialog.Directory = _selectedFolder;
+            if (dialog.ShowDialog(this) != DialogResult.Ok) return;
+
+            int exportedFiles = 0;
+            int exportedFrames = 0;
+            int failed = 0;
+
+            foreach (var item in sprItems)
+            {
+                var pak = item.SourcePak ?? _currentPak;
+                if (pak == null) continue;
+
+                try
+                {
+                    var data = pak.Extract(item.Index);
+                    var frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
+
+                    if (frames == null || frames.Length == 0)
+                    {
+                        failed++;
+                        continue;
+                    }
+
+                    // 取得不含副檔名的檔名
+                    var baseName = Path.GetFileNameWithoutExtension(item.FileName);
+
+                    for (int i = 0; i < frames.Length; i++)
+                    {
+                        if (frames[i].Image == null) continue;
+
+                        var pngPath = Path.Combine(dialog.Directory, $"{baseName}_{i}.png");
+                        using (var fs = new FileStream(pngPath, FileMode.Create))
+                        {
+                            frames[i].Image.Save(fs, new PngEncoder());
+                        }
+                        exportedFrames++;
+
+                        // 釋放圖片資源
+                        frames[i].Image.Dispose();
+                    }
+
+                    exportedFiles++;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Export SPR as PNG failed: {item.FileName} - {ex.Message}");
+                    failed++;
+                }
+            }
+
+            var message = $"Exported {exportedFrames} PNG files from {exportedFiles} SPR files";
+            if (failed > 0)
+                message += $" ({failed} failed)";
+
+            _statusLabel.Text = message;
+            MessageBox.Show(this, message, "Export Complete", MessageBoxType.Information);
+        }
+
         private void OnDeleteSelected(object sender, EventArgs e)
         {
             if (_isAllIdxMode)
@@ -3797,6 +4049,68 @@ namespace PakViewer
 
             _statusLabel.Text = $"Export complete: {exported} files";
             MessageBox.Show(this, $"Exported {exported} files", "Export Complete", MessageBoxType.Information);
+        }
+
+        private void OnMergePngToSpr(object sender, EventArgs e)
+        {
+            using var openDialog = new OpenFileDialog
+            {
+                Title = I18n.T("Dialog.SelectPngFiles"),
+                MultiSelect = true,
+                Filters = { new FileFilter("PNG Files", ".png"), new FileFilter("All Files", ".*") }
+            };
+
+            if (!string.IsNullOrEmpty(_selectedFolder))
+                openDialog.Directory = new Uri(_selectedFolder);
+
+            if (openDialog.ShowDialog(this) != DialogResult.Ok)
+                return;
+
+            var pngFiles = openDialog.Filenames.ToArray();
+            if (pngFiles.Length == 0)
+            {
+                MessageBox.Show(this, I18n.T("Error.NoPngSelected"), I18n.T("Dialog.Error"), MessageBoxType.Warning);
+                return;
+            }
+
+            // 按檔名排序
+            Array.Sort(pngFiles, (a, b) => string.Compare(
+                Path.GetFileName(a),
+                Path.GetFileName(b),
+                StringComparison.OrdinalIgnoreCase));
+
+            using var saveDialog = new SaveFileDialog
+            {
+                Title = I18n.T("Dialog.SaveSprFile"),
+                Filters = { new FileFilter("SPR Files", ".spr") }
+            };
+
+            // 使用第一個 PNG 檔的名稱作為預設檔名
+            var firstFileName = Path.GetFileNameWithoutExtension(pngFiles[0]);
+            // 移除可能的 _0, _1 等後綴
+            var baseName = System.Text.RegularExpressions.Regex.Replace(firstFileName, @"_\d+$", "");
+            saveDialog.FileName = baseName + ".spr";
+
+            if (saveDialog.ShowDialog(this) != DialogResult.Ok)
+                return;
+
+            try
+            {
+                _statusLabel.Text = I18n.T("Status.ConvertingPngToSpr");
+
+                var sprData = Lin.Helper.Core.Sprite.SprWriter.CreateFromFiles(pngFiles);
+                File.WriteAllBytes(saveDialog.FileName, sprData);
+
+                var message = string.Format(I18n.T("Status.SprCreated"), pngFiles.Length, Path.GetFileName(saveDialog.FileName));
+                _statusLabel.Text = message;
+                MessageBox.Show(this, message, I18n.T("Dialog.Success"), MessageBoxType.Information);
+            }
+            catch (Exception ex)
+            {
+                var errorMsg = string.Format(I18n.T("Error.CreateSprFailed"), ex.Message);
+                _statusLabel.Text = errorMsg;
+                MessageBox.Show(this, errorMsg, I18n.T("Dialog.Error"), MessageBoxType.Error);
+            }
         }
 
         #endregion
