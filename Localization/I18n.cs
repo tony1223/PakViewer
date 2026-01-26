@@ -322,7 +322,7 @@ namespace PakViewer.Localization
             { "Error.LoadImage", "無法載入圖片" },
             { "Error.LoadSpr", "無法載入 SPR 檔案" },
             { "Error.LoadL1Image", "無法載入 L1Image" },
-            { "Error.LoadTil", "無法載入 TIL 檔案" },
+            { "Error.LoadTil", "無法載入 TIL 檔案，檔案可能已損壞" },
 
             // TIL Viewer (additional)
             { "Til.Background", "背景:" },
@@ -616,7 +616,7 @@ namespace PakViewer.Localization
             { "Error.LoadImage", "画像を読み込めません" },
             { "Error.LoadSpr", "SPR ファイルを読み込めません" },
             { "Error.LoadL1Image", "L1Image を読み込めません" },
-            { "Error.LoadTil", "TIL ファイルを読み込めません" },
+            { "Error.LoadTil", "TIL ファイルを読み込めません。ファイルが破損している可能性があります" },
 
             // TIL Viewer (additional)
             { "Til.Background", "背景:" },
@@ -910,7 +910,7 @@ namespace PakViewer.Localization
             { "Error.LoadImage", "Failed to load image" },
             { "Error.LoadSpr", "Failed to load SPR file" },
             { "Error.LoadL1Image", "Failed to load L1Image" },
-            { "Error.LoadTil", "Failed to load TIL file" },
+            { "Error.LoadTil", "Failed to load TIL file. The file may be corrupted." },
 
             // TIL Viewer (additional)
             { "Til.Background", "Background:" },
@@ -1203,7 +1203,7 @@ namespace PakViewer.Localization
             { "Error.LoadImage", "이미지를 로드할 수 없습니다" },
             { "Error.LoadSpr", "SPR 파일을 로드할 수 없습니다" },
             { "Error.LoadL1Image", "L1Image를 로드할 수 없습니다" },
-            { "Error.LoadTil", "TIL 파일을 로드할 수 없습니다" },
+            { "Error.LoadTil", "TIL 파일을 로드할 수 없습니다. 파일이 손상되었을 수 있습니다." },
 
             // TIL Viewer (additional)
             { "Til.Background", "배경:" },
