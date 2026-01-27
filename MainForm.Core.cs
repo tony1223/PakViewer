@@ -1481,6 +1481,14 @@ namespace PakViewer
                     _isAllIdxMode = false;
                     _currentProvider?.Dispose();
 
+                    // 重置搜索狀態
+                    _searchDebounceTimer?.Stop();
+                    _currentFilter = "";
+                    _contentSearchKeyword = "";
+                    _contentSearchResults = null;
+                    _searchBox.Text = "";
+                    _contentSearchBox.Text = "";
+
                     // 建立 LinClientProvider
                     _currentProvider = new LinClientProvider(dialog.Directory);
 
@@ -2585,6 +2593,11 @@ namespace PakViewer
             if (_idxDropDown.SelectedIndex < 0)
                 return;
 
+            // 清除內容搜索結果（因為是針對特定 PAK 的）
+            _contentSearchKeyword = "";
+            _contentSearchResults = null;
+            _contentSearchBox.Text = "";
+
             // Provider 模式 - 讓 Provider 處理選項變更
             if (_currentProvider != null)
             {
@@ -2985,25 +2998,32 @@ namespace PakViewer
             _currentFilter = _searchBox.Text ?? "";
 
             // 使用 debounce 避免打字時卡頓
-            _searchDebounceTimer?.Stop();
-            _searchDebounceTimer = new UITimer { Interval = 0.3 };
-            _searchDebounceTimer.Elapsed += (s, ev) =>
+            // 重用同一個 timer，避免每次創建新的導致事件重複綁定
+            if (_searchDebounceTimer == null)
+            {
+                _searchDebounceTimer = new UITimer { Interval = 0.3 };
+                _searchDebounceTimer.Elapsed += (s, ev) =>
+                {
+                    _searchDebounceTimer.Stop();
+                    var mode = _viewModeRadio.SelectedIndex;
+                    if (mode == MODE_SPR)
+                    {
+                        UpdateSprGroupDisplay();
+                    }
+                    else if (mode == MODE_SPR_LIST)
+                    {
+                        UpdateSprListDisplay();
+                    }
+                    else
+                    {
+                        RefreshFileList();
+                    }
+                };
+            }
+            else
             {
                 _searchDebounceTimer.Stop();
-                var mode = _viewModeRadio.SelectedIndex;
-                if (mode == MODE_SPR)
-                {
-                    UpdateSprGroupDisplay();
-                }
-                else if (mode == MODE_SPR_LIST)
-                {
-                    UpdateSprListDisplay();
-                }
-                else
-                {
-                    RefreshFileList();
-                }
-            };
+            }
             _searchDebounceTimer.Start();
         }
 
