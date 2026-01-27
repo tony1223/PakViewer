@@ -554,21 +554,24 @@ namespace PakViewer
             {
                 HeaderText = I18n.T("Grid.ID"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprGroupItem, string>(r => r.Id.ToString()) },
-                Width = 60
+                Width = 60,
+                Sortable = true
             });
 
             _sprGroupGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.Parts"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprGroupItem, string>(r => r.Parts.ToString()) },
-                Width = 50
+                Width = 50,
+                Sortable = true
             });
 
             _sprGroupGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.Size"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprGroupItem, string>(r => r.SizeText) },
-                Width = 70
+                Width = 70,
+                Sortable = true
             });
 
             _sprGroupGrid.SelectionChanged += OnSprGroupSelected;
