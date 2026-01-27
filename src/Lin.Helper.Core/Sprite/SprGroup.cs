@@ -13,6 +13,7 @@ namespace Lin.Helper.Core.Sprite
         public List<SprPart> Parts { get; set; } = new();
         public int TotalFrames => Parts.Sum(p => p.FrameCount);
         public int PartsCount => Parts.Count;
+        public long TotalSize => Parts.Sum(p => p.FileSize);
     }
 
     /// <summary>
@@ -23,6 +24,7 @@ namespace Lin.Helper.Core.Sprite
         public string FileName { get; set; }        // "0-0.spr"
         public int PartIndex { get; set; }          // 0, 1, 2...
         public int FrameCount { get; set; }
+        public long FileSize { get; set; }          // 檔案大小
         public PakFile SourcePak { get; set; }      // 來源 PAK 檔
         public int FileIndex { get; set; }          // 在 PAK 中的索引
     }
@@ -36,6 +38,10 @@ namespace Lin.Helper.Core.Sprite
         public int Id { get; set; }
         public int Parts { get; set; }
         public int Frames { get; set; }
+        public long Size { get; set; }
+        public string SizeText => Size < 1024 ? $"{Size} B" :
+                                  Size < 1024 * 1024 ? $"{Size / 1024.0:F1} KB" :
+                                  $"{Size / (1024.0 * 1024.0):F1} MB";
         public SprGroup Group { get; set; }
     }
 }

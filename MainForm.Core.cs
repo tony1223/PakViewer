@@ -564,7 +564,15 @@ namespace PakViewer
                 Width = 50
             });
 
+            _sprGroupGrid.Columns.Add(new GridColumn
+            {
+                HeaderText = I18n.T("Grid.Size"),
+                DataCell = new TextBoxCell { Binding = Binding.Property<SprGroupItem, string>(r => r.SizeText) },
+                Width = 70
+            });
+
             _sprGroupGrid.SelectionChanged += OnSprGroupSelected;
+            _sprGroupGrid.ColumnHeaderClick += OnSprGroupColumnHeaderClick;
 
             // SPR Group 右鍵選單
             var sprGroupContextMenu = new ContextMenu();
@@ -4487,6 +4495,7 @@ namespace PakViewer
                                     FileName = file.FileName,
                                     PartIndex = partIndex,
                                     FrameCount = 0,  // 延遲載入
+                                    FileSize = file.FileSize,
                                     SourcePak = pak,
                                     FileIndex = fileIndex
                                 });
@@ -4547,23 +4556,55 @@ namespace PakViewer
                 groups = groups.Where(g => g.SpriteId.ToString().Contains(filter));
             }
 
-            var items = groups
-                .OrderBy(g => g.SpriteId)
-                .Select(g => new SprGroupItem
-                {
-                    Id = g.SpriteId,
-                    Parts = g.PartsCount,
-                    Frames = g.TotalFrames,
-                    Group = g
-                })
-                .ToList();
+            // 建立項目並套用排序
+            var itemsQuery = groups.Select(g => new SprGroupItem
+            {
+                Id = g.SpriteId,
+                Parts = g.PartsCount,
+                Frames = g.TotalFrames,
+                Size = g.TotalSize,
+                Group = g
+            });
 
+            // 依據排序設定排序
+            // Column indices: 0=checkbox, 1=ID, 2=Parts, 3=Size
+            itemsQuery = _sprGroupSortColumn switch
+            {
+                2 => _sprGroupSortAscending ? itemsQuery.OrderBy(i => i.Parts) : itemsQuery.OrderByDescending(i => i.Parts),
+                3 => _sprGroupSortAscending ? itemsQuery.OrderBy(i => i.Size) : itemsQuery.OrderByDescending(i => i.Size),
+                _ => _sprGroupSortAscending ? itemsQuery.OrderBy(i => i.Id) : itemsQuery.OrderByDescending(i => i.Id)  // default: ID
+            };
+
+            var items = itemsQuery.ToList();
             _sprGroupGrid.DataStore = items;
             _recordCountLabel.Text = $"{items.Count} / {_sprGroups.Count} 筆";
 
             // 重新整理相簿
             if (_galleryModeRadio?.Checked == true)
                 RefreshRightGallery();
+        }
+
+        private void OnSprGroupColumnHeaderClick(object sender, GridColumnEventArgs e)
+        {
+            // Column indices: 0=checkbox, 1=ID, 2=Parts, 3=Size
+            int clickedColumn = _sprGroupGrid.Columns.IndexOf(e.Column);
+
+            // 只處理可排序的欄位
+            if (clickedColumn < 1 || clickedColumn > 3) return;
+
+            // 如果點擊同一欄，切換排序方向
+            if (clickedColumn == _sprGroupSortColumn)
+            {
+                _sprGroupSortAscending = !_sprGroupSortAscending;
+            }
+            else
+            {
+                _sprGroupSortColumn = clickedColumn;
+                _sprGroupSortAscending = true;
+            }
+
+            // 重新整理顯示
+            UpdateSprGroupDisplay();
         }
 
         private void ShowSprGroupViewer(SprGroup group)

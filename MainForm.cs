@@ -62,6 +62,8 @@ namespace PakViewer
         private int? _sprModeTypeFilter = null;
         private bool _sprModeUnreferencedFilter = false;
         private GridView _sprGroupGrid;
+        private int _sprGroupSortColumn = 1;  // 預設按 ID 排序 (column index 1)
+        private bool _sprGroupSortAscending = true;
         private CheckBox _sprModeListSprCheck;      // list.spr 是否已設定
         private Label _sprModeListSprLabel;         // list.spr 路徑顯示
         private string _originalIdxText;            // 儲存原本的 IDX 選項
