@@ -38,8 +38,8 @@ namespace Lin.Helper.Core.Map
         /// <summary>世界座標高度</summary>
         public const int WorldHeight = 64;
 
-        /// <summary>Y 軸基準值</summary>
-        public const int BaseY = 0x8000;  // 32768
+        /// <summary>Y 軸基準值（與 S32 相同，使用 0x7fff）</summary>
+        public const int BaseY = 0x7fff;  // 32767
 
         #endregion
 
@@ -81,12 +81,19 @@ namespace Lin.Helper.Core.Map
         #region 座標計算
 
         /// <summary>
-        /// 取得此 block 覆蓋的世界座標範圍
+        /// 取得此 block 覆蓋的遊戲座標範圍
+        /// 使用與 S32 相同的公式：nLinEndX = (nBlockX - 0x7fff) * 64 + 0x7fff, nLinBeginX = nLinEndX - 63
         /// </summary>
         public (int MinX, int MaxX, int MinY, int MaxY) GetWorldBounds()
         {
-            int startX = BlockX;
-            int startY = BaseY + (BlockY - BaseY) * WorldHeight;
+            // X 座標計算（與 S32 L1MapSeg 公式相同）
+            int endX = (BlockX - 0x7fff) * WorldWidth + 0x7fff;
+            int startX = endX - WorldWidth + 1;
+
+            // Y 座標計算
+            int endY = (BlockY - BaseY) * WorldHeight + BaseY;
+            int startY = endY - WorldHeight + 1;
+
             return (startX, startX + WorldWidth - 1, startY, startY + WorldHeight - 1);
         }
 
@@ -112,14 +119,20 @@ namespace Lin.Helper.Core.Map
         }
 
         /// <summary>
-        /// 計算給定世界座標應該在哪個 block
+        /// 計算給定遊戲座標應該在哪個 block
+        /// 反向公式：從 nLinBeginX 求 nBlockX
+        /// nLinBeginX = (nBlockX - 0x7fff) * 64 + 0x7fff - 63
+        /// nBlockX = (nLinBeginX - 0x7fff + 63) / 64 + 0x7fff
         /// </summary>
-        public static (int BlockX, int BlockY) GetBlockForWorldCoord(int worldX, int worldY)
+        public static (int BlockX, int BlockY) GetBlockForWorldCoord(int gameX, int gameY)
         {
-            int blockX = (worldX / WorldWidth) * WorldWidth;
-            int relativeY = worldY - BaseY;
-            int blockYOffset = relativeY / WorldHeight;
-            int blockY = BaseY + blockYOffset;
+            // 找到包含此座標的 block 的起始座標，再反算 blockX
+            // nLinEndX = nLinBeginX + 63，nBlockX = (nLinEndX - 0x7fff) / 64 + 0x7fff
+            int endX = ((gameX - 0x7fff + 63) / WorldWidth) * WorldWidth + 0x7fff;
+            int blockX = (endX - 0x7fff) / WorldWidth + 0x7fff;
+
+            int endY = ((gameY - BaseY + 63) / WorldHeight) * WorldHeight + BaseY;
+            int blockY = (endY - BaseY) / WorldHeight + BaseY;
 
             return (blockX, blockY);
         }
