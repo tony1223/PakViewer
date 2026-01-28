@@ -4,3 +4,7 @@ obj
 publish
 .idea
 /.claude/settings.local.json
+resources/
+tools/
+nuget.config
+nupkg/
