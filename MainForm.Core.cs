@@ -3650,51 +3650,114 @@ namespace PakViewer
 
         private void OnDeleteSelected(object sender, EventArgs e)
         {
+            if (_fileGrid.SelectedRows.Count() == 0)
+            {
+                MessageBox.Show(this, I18n.T("Status.NoSelection"), I18n.T("Context.Delete"), MessageBoxType.Information);
+                return;
+            }
+
+            // 收集要刪除的檔案
+            var itemsToDelete = _fileGrid.SelectedRows
+                .Select(row => (FileItem)_fileGrid.DataStore.ElementAt(row))
+                .ToList();
+
+            var count = itemsToDelete.Count;
+
             if (_isAllIdxMode)
             {
-                MessageBox.Show(this, "Delete is not supported in 'All IDX' mode.\nPlease select a specific IDX file.", "Delete", MessageBoxType.Information);
-                return;
-            }
-
-            if (_currentPak == null || _fileGrid.SelectedRows.Count() == 0)
-            {
-                MessageBox.Show(this, "No files selected", "Delete", MessageBoxType.Information);
-                return;
-            }
-
-            var count = _fileGrid.SelectedRows.Count();
-            var result = MessageBox.Show(this,
-                $"Are you sure you want to delete {count} file(s)?\n\nThis will modify the PAK file.",
-                "Confirm Delete",
-                MessageBoxButtons.YesNo,
-                MessageBoxType.Warning);
-
-            if (result != DialogResult.Yes) return;
-
-            try
-            {
-                // 收集要刪除的檔案 (從大到小排序，避免 index 變動問題)
-                var itemsToDelete = _fileGrid.SelectedRows
-                    .Select(row => (FileItem)_fileGrid.DataStore.ElementAt(row))
-                    .OrderByDescending(item => item.Index)
+                // All IDX 模式: 按來源 PAK 分組
+                var groupedByPak = itemsToDelete
+                    .Where(item => item.SourcePak != null)
+                    .GroupBy(item => item.SourcePak)
                     .ToList();
 
-                foreach (var item in itemsToDelete)
+                if (groupedByPak.Count == 0)
                 {
-                    _currentPak.Delete(item.Index);
+                    MessageBox.Show(this, I18n.T("Status.NoSelection"), I18n.T("Context.Delete"), MessageBoxType.Information);
+                    return;
                 }
 
-                // 儲存變更
-                _currentPak.Save();
+                // 組建確認訊息，顯示各 PAK 刪除數量
+                var detailLines = groupedByPak
+                    .Select(g => $"  {Path.GetFileName(g.Key.PakPath)}: {g.Count()}")
+                    .ToList();
+                var detailText = string.Join("\n", detailLines);
 
-                // 重新載入檔案列表
-                RefreshFileList();
+                var result = MessageBox.Show(this,
+                    I18n.T("Dialog.DeleteConfirm", count) + $"\n\n{detailText}",
+                    I18n.T("Context.Delete"),
+                    MessageBoxButtons.YesNo,
+                    MessageBoxType.Warning);
 
-                _statusLabel.Text = $"Deleted {count} file(s)";
+                if (result != DialogResult.Yes) return;
+
+                try
+                {
+                    // 逐個 PAK 處理刪除
+                    foreach (var group in groupedByPak)
+                    {
+                        var pak = group.Key;
+                        // 從大到小排序，避免 index 變動問題
+                        var sortedItems = group.OrderByDescending(item => item.Index).ToList();
+
+                        foreach (var item in sortedItems)
+                        {
+                            pak.Delete(item.Index);
+                        }
+
+                        // 儲存此 PAK 的變更
+                        pak.Save();
+                    }
+
+                    // 重新載入檔案列表
+                    RefreshFileList();
+
+                    _statusLabel.Text = I18n.T("Status.Deleted", count);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, $"{I18n.T("Error.DeleteFailed")}: {ex.Message}", I18n.T("Error.Title"), MessageBoxType.Error);
+                }
             }
-            catch (Exception ex)
+            else
             {
-                MessageBox.Show(this, $"Error deleting files: {ex.Message}", "Delete Error", MessageBoxType.Error);
+                // 單一 IDX 模式
+                if (_currentPak == null)
+                {
+                    MessageBox.Show(this, I18n.T("Status.NoSelection"), I18n.T("Context.Delete"), MessageBoxType.Information);
+                    return;
+                }
+
+                var result = MessageBox.Show(this,
+                    I18n.T("Dialog.DeleteConfirm", count),
+                    I18n.T("Context.Delete"),
+                    MessageBoxButtons.YesNo,
+                    MessageBoxType.Warning);
+
+                if (result != DialogResult.Yes) return;
+
+                try
+                {
+                    // 從大到小排序，避免 index 變動問題
+                    var sortedItems = itemsToDelete.OrderByDescending(item => item.Index).ToList();
+
+                    foreach (var item in sortedItems)
+                    {
+                        _currentPak.Delete(item.Index);
+                    }
+
+                    // 儲存變更
+                    _currentPak.Save();
+
+                    // 重新載入檔案列表
+                    RefreshFileList();
+
+                    _statusLabel.Text = I18n.T("Status.Deleted", count);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, $"{I18n.T("Error.DeleteFailed")}: {ex.Message}", I18n.T("Error.Title"), MessageBoxType.Error);
+                }
             }
         }
 

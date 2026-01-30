@@ -226,6 +226,7 @@ namespace PakViewer.Localization
             { "Status.ItemsDeleted", "已刪除 {0} 個條目" },
             { "Status.Saved", "已儲存" },
             { "Status.LoadFailed", "載入失敗" },
+            { "Status.NoSelection", "沒有選取任何檔案" },
 
             // Confirm
             { "Confirm.DeleteItems", "確定要刪除 {0} 個選取的條目嗎？" },
@@ -244,6 +245,8 @@ namespace PakViewer.Localization
             { "Error.LoadSprList", "載入 SPR List 失敗" },
             { "Error.NoPngSelected", "未選擇任何 PNG 檔案" },
             { "Error.CreateSprFailed", "建立 SPR 失敗: {0}" },
+            { "Error.DeleteFailed", "刪除失敗" },
+            { "Error.Title", "錯誤" },
 
             // Duplicate Entry Warning
             { "Warning.DuplicateEntries", "SPR List 重複編號警告" },
@@ -538,6 +541,7 @@ namespace PakViewer.Localization
             { "Status.ItemsDeleted", "{0} エントリを削除しました" },
             { "Status.Saved", "保存しました" },
             { "Status.LoadFailed", "読み込み失敗" },
+            { "Status.NoSelection", "ファイルが選択されていません" },
 
             // Confirm
             { "Confirm.DeleteItems", "{0} 個の選択されたエントリを削除しますか？" },
@@ -556,6 +560,8 @@ namespace PakViewer.Localization
             { "Error.LoadSprList", "SPR Listの読み込みに失敗しました" },
             { "Error.NoPngSelected", "PNGファイルが選択されていません" },
             { "Error.CreateSprFailed", "SPRの作成に失敗しました: {0}" },
+            { "Error.DeleteFailed", "削除に失敗しました" },
+            { "Error.Title", "エラー" },
 
             // Duplicate Entry Warning
             { "Warning.DuplicateEntries", "SPR List 重複IDの警告" },
@@ -850,6 +856,7 @@ namespace PakViewer.Localization
             { "Status.ItemsDeleted", "{0} entries deleted" },
             { "Status.Saved", "Saved" },
             { "Status.LoadFailed", "Load failed" },
+            { "Status.NoSelection", "No files selected" },
 
             // Confirm
             { "Confirm.DeleteItems", "Are you sure you want to delete {0} selected entries?" },
@@ -868,6 +875,8 @@ namespace PakViewer.Localization
             { "Error.LoadSprList", "Failed to load SPR List" },
             { "Error.NoPngSelected", "No PNG files selected" },
             { "Error.CreateSprFailed", "Failed to create SPR: {0}" },
+            { "Error.DeleteFailed", "Delete failed" },
+            { "Error.Title", "Error" },
 
             // Duplicate Entry Warning
             { "Warning.DuplicateEntries", "SPR List Duplicate Entry Warning" },
@@ -1161,6 +1170,7 @@ namespace PakViewer.Localization
             { "Status.ItemsDeleted", "{0}개 항목 삭제됨" },
             { "Status.Saved", "저장됨" },
             { "Status.LoadFailed", "로드 실패" },
+            { "Status.NoSelection", "선택된 파일이 없습니다" },
 
             // Confirm
             { "Confirm.DeleteItems", "{0}개의 선택된 항목을 삭제하시겠습니까?" },
@@ -1179,6 +1189,8 @@ namespace PakViewer.Localization
             { "Error.LoadSprList", "SPR List 로드 실패" },
             { "Error.NoPngSelected", "PNG 파일이 선택되지 않았습니다" },
             { "Error.CreateSprFailed", "SPR 생성 실패: {0}" },
+            { "Error.DeleteFailed", "삭제 실패" },
+            { "Error.Title", "오류" },
 
             // Duplicate Entry Warning
             { "Warning.DuplicateEntries", "SPR List 중복 ID 경고" },
