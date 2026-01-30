@@ -516,6 +516,15 @@ namespace PakViewer
                 Width = 80
             });
 
+            _sprListGrid.Columns.Add(new GridColumn
+            {
+                HeaderText = I18n.T("Grid.Actions"),
+                DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.ActionCount.ToString()) },
+                Width = 45
+            });
+
+            // 支援排序
+            _sprListGrid.ColumnHeaderClick += OnSprListColumnHeaderClick;
             _sprListGrid.SelectionChanged += OnSprListSelected;
 
             // SPR List 右鍵選單 (不包含刪除功能)
@@ -4198,12 +4207,48 @@ namespace PakViewer
                 _sprModeListSprLabel.ToolTip = filePath;
 
                 _statusLabel.Text = $"Loaded SPR List: {fileName} ({_sprListFile.Entries.Count} entries)";
+
+                // 顯示重複 Entry 警告（如果有）
+                ShowDuplicateEntryWarning(_sprListFile);
             }
             catch (Exception ex)
             {
                 _statusLabel.Text = I18n.T("Status.LoadFailed");
                 MessageBox.Show(this, I18n.T("Error.LoadSprList") + ": " + ex.Message, I18n.T("Dialog.Error"), MessageBoxType.Error);
             }
+        }
+
+        /// <summary>
+        /// 檢查 SprListFile 是否有重複 Entry 警告並顯示提示
+        /// </summary>
+        private void ShowDuplicateEntryWarning(Lin.Helper.Core.Sprite.SprListFile sprListFile)
+        {
+            if (sprListFile?.Warnings == null || sprListFile.Warnings.Count == 0)
+                return;
+
+            // 從警告訊息中提取重複的 ID
+            var duplicateIds = new List<int>();
+            foreach (var warning in sprListFile.Warnings)
+            {
+                // 格式: "Duplicate entry ID #123 found. Keeping the last one."
+                var match = System.Text.RegularExpressions.Regex.Match(warning, @"#(\d+)");
+                if (match.Success && int.TryParse(match.Groups[1].Value, out int id))
+                {
+                    duplicateIds.Add(id);
+                }
+            }
+
+            if (duplicateIds.Count == 0)
+                return;
+
+            // 組合顯示訊息：顯示重複的 ID 和數量
+            var idList = string.Join(", ", duplicateIds.Take(20).Select(id => $"#{id}"));
+            if (duplicateIds.Count > 20)
+                idList += $" ... (+{duplicateIds.Count - 20})";
+
+            var message = I18n.T("Warning.DuplicateEntriesMessage", duplicateIds.Count, idList);
+
+            MessageBox.Show(this, message, I18n.T("Warning.DuplicateEntries"), MessageBoxType.Warning);
         }
 
         private void ShowSprListViewer()
@@ -4356,6 +4401,9 @@ namespace PakViewer
                 var data = File.ReadAllBytes(_settings.SprModeListSprPath);
                 _sprListFile = Lin.Helper.Core.Sprite.SprListParser.LoadFromBytes(data);
                 _statusLabel.Text = $"已載入 list.spr: {_sprListFile.Entries.Count} 條目";
+
+                // 顯示重複 Entry 警告（如果有）
+                ShowDuplicateEntryWarning(_sprListFile);
             }
             catch (Exception ex)
             {
@@ -4394,6 +4442,9 @@ namespace PakViewer
                     var data = File.ReadAllBytes(filePath);
                     _sprListFile = Lin.Helper.Core.Sprite.SprListParser.LoadFromBytes(data);
                     _statusLabel.Text = $"已載入 list.spr: {_sprListFile.Entries.Count} 條目";
+
+                    // 顯示重複 Entry 警告（如果有）
+                    ShowDuplicateEntryWarning(_sprListFile);
 
                     // 如果在 SPR List 模式，刷新顯示
                     if (_viewModeRadio.SelectedIndex == MODE_SPR_LIST)
@@ -4689,8 +4740,8 @@ namespace PakViewer
             var mode = _viewModeRadio.SelectedIndex;
 
             // Toggle visibility of mode-specific filter controls
-            // 只在 SPR 模式且有載入 list.spr 時顯示類型篩選器
-            var showTypeFilter = (mode == MODE_SPR && _sprListFile != null);
+            // SPR 模式或 SPR List 模式且有載入 list.spr 時顯示類型篩選器
+            var showTypeFilter = ((mode == MODE_SPR || mode == MODE_SPR_LIST) && _sprListFile != null);
             _sprTypeFilterDropDown.Visible = showTypeFilter;
             _sprTypeLabel.Visible = showTypeFilter;
 
@@ -4757,8 +4808,9 @@ namespace PakViewer
                 // Apply search filter only (no type filter in SPR List mode)
                 if (!string.IsNullOrEmpty(filter))
                 {
-                    if (!entry.Name.ToLowerInvariant().Contains(filter) &&
-                        !entry.Id.ToString().Contains(filter))
+                    var nameMatch = entry.Name?.ToLowerInvariant()?.Contains(filter) ?? false;
+                    var idMatch = entry.Id.ToString().Contains(filter);
+                    if (!nameMatch && !idMatch)
                         continue;
                 }
 
@@ -4787,6 +4839,47 @@ namespace PakViewer
             // 重新整理相簿
             if (_galleryModeRadio?.Checked == true)
                 RefreshRightGallery();
+        }
+
+        private void OnSprListColumnHeaderClick(object sender, GridColumnEventArgs e)
+        {
+            var items = _sprListGrid.DataStore as List<SprListItem>;
+            if (items == null || items.Count == 0) return;
+
+            // 取得欄位索引（跳過 checkbox 欄位，所以 -1）
+            int columnIndex = _sprListGrid.Columns.IndexOf(e.Column);
+
+            // 如果點擊同一欄位，切換排序方向；否則重置為升序
+            if (_sprListSortColumn == columnIndex)
+            {
+                _sprListSortAscending = !_sprListSortAscending;
+            }
+            else
+            {
+                _sprListSortColumn = columnIndex;
+                _sprListSortAscending = true;
+            }
+
+            // 根據欄位排序 (0=checkbox, 1=ID, 2=Name, 3=SpriteId, 4=ImageCount, 5=Type, 6=Actions)
+            IOrderedEnumerable<SprListItem> sorted = columnIndex switch
+            {
+                1 => _sprListSortAscending ? items.OrderBy(x => x.Id) : items.OrderByDescending(x => x.Id),
+                2 => _sprListSortAscending ? items.OrderBy(x => x.Name ?? "") : items.OrderByDescending(x => x.Name ?? ""),
+                3 => _sprListSortAscending ? items.OrderBy(x => x.SpriteId) : items.OrderByDescending(x => x.SpriteId),
+                4 => _sprListSortAscending ? items.OrderBy(x => x.ImageCount) : items.OrderByDescending(x => x.ImageCount),
+                5 => _sprListSortAscending ? items.OrderBy(x => x.TypeId ?? 999) : items.OrderByDescending(x => x.TypeId ?? 999),
+                6 => _sprListSortAscending ? items.OrderBy(x => x.ActionCount) : items.OrderByDescending(x => x.ActionCount),
+                _ => items.OrderBy(x => x.Id)
+            };
+
+            var sortedList = sorted.ToList();
+            _sprListGrid.DataStore = sortedList;
+            _filteredSprListEntries = sortedList.Select(i => i.Entry).ToList();
+
+            // 更新狀態列顯示排序資訊
+            var direction = _sprListSortAscending ? "↑" : "↓";
+            var columnName = e.Column.HeaderText;
+            _statusLabel.Text = $"Sorted by {columnName} {direction}";
         }
 
         private void OnSprListSelected(object sender, EventArgs e)

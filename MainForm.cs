@@ -80,6 +80,8 @@ namespace PakViewer
         // UI Controls
         private GridView _fileGrid;
         private GridView _sprListGrid;
+        private int _sprListSortColumn = -1;  // 當前排序欄位 (-1 表示無排序)
+        private bool _sprListSortAscending = true;  // 排序方向
         private TextBox _searchBox;
         private UITimer _searchDebounceTimer;
         private TextBox _contentSearchBox;

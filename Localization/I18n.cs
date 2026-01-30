@@ -245,6 +245,10 @@ namespace PakViewer.Localization
             { "Error.NoPngSelected", "未選擇任何 PNG 檔案" },
             { "Error.CreateSprFailed", "建立 SPR 失敗: {0}" },
 
+            // Duplicate Entry Warning
+            { "Warning.DuplicateEntries", "SPR List 重複編號警告" },
+            { "Warning.DuplicateEntriesMessage", "發現 {0} 個重複的編號，已保留最後一個：\n\n{1}" },
+
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "正在轉換 PNG 為 SPR..." },
             { "Status.SprCreated", "已從 {0} 個 PNG 建立 SPR: {1}" },
@@ -552,6 +556,10 @@ namespace PakViewer.Localization
             { "Error.LoadSprList", "SPR Listの読み込みに失敗しました" },
             { "Error.NoPngSelected", "PNGファイルが選択されていません" },
             { "Error.CreateSprFailed", "SPRの作成に失敗しました: {0}" },
+
+            // Duplicate Entry Warning
+            { "Warning.DuplicateEntries", "SPR List 重複IDの警告" },
+            { "Warning.DuplicateEntriesMessage", "{0}個の重複IDが見つかりました。最後のものを保持しています：\n\n{1}" },
 
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "PNGをSPRに変換中..." },
@@ -861,6 +869,10 @@ namespace PakViewer.Localization
             { "Error.NoPngSelected", "No PNG files selected" },
             { "Error.CreateSprFailed", "Failed to create SPR: {0}" },
 
+            // Duplicate Entry Warning
+            { "Warning.DuplicateEntries", "SPR List Duplicate Entry Warning" },
+            { "Warning.DuplicateEntriesMessage", "Found {0} duplicate entry IDs. Keeping the last occurrence:\n\n{1}" },
+
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "Converting PNG to SPR..." },
             { "Status.SprCreated", "Created SPR from {0} PNG files: {1}" },
@@ -1167,6 +1179,10 @@ namespace PakViewer.Localization
             { "Error.LoadSprList", "SPR List 로드 실패" },
             { "Error.NoPngSelected", "PNG 파일이 선택되지 않았습니다" },
             { "Error.CreateSprFailed", "SPR 생성 실패: {0}" },
+
+            // Duplicate Entry Warning
+            { "Warning.DuplicateEntries", "SPR List 중복 ID 경고" },
+            { "Warning.DuplicateEntriesMessage", "{0}개의 중복 ID가 발견되었습니다. 마지막 항목을 유지합니다:\n\n{1}" },
 
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "PNG를 SPR로 변환 중..." },
