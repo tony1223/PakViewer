@@ -4732,7 +4732,12 @@ namespace PakViewer
                 }
             }
 
-            UpdateSprGroupDisplay();
+            // 根據當前模式更新對應的顯示
+            var mode = _viewModeRadio.SelectedIndex;
+            if (mode == MODE_SPR_LIST)
+                UpdateSprListDisplay();
+            else
+                UpdateSprGroupDisplay();
         }
 
         private void UpdateModeDisplay()
@@ -4805,7 +4810,7 @@ namespace PakViewer
 
             foreach (var entry in _sprListFile.Entries)
             {
-                // Apply search filter only (no type filter in SPR List mode)
+                // Apply search filter
                 if (!string.IsNullOrEmpty(filter))
                 {
                     var nameMatch = entry.Name?.ToLowerInvariant()?.Contains(filter) ?? false;
@@ -4813,6 +4818,10 @@ namespace PakViewer
                     if (!nameMatch && !idMatch)
                         continue;
                 }
+
+                // Apply type filter (與 SPR 模式共用篩選器)
+                if (_sprModeTypeFilter.HasValue && entry.TypeId != _sprModeTypeFilter.Value)
+                    continue;
 
                 items.Add(new SprListItem
                 {
@@ -4824,6 +4833,21 @@ namespace PakViewer
                     ActionCount = entry.Actions.Count,
                     Entry = entry
                 });
+            }
+
+            // Apply sorting
+            if (_sprListSortColumn > 0)
+            {
+                items = _sprListSortColumn switch
+                {
+                    1 => (_sprListSortAscending ? items.OrderBy(x => x.Id) : items.OrderByDescending(x => x.Id)).ToList(),
+                    2 => (_sprListSortAscending ? items.OrderBy(x => x.Name ?? "") : items.OrderByDescending(x => x.Name ?? "")).ToList(),
+                    3 => (_sprListSortAscending ? items.OrderBy(x => x.SpriteId) : items.OrderByDescending(x => x.SpriteId)).ToList(),
+                    4 => (_sprListSortAscending ? items.OrderBy(x => x.ImageCount) : items.OrderByDescending(x => x.ImageCount)).ToList(),
+                    5 => (_sprListSortAscending ? items.OrderBy(x => x.TypeId ?? 999) : items.OrderByDescending(x => x.TypeId ?? 999)).ToList(),
+                    6 => (_sprListSortAscending ? items.OrderBy(x => x.ActionCount) : items.OrderByDescending(x => x.ActionCount)).ToList(),
+                    _ => items
+                };
             }
 
             _filteredSprListEntries = items.Select(i => i.Entry).ToList();
@@ -4843,43 +4867,25 @@ namespace PakViewer
 
         private void OnSprListColumnHeaderClick(object sender, GridColumnEventArgs e)
         {
-            var items = _sprListGrid.DataStore as List<SprListItem>;
-            if (items == null || items.Count == 0) return;
+            // Column indices: 0=checkbox, 1=ID, 2=Name, 3=SpriteId, 4=ImageCount, 5=Type, 6=Actions
+            int clickedColumn = _sprListGrid.Columns.IndexOf(e.Column);
 
-            // 取得欄位索引（跳過 checkbox 欄位，所以 -1）
-            int columnIndex = _sprListGrid.Columns.IndexOf(e.Column);
+            // 只處理可排序的欄位 (跳過 checkbox)
+            if (clickedColumn < 1 || clickedColumn > 6) return;
 
             // 如果點擊同一欄位，切換排序方向；否則重置為升序
-            if (_sprListSortColumn == columnIndex)
+            if (_sprListSortColumn == clickedColumn)
             {
                 _sprListSortAscending = !_sprListSortAscending;
             }
             else
             {
-                _sprListSortColumn = columnIndex;
+                _sprListSortColumn = clickedColumn;
                 _sprListSortAscending = true;
             }
 
-            // 根據欄位排序 (0=checkbox, 1=ID, 2=Name, 3=SpriteId, 4=ImageCount, 5=Type, 6=Actions)
-            IOrderedEnumerable<SprListItem> sorted = columnIndex switch
-            {
-                1 => _sprListSortAscending ? items.OrderBy(x => x.Id) : items.OrderByDescending(x => x.Id),
-                2 => _sprListSortAscending ? items.OrderBy(x => x.Name ?? "") : items.OrderByDescending(x => x.Name ?? ""),
-                3 => _sprListSortAscending ? items.OrderBy(x => x.SpriteId) : items.OrderByDescending(x => x.SpriteId),
-                4 => _sprListSortAscending ? items.OrderBy(x => x.ImageCount) : items.OrderByDescending(x => x.ImageCount),
-                5 => _sprListSortAscending ? items.OrderBy(x => x.TypeId ?? 999) : items.OrderByDescending(x => x.TypeId ?? 999),
-                6 => _sprListSortAscending ? items.OrderBy(x => x.ActionCount) : items.OrderByDescending(x => x.ActionCount),
-                _ => items.OrderBy(x => x.Id)
-            };
-
-            var sortedList = sorted.ToList();
-            _sprListGrid.DataStore = sortedList;
-            _filteredSprListEntries = sortedList.Select(i => i.Entry).ToList();
-
-            // 更新狀態列顯示排序資訊
-            var direction = _sprListSortAscending ? "↑" : "↓";
-            var columnName = e.Column.HeaderText;
-            _statusLabel.Text = $"Sorted by {columnName} {direction}";
+            // 重新整理顯示（會套用排序）
+            UpdateSprListDisplay();
         }
 
         private void OnSprListSelected(object sender, EventArgs e)
