@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -20,16 +21,24 @@ namespace Lin.Helper.Core.Sprite
             @"^#(\d+)\s+(\d+)(?:=(\d+))?$",
             RegexOptions.Compiled);
 
+        // 支援有名稱 (0.walk(...)) 和無名稱 (0.(...)) 兩種格式
+        // 使用 [^)]* 允許空 frames，如 100.switch(1 0,)
+        // 使用 -?\d+ 支援負數 (如 -1.action_-1)
+        // 名稱可包含字母、數字、底線、空格和連字號
         private static readonly Regex ActionPattern = new Regex(
-            @"(\d+)\.([a-zA-Z_][a-zA-Z0-9_\s]*)\((\d+)\s+(\d+),([^)]+)\)",
+            @"(-?\d+)\.([a-zA-Z_][a-zA-Z0-9_\s-]*)?\((-?\d+)\s+(-?\d+),([^)]*)\)",
             RegexOptions.Compiled);
 
+        // 支援有名稱 (101.shadow(...)) 和無名稱 (101.(...)) 兩種格式
+        // 使用 -?\d+ 支援負數
+        // 名稱可包含字母、數字、底線、空格和連字號
         private static readonly Regex AttributePattern = new Regex(
-            @"(\d+)\.([a-zA-Z_][a-zA-Z0-9_\s]*)\(([^)]*)\)",
+            @"(-?\d+)\.([a-zA-Z_][a-zA-Z0-9_\s-]*)?\(([^)]*)\)",
             RegexOptions.Compiled);
 
+        // Frame pattern 也支援負數
         private static readonly Regex FramePattern = new Regex(
-            @"(\d+)\.(\d+):(\d+)",
+            @"(-?\d+)\.(-?\d+):(-?\d+)",
             RegexOptions.Compiled);
 
         /// <summary>
@@ -85,6 +94,9 @@ namespace Lin.Helper.Core.Sprite
             SprListEntry currentEntry = null;
             var currentEntryLines = new List<string>();
 
+            // 使用 Dictionary 來去除重複 ID，保留最後一個
+            var entriesById = new Dictionary<int, SprListEntry>();
+
             for (int i = 1; i < lines.Length; i++)
             {
                 var line = lines[i];
@@ -98,7 +110,13 @@ namespace Lin.Helper.Core.Sprite
                             ParseCompactEntryContent(currentEntry, currentEntryLines);
                         else
                             ParseEntryContent(currentEntry, currentEntryLines);
-                        result.Entries.Add(currentEntry);
+
+                        // 檢查是否有重複 ID
+                        if (entriesById.ContainsKey(currentEntry.Id))
+                        {
+                            result.Warnings.Add($"Duplicate entry ID #{currentEntry.Id} found. Keeping the last one.");
+                        }
+                        entriesById[currentEntry.Id] = currentEntry;
                     }
 
                     currentEntry = ParseEntryHeader(trimmedLine, isCompactFormat);
@@ -122,26 +140,46 @@ namespace Lin.Helper.Core.Sprite
                     ParseCompactEntryContent(currentEntry, currentEntryLines);
                 else
                     ParseEntryContent(currentEntry, currentEntryLines);
-                result.Entries.Add(currentEntry);
+
+                if (entriesById.ContainsKey(currentEntry.Id))
+                {
+                    result.Warnings.Add($"Duplicate entry ID #{currentEntry.Id} found. Keeping the last one.");
+                }
+                entriesById[currentEntry.Id] = currentEntry;
             }
+
+            // 按 ID 排序並加入結果
+            result.Entries = entriesById.Values.OrderBy(e => e.Id).ToList();
 
             return result;
         }
 
         private static bool DetectCompactFormat(string[] lines)
         {
-            for (int i = 1; i < lines.Length && i < 10; i++)
+            bool hasCompactHeader = false;
+
+            for (int i = 1; i < lines.Length && i < 20; i++)
             {
                 var line = lines[i].TrimStart();
+
                 if (line.StartsWith("#"))
                 {
-                    if (CompactEntryHeaderPattern.IsMatch(line))
-                        return true;
+                    // 檢查 header 格式
                     if (EntryHeaderPattern.IsMatch(line))
-                        return false;
+                        return false;  // 有名稱的標準格式
+                    if (CompactEntryHeaderPattern.IsMatch(line))
+                        hasCompactHeader = true;
+                }
+                else if (!string.IsNullOrWhiteSpace(line))
+                {
+                    // 檢查 content 格式 - 如果有 "數字.(" 或 "數字.名稱(" 就是括號格式
+                    // 真正的 compact 格式是純空格分隔，沒有括號
+                    if (Regex.IsMatch(line, @"^\d+\.[a-zA-Z_]?\("))
+                        return false;  // 括號格式（可能有或沒有名稱）
                 }
             }
-            return false;
+
+            return hasCompactHeader;
         }
 
         private static SprListEntry ParseEntryHeader(string line, bool isCompactFormat = false)
@@ -204,7 +242,8 @@ namespace Lin.Helper.Core.Sprite
                     if (nameBuilder.Length > 0) nameBuilder.Append(" ");
                     nameBuilder.Append(part);
                 }
-                entry.Name = nameBuilder.Length > 0 ? nameBuilder.ToString() : rawName;
+                // 如果沒有名稱（整個 rawName 都是 action/attribute 格式），使用預設名稱
+                entry.Name = nameBuilder.Length > 0 ? nameBuilder.ToString() : $"#{entry.Id}";
             }
             else
             {
@@ -275,17 +314,35 @@ namespace Lin.Helper.Core.Sprite
         {
             var fullContent = string.Join(" ", contentLines);
 
+            // 記錄已被 action 佔用的位置範圍，避免重複解析為 attribute
+            var usedRanges = new List<(int start, int end)>();
+
             var actionMatches = ActionPattern.Matches(fullContent);
             foreach (Match match in actionMatches)
             {
                 var action = ParseAction(match);
                 if (action != null)
+                {
                     entry.Actions.Add(action);
+                    usedRanges.Add((match.Index, match.Index + match.Length));
+                }
             }
 
             var attrMatches = AttributePattern.Matches(fullContent);
             foreach (Match match in attrMatches)
             {
+                // 檢查是否與 action 位置重疊
+                bool overlaps = false;
+                foreach (var range in usedRanges)
+                {
+                    if (match.Index >= range.start && match.Index < range.end)
+                    {
+                        overlaps = true;
+                        break;
+                    }
+                }
+                if (overlaps) continue;
+
                 int attrId = int.Parse(match.Groups[1].Value);
                 if (attrId >= 100)
                 {
@@ -640,11 +697,18 @@ namespace Lin.Helper.Core.Sprite
 
         private static SprAction ParseAction(Match match)
         {
+            int actionId = int.Parse(match.Groups[1].Value);
+            string actionName = match.Groups[2].Value?.Trim();
+
+            // 如果沒有名稱，使用 ID 對應的預設名稱
+            if (string.IsNullOrEmpty(actionName))
+                actionName = GetActionNameById(actionId);
+
             var action = new SprAction
             {
                 RawText = match.Value,
-                ActionId = int.Parse(match.Groups[1].Value),
-                ActionName = match.Groups[2].Value.Trim(),
+                ActionId = actionId,
+                ActionName = actionName,
                 Directional = int.Parse(match.Groups[3].Value),
                 FrameCount = int.Parse(match.Groups[4].Value)
             };
@@ -707,10 +771,17 @@ namespace Lin.Helper.Core.Sprite
 
         private static SprAttribute ParseAttribute(Match match)
         {
+            int attrId = int.Parse(match.Groups[1].Value);
+            string attrName = match.Groups[2].Value?.Trim();
+
+            // 如果沒有名稱，使用 ID 對應的預設名稱
+            if (string.IsNullOrEmpty(attrName))
+                attrName = GetAttributeNameById(attrId);
+
             var attr = new SprAttribute
             {
-                AttributeId = int.Parse(match.Groups[1].Value),
-                AttributeName = match.Groups[2].Value.Trim(),
+                AttributeId = attrId,
+                AttributeName = attrName,
                 RawParameters = match.Groups[3].Value
             };
 

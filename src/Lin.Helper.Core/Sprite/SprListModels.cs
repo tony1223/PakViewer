@@ -12,6 +12,11 @@ namespace Lin.Helper.Core.Sprite
         public int Unknown1 { get; set; }
         public int Unknown2 { get; set; }
         public List<SprListEntry> Entries { get; set; } = new List<SprListEntry>();
+
+        /// <summary>
+        /// 解析過程中的警告訊息
+        /// </summary>
+        public List<string> Warnings { get; set; } = new List<string>();
     }
 
     /// <summary>
