@@ -485,42 +485,48 @@ namespace PakViewer
             {
                 HeaderText = I18n.T("Grid.ID"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.Id.ToString()) },
-                Width = 50
+                Width = 50,
+                Sortable = true
             });
 
             _sprListGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.Name"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.Name) },
-                Width = 120
+                Width = 120,
+                Sortable = true
             });
 
             _sprListGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.SpriteId"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.SpriteId.ToString()) },
-                Width = 50
+                Width = 50,
+                Sortable = true
             });
 
             _sprListGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.ImageCount"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.ImageCount.ToString()) },
-                Width = 40
+                Width = 40,
+                Sortable = true
             });
 
             _sprListGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.Type"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.TypeName) },
-                Width = 80
+                Width = 80,
+                Sortable = true
             });
 
             _sprListGrid.Columns.Add(new GridColumn
             {
                 HeaderText = I18n.T("Grid.Actions"),
                 DataCell = new TextBoxCell { Binding = Binding.Property<SprListItem, string>(r => r.ActionCount.ToString()) },
-                Width = 45
+                Width = 45,
+                Sortable = true
             });
 
             // 支援排序
