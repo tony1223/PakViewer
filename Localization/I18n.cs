@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -255,6 +255,7 @@ namespace PakViewer.Localization
 
             // Status (Pivot Table)
             { "Status.PivotTableExported", "已匯出動作矩陣: {0} 個條目, {1} 種動作" },
+            { "Status.SprListNoFolder", "圖檔／播放需先選擇客戶端資料夾" },
 
             // Filter
             { "Filter.SprList", "SPR List 檔案" },
@@ -563,6 +564,7 @@ namespace PakViewer.Localization
 
             // Status (Pivot Table)
             { "Status.PivotTableExported", "アクションマトリックスをエクスポートしました: {0} エントリ, {1} アクション" },
+            { "Status.SprListNoFolder", "画像／再生にはクライアントフォルダを選択してください" },
 
             // Filter
             { "Filter.SprList", "SPR List ファイル" },
@@ -871,6 +873,7 @@ namespace PakViewer.Localization
 
             // Status (Pivot Table)
             { "Status.PivotTableExported", "Action matrix exported: {0} entries, {1} actions" },
+            { "Status.SprListNoFolder", "Select client folder for thumbnails and playback" },
 
             // Filter
             { "Filter.SprList", "SPR List Files" },
@@ -1178,6 +1181,7 @@ namespace PakViewer.Localization
 
             // Status (Pivot Table)
             { "Status.PivotTableExported", "동작 매트릭스 내보내기 완료: {0}개 항목, {1}개 동작" },
+            { "Status.SprListNoFolder", "썸네일/재생을 위해 클라이언트 폴더를 선택하세요" },
 
             // Filter
             { "Filter.SprList", "SPR List 파일" },
