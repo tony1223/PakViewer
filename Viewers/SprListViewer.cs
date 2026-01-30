@@ -8,6 +8,7 @@ using Eto.Drawing;
 using Lin.Helper.Core.Sprite;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using PakViewer.Localization;
 
 namespace PakViewer.Viewers
@@ -41,7 +42,14 @@ namespace PakViewer.Viewers
         private int _bgColorIndex = 0;  // 0=黑, 1=紅, 2=透明, 3=白
         private DropDown _zoomDropDown;
         private DropDown _bgColorDropDown;
+        private CheckBox _compositeToggle;      // 是否顯示附加/疊圖（套圖模式）
+        private bool _enableCompositePreview = true;
         private Action<int> _onBgColorChanged;  // 背景色變更回呼
+        private List<string> _compositeLayerOrder = new List<string>();  // 圖層繪製順序（key: "main" / "105:id" / "overlay:id"）
+        private GridView _layerOrderGrid;       // 圖層順序列表
+        private Panel _layerOrderPanel;         // 圖層區塊（可隱藏）
+        private Button _layerMoveUpBtn;
+        private Button _layerMoveDownBtn;
 
         // 播放速度控制
         private RadioButtonList _speedRadio;
@@ -49,6 +57,11 @@ namespace PakViewer.Viewers
         private const int SPEED_STANDARD = 0;
         private const int SPEED_SLOW = 1;
         private const int SPEED_CUSTOM = 2;
+
+        private Slider _overlayOpacitySlider;
+        private Label _overlayOpacityLabel;
+        private Slider _cutoutStrengthSlider;
+        private Label _cutoutStrengthLabel;
 
         // 動畫資料
         private SprFrame[] _currentSprFrames;
@@ -120,6 +133,8 @@ namespace PakViewer.Viewers
             _selectedEntry = entry;
             _animTimer?.Stop();
             _playingAction = null;
+            _compositeLayerOrder = new List<string>();
+            BindLayerGrid();
 
             if (entry == null)
             {
@@ -215,6 +230,119 @@ namespace PakViewer.Viewers
                 }
             };
 
+            // 套圖模式：含附加/疊圖
+            _compositeToggle = new CheckBox
+            {
+                Text = "含附加/疊圖",
+                Checked = true,
+                TextColor = Colors.White
+            };
+            _enableCompositePreview = true;
+            _compositeToggle.CheckedChanged += (s, e) =>
+            {
+                _enableCompositePreview = _compositeToggle.Checked == true;
+                if (_layerOrderPanel != null) _layerOrderPanel.Visible = _enableCompositePreview;
+                _previewDrawable?.Invalidate();
+            };
+
+            // 圖層順序（可調整上下關係）+ 疊圖不透明度
+            _layerOrderGrid = new GridView
+            {
+                Size = new Eto.Drawing.Size(180, 80),
+                ShowHeader = false,
+                DataStore = new List<object>()
+            };
+            _layerOrderGrid.Columns.Add(new GridColumn
+            {
+                DataCell = new TextBoxCell { Binding = Binding.Property<LayerRow, string>(r => r.DisplayName) },
+                AutoSize = true
+            });
+            _layerMoveUpBtn = new Button { Text = "▲ 上移", Width = 70 };
+            _layerMoveUpBtn.Click += (s, e) => { MoveLayerOrder(-1); };
+            _layerMoveDownBtn = new Button { Text = "▼ 下移", Width = 70 };
+            _layerMoveDownBtn.Click += (s, e) => { MoveLayerOrder(1); };
+            _overlayOpacitySlider = new Slider
+            {
+                MinValue = 0,
+                MaxValue = 100,
+                Value = 75,
+                Width = 100
+            };
+            _overlayOpacityLabel = new Label { Text = "75%", TextColor = Colors.White, Width = 28, TextAlignment = TextAlignment.Right };
+            _overlayOpacitySlider.ValueChanged += (s, e) =>
+            {
+                var v = _overlayOpacitySlider.Value;
+                _overlayOpacityLabel.Text = v + "%";
+                UpdateAnimationFrame();
+            };
+
+            _cutoutStrengthSlider = new Slider
+            {
+                MinValue = 0,
+                MaxValue = 100,
+                Value = 50,
+                Width = 100
+            };
+            _cutoutStrengthLabel = new Label { Text = "50", TextColor = Colors.White, Width = 28, TextAlignment = TextAlignment.Right };
+            _cutoutStrengthSlider.ValueChanged += (s, e) =>
+            {
+                var v = _cutoutStrengthSlider.Value;
+                _cutoutStrengthLabel.Text = v.ToString();
+                UpdateAnimationFrame();
+            };
+
+            _layerOrderPanel = new Panel
+            {
+                Content = new StackLayout
+                {
+                    Orientation = Orientation.Vertical,
+                    Spacing = 4,
+                    Items =
+                    {
+                        new StackLayout
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Spacing = 6,
+                            VerticalContentAlignment = VerticalAlignment.Center,
+                            Items =
+                            {
+                                new Label { Text = "疊圖不透明度", TextColor = Colors.White, Font = new Font(SystemFont.Default, 8), Width = 84 },
+                                _overlayOpacitySlider,
+                                _overlayOpacityLabel
+                            }
+                        },
+                        new StackLayout
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Spacing = 6,
+                            VerticalContentAlignment = VerticalAlignment.Center,
+                            Items =
+                            {
+                                new Label { Text = "去背強度", TextColor = Colors.White, Font = new Font(SystemFont.Default, 8), Width = 84 },
+                                _cutoutStrengthSlider,
+                                _cutoutStrengthLabel
+                            }
+                        },
+                        new Label { Text = "圖層順序（下→上）", TextColor = Colors.White, Font = new Font(SystemFont.Default, 8) },
+                        _layerOrderGrid,
+                        new StackLayout
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Spacing = 6,
+                            Items = { _layerMoveUpBtn, _layerMoveDownBtn }
+                        }
+                    }
+                }
+            };
+            var layerOrderPanel = _layerOrderPanel;
+
+            var compositeAndLayerSection = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 4,
+                Items = { _compositeToggle, layerOrderPanel }
+            };
+
             // 方向選擇器 (右側)
             var directionSelector = CreateDirectionSelector();
             var directionPanel = new StackLayout
@@ -287,7 +415,8 @@ namespace PakViewer.Viewers
                     speedPanel,
                     _previewDrawable,
                     _previewInfoLabel,
-                    _stopButton
+                    _stopButton,
+                    compositeAndLayerSection
                 }
             };
 
@@ -635,6 +764,7 @@ namespace PakViewer.Viewers
                 return;
             }
 
+            RefreshLayerOrderGrid(entry, action);
             UpdateAnimationFrame();
             _animTimer.Start();
         }
@@ -680,7 +810,7 @@ namespace PakViewer.Viewers
             // 實際幀索引就是 FrameIndex
             int actualIndex = frame.FrameIndex;
 
-            // 顯示圖片
+            // 顯示圖片（套圖模式：有 105 或 OverlayIds 時可合成）
             if (_currentSprFrames != null && _currentSprFrames.Length > 0)
             {
                 if (actualIndex >= 0 && actualIndex < _currentSprFrames.Length)
@@ -689,7 +819,25 @@ namespace PakViewer.Viewers
                     if (sprFrame.Image != null)
                     {
                         _currentBitmap?.Dispose();
-                        _currentBitmap = ConvertToEtoBitmap(sprFrame.Image);
+                        Bitmap nextBitmap = null;
+                        if (_enableCompositePreview)
+                        {
+                            var attachIds = GetAttachSpriteIds(_selectedEntry);
+                            bool hasOverlay = frame.OverlayIds != null && frame.OverlayIds.Count > 0;
+                            Image<Rgba32> composite = (attachIds.Count > 0 || hasOverlay)
+                                ? BuildCompositeFrame(sprFrame, subId, actualIndex, frame)
+                                : null;
+                            if (composite != null)
+                            {
+                                try { nextBitmap = ConvertToEtoBitmap(composite); }
+                                finally { composite?.Dispose(); }
+                            }
+                            else
+                                nextBitmap = ConvertToEtoBitmap(sprFrame.Image);
+                        }
+                        else
+                            nextBitmap = ConvertToEtoBitmap(sprFrame.Image);
+                        _currentBitmap = nextBitmap;
                         _previewDrawable?.Invalidate();
                     }
                 }
@@ -774,6 +922,278 @@ namespace PakViewer.Viewers
             return new Bitmap(ms);
         }
 
+        /// <summary>依 spriteKey 載入 SPR 的幀陣列（用於套圖）</summary>
+        private SprFrame[] LoadSpriteFramesByKey(string spriteKey)
+        {
+            if (_getSpriteByKeyFunc == null) return null;
+            try
+            {
+                var sprData = _getSpriteByKeyFunc(spriteKey);
+                if (sprData != null)
+                    return SprReader.Load(sprData);
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>取得條目的 105 (attach) 附加圖 sprite ID 列表</summary>
+        private static List<int> GetAttachSpriteIds(SprListEntry entry)
+        {
+            var list = new List<int>();
+            if (entry?.Attributes == null) return list;
+            foreach (var attr in entry.Attributes)
+            {
+                if (attr.AttributeId != 105 || attr.Parameters == null) continue;
+                for (int i = 1; i < attr.Parameters.Count; i++)
+                {
+                    if (int.TryParse(attr.Parameters[i], out int sid) && sid > 0)
+                        list.Add(sid);
+                }
+            }
+            return list;
+        }
+
+        /// <summary>依目前圖層順序取得當前幀的圖層 key 列表</summary>
+        private List<string> GetOrderedLayerKeysForFrame(SprActionFrame listFrame)
+        {
+            var currentKeys = new List<string> { "main" };
+            foreach (var sid in GetAttachSpriteIds(_selectedEntry))
+                currentKeys.Add($"105:{sid}");
+            if (listFrame?.OverlayIds != null)
+                foreach (var oid in listFrame.OverlayIds)
+                    currentKeys.Add($"overlay:{oid}");
+            var ordered = new List<string>();
+            foreach (var k in _compositeLayerOrder)
+                if (currentKeys.Contains(k)) ordered.Add(k);
+            foreach (var k in currentKeys)
+                if (!ordered.Contains(k)) ordered.Add(k);
+            return ordered;
+        }
+
+        /// <summary>將單一圖層 key 解析為 SprFrame</summary>
+        private SprFrame? ResolveLayerKey(string layerKey, SprFrame mainFrame, int subId, int actualIndex)
+        {
+            if (layerKey == "main") return mainFrame;
+            if (layerKey.StartsWith("105:") && int.TryParse(layerKey.Substring(4), out int spriteId))
+            {
+                var frames = LoadSpriteFramesByKey($"{spriteId}-{subId}");
+                if (frames != null && actualIndex >= 0 && actualIndex < frames.Length)
+                    return frames[actualIndex];
+            }
+            if (layerKey.StartsWith("overlay:") && int.TryParse(layerKey.Substring(8), out spriteId))
+            {
+                var frames = LoadSpriteFramesByKey($"{spriteId}-{subId}");
+                if (frames != null && actualIndex >= 0 && actualIndex < frames.Length)
+                    return frames[actualIndex];
+            }
+            return null;
+        }
+
+        /// <summary>將 105 附加圖 + 疊圖 + 主體（底圖最上）依圖層順序合成為一張圖</summary>
+        private Image<Rgba32> BuildCompositeFrame(SprFrame mainFrame, int subId, int actualIndex, SprActionFrame listFrame)
+        {
+            var orderedKeys = GetOrderedLayerKeysForFrame(listFrame);
+            var layers = new List<(SprFrame frame, string key)>();
+            foreach (var key in orderedKeys)
+            {
+                var f = ResolveLayerKey(key, mainFrame, subId, actualIndex);
+                if (f.HasValue && f.Value.Image != null)
+                    layers.Add((f.Value, key));
+            }
+            if (layers.Count <= 1) return null;
+
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+            foreach (var (f, _) in layers)
+            {
+                if (f.Image == null) continue;
+                minX = Math.Min(minX, f.XOffset);
+                minY = Math.Min(minY, f.YOffset);
+                maxX = Math.Max(maxX, f.XOffset + f.Width);
+                maxY = Math.Max(maxY, f.YOffset + f.Height);
+            }
+            int canvasW = Math.Max(1, maxX - minX);
+            int canvasH = Math.Max(1, maxY - minY);
+            Rgba32 bgFill = GetBackgroundRgba32();
+            var canvas = new Image<Rgba32>(canvasW, canvasH, bgFill);
+            float overlayOpacity = _overlayOpacitySlider != null ? (float)_overlayOpacitySlider.Value / 100f : 0.75f;
+            int cutoutStrength = _cutoutStrengthSlider != null ? _cutoutStrengthSlider.Value : 50;
+            var transparent = new Rgba32(0, 0, 0, 0);
+            canvas.Mutate(ctx =>
+            {
+                foreach (var (f, key) in layers)
+                {
+                    if (f.Image == null) continue;
+                    int dx = f.XOffset - minX;
+                    int dy = f.YOffset - minY;
+                    if (key == "main")
+                    {
+                        ctx.DrawImage(f.Image, new SixLabors.ImageSharp.Point(dx, dy), 1f);
+                    }
+                    else
+                    {
+                        using (var layerImg = f.Image.Clone())
+                        {
+                            MakeNearBlackTransparent(layerImg, transparent, cutoutStrength);
+                            MakeNearWhiteTransparent(layerImg, transparent, cutoutStrength);
+                            ScaleOverlayAlpha(layerImg, overlayOpacity);
+                            ctx.DrawImage(layerImg, new SixLabors.ImageSharp.Point(dx, dy), 1f);
+                        }
+                    }
+                }
+            });
+            return canvas;
+        }
+
+        /// <summary>僅縮放疊圖 alpha，不碰 RGB，避免整體顏色被稀釋。</summary>
+        private static void ScaleOverlayAlpha(Image<Rgba32> image, float opacity)
+        {
+            byte op = (byte)Math.Max(0, Math.Min(255, (int)(opacity * 255f)));
+            image.ProcessPixelRows(accessor =>
+            {
+                for (int y = 0; y < accessor.Height; y++)
+                {
+                    var row = accessor.GetRowSpan(y);
+                    for (int x = 0; x < row.Length; x++)
+                    {
+                        ref var p = ref row[x];
+                        p.A = (byte)((p.A * op) / 255);
+                    }
+                }
+            });
+        }
+
+        private Rgba32 GetBackgroundRgba32()
+        {
+            return _bgColorIndex switch
+            {
+                1 => new Rgba32(255, 0, 0, 255),
+                2 => new Rgba32(0, 0, 0, 0),
+                3 => new Rgba32(255, 255, 255, 255),
+                _ => new Rgba32(0, 0, 0, 255)
+            };
+        }
+
+        /// <summary>近黑視為透明。strength 0~100，愈大去背愈強。</summary>
+        private static void MakeNearBlackTransparent(Image<Rgba32> image, Rgba32 backgroundFill, int strength = 50)
+        {
+            int darkThreshold = 25 + (strength * 85 / 100);
+            int grayTolerance = 5 + (strength * 45 / 100);
+            image.ProcessPixelRows(accessor =>
+            {
+                for (int y = 0; y < accessor.Height; y++)
+                {
+                    var row = accessor.GetRowSpan(y);
+                    for (int x = 0; x < row.Length; x++)
+                    {
+                        ref var p = ref row[x];
+                        int max = Math.Max(p.R, Math.Max(p.G, p.B));
+                        int min = Math.Min(p.R, Math.Min(p.G, p.B));
+                        if (max <= darkThreshold && (max - min) <= grayTolerance)
+                            p = backgroundFill;
+                    }
+                }
+            });
+        }
+
+        /// <summary>近白／淺灰視為透明。strength 0~100，愈大去背愈強。</summary>
+        private static void MakeNearWhiteTransparent(Image<Rgba32> image, Rgba32 backgroundFill, int strength = 50)
+        {
+            int lightThreshold = 255 - (strength * 55 / 100);
+            int grayTolerance = 5 + (strength * 25 / 100);
+            image.ProcessPixelRows(accessor =>
+            {
+                for (int y = 0; y < accessor.Height; y++)
+                {
+                    var row = accessor.GetRowSpan(y);
+                    for (int x = 0; x < row.Length; x++)
+                    {
+                        ref var p = ref row[x];
+                        if (p.A == 0) continue;
+                        int min = Math.Min(p.R, Math.Min(p.G, p.B));
+                        int max = Math.Max(p.R, Math.Max(p.G, p.B));
+                        if (min >= lightThreshold && (max - min) <= grayTolerance)
+                            p = backgroundFill;
+                    }
+                }
+            });
+        }
+
+        private List<string> GetLayerKeysForAction(SprListEntry entry, SprAction action)
+        {
+            var keys = new List<string> { "main" };
+            foreach (var sid in GetAttachSpriteIds(entry))
+                keys.Add($"105:{sid}");
+            if (action?.Frames != null)
+            {
+                foreach (var f in action.Frames)
+                {
+                    if (f.OverlayIds == null) continue;
+                    foreach (var oid in f.OverlayIds)
+                        if (!keys.Contains($"overlay:{oid}"))
+                            keys.Add($"overlay:{oid}");
+                }
+            }
+            return keys;
+        }
+
+        private static string GetLayerDisplayName(string key)
+        {
+            if (key == "main") return "主體";
+            if (key.StartsWith("105:")) return "105: " + key.Substring(4);
+            if (key.StartsWith("overlay:")) return "疊圖: " + key.Substring(8);
+            return key;
+        }
+
+        private void RefreshLayerOrderGrid(SprListEntry entry, SprAction action)
+        {
+            var keys = GetLayerKeysForAction(entry, action);
+            if (keys.Count <= 1) { _compositeLayerOrder = new List<string>(keys); BindLayerGrid(); return; }
+            var defaultOrder = new List<string>();
+            foreach (var k in keys)
+                if (k != "main") defaultOrder.Add(k);
+            defaultOrder.Add("main");
+            bool useDefault = _compositeLayerOrder.Count == 0 || keys.Count != _compositeLayerOrder.Count;
+            if (!useDefault)
+            {
+                foreach (var k in keys)
+                    if (!_compositeLayerOrder.Contains(k)) { useDefault = true; break; }
+            }
+            if (useDefault)
+                _compositeLayerOrder = new List<string>(defaultOrder);
+            else
+            {
+                var merged = new List<string>();
+                foreach (var k in _compositeLayerOrder)
+                    if (keys.Contains(k)) merged.Add(k);
+                foreach (var k in keys)
+                    if (!merged.Contains(k)) merged.Add(k);
+                _compositeLayerOrder = merged;
+            }
+            BindLayerGrid();
+        }
+
+        private void BindLayerGrid()
+        {
+            if (_layerOrderGrid == null) return;
+            var rows = _compositeLayerOrder.Select(k => new LayerRow { Key = k, DisplayName = GetLayerDisplayName(k) }).ToList();
+            _layerOrderGrid.DataStore = rows;
+        }
+
+        private void MoveLayerOrder(int delta)
+        {
+            if (_compositeLayerOrder.Count <= 1) return;
+            int idx = _layerOrderGrid.SelectedRow;
+            if (idx < 0) return;
+            int newIdx = idx + delta;
+            if (newIdx < 0 || newIdx >= _compositeLayerOrder.Count) return;
+            var tmp = _compositeLayerOrder[idx];
+            _compositeLayerOrder[idx] = _compositeLayerOrder[newIdx];
+            _compositeLayerOrder[newIdx] = tmp;
+            BindLayerGrid();
+            _layerOrderGrid.SelectedRow = newIdx;
+            UpdateAnimationFrame();
+        }
+
         private void OnStopClick(object sender, EventArgs e)
         {
             _animTimer.Stop();
@@ -817,5 +1237,12 @@ namespace PakViewer.Viewers
             _currentBitmap = null;
             base.Dispose();
         }
+    }
+
+    /// <summary>圖層順序列表的一列（供 GridView 綁定）</summary>
+    internal class LayerRow
+    {
+        public string Key { get; set; }
+        public string DisplayName { get; set; }
     }
 }

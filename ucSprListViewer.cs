@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
@@ -280,11 +280,12 @@ namespace PakViewer
 
             _filteredEntries = _sprListFile.Entries.Where(e =>
             {
-                // 搜尋篩選
+                // 搜尋篩選：ID/名稱 為包含；圖檔(SpriteId) 為嚴格等於
                 if (!string.IsNullOrEmpty(searchText))
                 {
-                    if (!e.Name.ToLower().Contains(searchText) &&
-                        !e.Id.ToString().Contains(searchText))
+                    bool nameOrIdMatch = (e.Name ?? string.Empty).ToLower().Contains(searchText) || e.Id.ToString().Contains(searchText);
+                    bool spriteIdExactMatch = int.TryParse(searchText.Trim(), out int sid) && e.SpriteId == sid;
+                    if (!nameOrIdMatch && !spriteIdExactMatch)
                         return false;
                 }
 

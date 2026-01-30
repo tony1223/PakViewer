@@ -10,6 +10,7 @@ using Eto.Drawing;
 using Lin.Helper.Core.Pak;
 using Lin.Helper.Core.Sprite;
 using Lin.Helper.Core.Image;
+using SprListParserRef = global::Lin.Helper.Core.Sprite.SprListParser;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Processing;
 using ImageSharpImage = SixLabors.ImageSharp.Image;
@@ -4170,9 +4171,12 @@ namespace PakViewer
             {
                 // 非同步載入和解析
                 var data = await Task.Run(() => File.ReadAllBytes(filePath));
-                _sprListFile = await Task.Run(() => Lin.Helper.Core.Sprite.SprListParser.LoadFromBytes(data));
-                _filteredSprListEntries = _sprListFile.Entries;
-                _viewModeRadio.SelectedIndex = MODE_SPR_LIST;
+                _sprListFile = await Task.Run(() => SprListParserRef.LoadFromBytes(data));
+                Application.Instance.Invoke(() =>
+                {
+                    _filteredSprListEntries = _sprListFile?.Entries ?? new List<SprListEntry>();
+                    _viewModeRadio.SelectedIndex = MODE_SPR_LIST;
+                });
 
                 // 重置類型篩選器為「全部」(SPR List 模式不使用類型篩選)
                 _sprTypeFilterDropDown.SelectedIndex = 0;
@@ -4301,11 +4305,16 @@ namespace PakViewer
                         }
                     }
                     SetSpriteIdxMode(true);
-                    // 載入 SPR Groups (用於 sprite 資料查找)
-                    if (_sprGroups == null || _sprGroups.Count == 0)
+                    // 載入 sprite*.idx（圖檔查詢、播放用）與 SPR Groups（縮圖用）
+                    if (!string.IsNullOrEmpty(_selectedFolder))
                     {
-                        LoadSprGroups(_selectedFolder);
+                        LoadSpriteIdxFiles(_selectedFolder);
+                        if (_sprGroups == null || _sprGroups.Count == 0)
+                            LoadSprGroups(_selectedFolder);
                     }
+                    else
+                        _statusLabel.Text = I18n.T("Status.SprListNoFolder");
+
                     LoadListSprFile();
                     ShowSprListViewer();
                     _leftListPanel.Content = _sprListGrid;
@@ -4354,7 +4363,7 @@ namespace PakViewer
             try
             {
                 var data = File.ReadAllBytes(_settings.SprModeListSprPath);
-                _sprListFile = Lin.Helper.Core.Sprite.SprListParser.LoadFromBytes(data);
+                _sprListFile = SprListParserRef.LoadFromBytes(data);
                 _statusLabel.Text = $"已載入 list.spr: {_sprListFile.Entries.Count} 條目";
             }
             catch (Exception ex)
@@ -4392,7 +4401,7 @@ namespace PakViewer
                 try
                 {
                     var data = File.ReadAllBytes(filePath);
-                    _sprListFile = Lin.Helper.Core.Sprite.SprListParser.LoadFromBytes(data);
+                    _sprListFile = SprListParserRef.LoadFromBytes(data);
                     _statusLabel.Text = $"已載入 list.spr: {_sprListFile.Entries.Count} 條目";
 
                     // 如果在 SPR List 模式，刷新顯示
@@ -4719,24 +4728,36 @@ namespace PakViewer
         {
             _spritePakFiles = new Dictionary<int, PakFile>();
 
-            // Find all sprite*.idx files
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+                return;
+
             var spriteIdxFiles = Directory.GetFiles(folder, "sprite*.idx", SearchOption.TopDirectoryOnly);
+            int fallbackKey = -1;
+
             foreach (var idxFile in spriteIdxFiles)
             {
                 try
                 {
                     var pak = new PakFile(idxFile);
-                    // Map sprite IDs to this pak file
+                    bool added = false;
+
                     foreach (var file in pak.Files)
                     {
                         var name = Path.GetFileNameWithoutExtension(file.FileName);
-                        if (int.TryParse(name, out int spriteId))
+                        var baseName = name;
+                        if (name != null && name.IndexOf('-') >= 0)
+                            baseName = name.Substring(0, name.IndexOf('-'));
+                        if (!string.IsNullOrEmpty(baseName) && int.TryParse(baseName, out int spriteId))
                         {
                             if (!_spritePakFiles.ContainsKey(spriteId))
-                            {
                                 _spritePakFiles[spriteId] = pak;
-                            }
+                            added = true;
                         }
+                    }
+
+                    if (!added)
+                    {
+                        _spritePakFiles[fallbackKey--] = pak;
                     }
                 }
                 catch { }
@@ -4755,23 +4776,31 @@ namespace PakViewer
             foreach (var entry in _sprListFile.Entries)
             {
                 // Apply search filter only (no type filter in SPR List mode)
+                // 篩選療圖檔(SpriteId) 完全符合
                 if (!string.IsNullOrEmpty(filter))
                 {
-                    if (!entry.Name.ToLowerInvariant().Contains(filter) &&
-                        !entry.Id.ToString().Contains(filter))
+                    bool nameOrIdMatch = (entry.Name ?? string.Empty).ToLowerInvariant().Contains(filter) || entry.Id.ToString().Contains(filter);
+                    bool spriteIdExactMatch = int.TryParse(filter.Trim(), out int sid) && entry.SpriteId == sid;
+                    if (!nameOrIdMatch && !spriteIdExactMatch)
                         continue;
                 }
 
                 items.Add(new SprListItem
                 {
                     Id = entry.Id,
-                    Name = entry.Name,
+                    Name = entry.Name ?? "",
                     SpriteId = entry.SpriteId,
                     ImageCount = entry.ImageCount,
                     TypeId = entry.TypeId,
                     ActionCount = entry.Actions.Count,
                     Entry = entry
                 });
+            }
+
+            // 篩選時圖檔(SpriteId) 完全符合的條目優先排列
+            if (!string.IsNullOrEmpty(filter) && int.TryParse(filter.Trim(), out int filterSpriteId))
+            {
+                items = items.OrderBy(i => i.SpriteId != filterSpriteId).ThenBy(i => i.Id).ToList();
             }
 
             _filteredSprListEntries = items.Select(i => i.Entry).ToList();

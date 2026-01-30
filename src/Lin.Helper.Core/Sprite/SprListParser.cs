@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -26,6 +27,16 @@ namespace Lin.Helper.Core.Sprite
 
         private static readonly Regex AttributePattern = new Regex(
             @"(\d+)\.([a-zA-Z_][a-zA-Z0-9_\s]*)\(([^)]*)\)",
+            RegexOptions.Compiled);
+
+        /// <summary>屬性無名稱格式，如 101.(3226) 102.(5) 105.(1 6262)</summary>
+        private static readonly Regex AttributeNoNamePattern = new Regex(
+            @"(\d+)\.\(([^),]+)\)",
+            RegexOptions.Compiled);
+
+        /// <summary>動作無名稱格式，如 0.(1 4,0.0:4 0.1:4) 對應 0.walk(1 4,...)</summary>
+        private static readonly Regex ActionNoNamePattern = new Regex(
+            @"(\d+)\.\((\d+)\s+(\d+),([^)]+)\)",
             RegexOptions.Compiled);
 
         private static readonly Regex FramePattern = new Regex(
@@ -94,10 +105,11 @@ namespace Lin.Helper.Core.Sprite
                 {
                     if (currentEntry != null)
                     {
-                        if (isCompactFormat)
-                            ParseCompactEntryContent(currentEntry, currentEntryLines);
-                        else
+                        bool useStandard = !isCompactFormat || BodyLooksStandard(currentEntryLines);
+                        if (useStandard)
                             ParseEntryContent(currentEntry, currentEntryLines);
+                        else
+                            ParseCompactEntryContent(currentEntry, currentEntryLines);
                         result.Entries.Add(currentEntry);
                     }
 
@@ -118,10 +130,11 @@ namespace Lin.Helper.Core.Sprite
 
             if (currentEntry != null)
             {
-                if (isCompactFormat)
-                    ParseCompactEntryContent(currentEntry, currentEntryLines);
-                else
+                bool useStandard = !isCompactFormat || BodyLooksStandard(currentEntryLines);
+                if (useStandard)
                     ParseEntryContent(currentEntry, currentEntryLines);
+                else
+                    ParseCompactEntryContent(currentEntry, currentEntryLines);
                 result.Entries.Add(currentEntry);
             }
 
@@ -142,6 +155,16 @@ namespace Lin.Helper.Core.Sprite
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Body 是否為標準格式（0.(1 4,...)、102.(5) 等），若為是則需用 ParseEntryContent 才能解析動作與類型並出圖。
+        /// </summary>
+        private static bool BodyLooksStandard(List<string> contentLines)
+        {
+            if (contentLines == null || contentLines.Count == 0) return false;
+            var s = string.Join(" ", contentLines);
+            return ActionNoNamePattern.IsMatch(s) || AttributeNoNamePattern.IsMatch(s);
         }
 
         private static SprListEntry ParseEntryHeader(string line, bool isCompactFormat = false)
@@ -283,16 +306,42 @@ namespace Lin.Helper.Core.Sprite
                     entry.Actions.Add(action);
             }
 
-            var attrMatches = AttributePattern.Matches(fullContent);
-            foreach (Match match in attrMatches)
+            foreach (Match match in ActionNoNamePattern.Matches(fullContent))
+            {
+                var action = ParseActionFromNoName(match);
+                if (action != null && !entry.Actions.Any(a => a.ActionId == action.ActionId))
+                    entry.Actions.Add(action);
+            }
+
+            ParseAndAddStandardAttributes(entry, contentLines);
+        }
+
+        /// <summary>
+        /// 從 content 解析標準／無名稱屬性 (101.type(5) 或 102.(5)) 並加入 entry。
+        /// Compact 格式的 body 若為 102.(5) 風格，也會經由此處補上類型等屬性。
+        /// </summary>
+        private static void ParseAndAddStandardAttributes(SprListEntry entry, List<string> contentLines)
+        {
+            var fullContent = string.Join(" ", contentLines);
+
+            foreach (Match match in AttributePattern.Matches(fullContent))
             {
                 int attrId = int.Parse(match.Groups[1].Value);
-                if (attrId >= 100)
-                {
-                    var attr = ParseAttribute(match);
-                    if (attr != null)
-                        entry.Attributes.Add(attr);
-                }
+                if (attrId < 100 || entry.Attributes.Any(a => a.AttributeId == attrId))
+                    continue;
+                var attr = ParseAttribute(match);
+                if (attr != null)
+                    entry.Attributes.Add(attr);
+            }
+
+            foreach (Match match in AttributeNoNamePattern.Matches(fullContent))
+            {
+                int attrId = int.Parse(match.Groups[1].Value);
+                if (attrId < 100 || entry.Attributes.Any(a => a.AttributeId == attrId))
+                    continue;
+                var attr = ParseAttributeFromNoName(match);
+                if (attr != null)
+                    entry.Attributes.Add(attr);
             }
         }
 
@@ -404,6 +453,8 @@ namespace Lin.Helper.Core.Sprite
                         entry.Actions.Add(action);
                 }
             }
+
+            ParseAndAddStandardAttributes(entry, contentLines);
         }
 
         private static string ExtractLeadingNumber(string s)
@@ -655,6 +706,21 @@ namespace Lin.Helper.Core.Sprite
             return action;
         }
 
+        private static SprAction ParseActionFromNoName(Match match)
+        {
+            int actionId = int.Parse(match.Groups[1].Value);
+            var action = new SprAction
+            {
+                RawText = match.Value,
+                ActionId = actionId,
+                ActionName = GetActionNameById(actionId),
+                Directional = int.Parse(match.Groups[2].Value),
+                FrameCount = int.Parse(match.Groups[3].Value)
+            };
+            action.Frames = ParseFrames(match.Groups[4].Value);
+            return action;
+        }
+
         private static List<SprActionFrame> ParseFrames(string framesStr)
         {
             var frames = new List<SprActionFrame>();
@@ -721,6 +787,24 @@ namespace Lin.Helper.Core.Sprite
                 attr.Parameters.AddRange(parts);
             }
 
+            return attr;
+        }
+
+        private static SprAttribute ParseAttributeFromNoName(Match match)
+        {
+            int attrId = int.Parse(match.Groups[1].Value);
+            var paramsStr = match.Groups[2].Value;
+            var attr = new SprAttribute
+            {
+                AttributeId = attrId,
+                AttributeName = GetAttributeNameById(attrId),
+                RawParameters = paramsStr
+            };
+            if (!string.IsNullOrWhiteSpace(paramsStr))
+            {
+                var parts = paramsStr.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                attr.Parameters.AddRange(parts);
+            }
             return attr;
         }
     }
