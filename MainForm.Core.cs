@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Eto;
 using Eto.Forms;
@@ -29,37 +31,56 @@ namespace PakViewer
             // 只載入有效的 client 資料夾（含 .idx 檔案的資料夾）
             if (!string.IsNullOrEmpty(_settings.LastClientFolder) && Directory.Exists(_settings.LastClientFolder))
             {
-                _selectedFolder = _settings.LastClientFolder;
-                _folderLabel.Text = Path.GetFileName(_selectedFolder);
-
-                // Find .idx files
-                var idxFiles = Directory.GetFiles(_selectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
-
-                _idxDropDown.Items.Clear();
-                if (idxFiles.Length > 1)
-                    _idxDropDown.Items.Add(I18n.T("Filter.All"));  // Add "All" option when multiple IDX files
-                foreach (var file in idxFiles.OrderBy(f => f))
+                try
                 {
-                    _idxDropDown.Items.Add(Path.GetFileName(file));
-                }
+                    // 建立 LinClientProvider
+                    _currentProvider = new LinClientProvider(_settings.LastClientFolder);
 
-                if (_idxDropDown.Items.Count > 0)
+                    _selectedFolder = _settings.LastClientFolder;
+                    _folderLabel.Text = Path.GetFileName(_selectedFolder);
+
+                    // 從 Provider 取得選項填入下拉選單
+                    _idxDropDown.Items.Clear();
+                    foreach (var option in _currentProvider.GetSourceOptions())
+                    {
+                        _idxDropDown.Items.Add(option);
+                    }
+
+                    if (_idxDropDown.Items.Count > 0)
+                    {
+                        // 嘗試選取上次的 IDX，或預設選項
+                        int selectIndex = -1;
+                        if (!string.IsNullOrEmpty(_settings.LastIdxFile))
+                        {
+                            selectIndex = _idxDropDown.Items.ToList().FindIndex(i => i.Text == _settings.LastIdxFile);
+                        }
+                        if (selectIndex < 0)
+                        {
+                            // 使用 Provider 的預設選項
+                            var currentOption = _currentProvider.CurrentSourceOption;
+                            var matchItem = _idxDropDown.Items.FirstOrDefault(i => i.Text == currentOption);
+                            selectIndex = matchItem != null ? _idxDropDown.Items.IndexOf(matchItem) : 0;
+                        }
+                        _idxDropDown.SelectedIndex = selectIndex >= 0 ? selectIndex : 0;
+
+                        // 套用選取的選項
+                        var selected = _idxDropDown.SelectedValue?.ToString();
+                        if (!string.IsNullOrEmpty(selected))
+                        {
+                            _currentProvider.SetSourceOption(selected);
+                        }
+                    }
+
+                    // 更新副檔名篩選和檔案列表
+                    UpdateExtensionFilter();
+                    RefreshFileList();
+
+                    _statusLabel.Text = $"Loaded last session: {Path.GetFileName(_selectedFolder)}";
+                }
+                catch (Exception ex)
                 {
-                    // Select last idx file or text.idx
-                    int selectIndex = -1;
-                    if (!string.IsNullOrEmpty(_settings.LastIdxFile))
-                    {
-                        selectIndex = _idxDropDown.Items.ToList().FindIndex(i => i.Text == _settings.LastIdxFile);
-                    }
-                    if (selectIndex < 0)
-                    {
-                        var textIdx = _idxDropDown.Items.FirstOrDefault(i => i.Text.Equals("text.idx", StringComparison.OrdinalIgnoreCase));
-                        selectIndex = textIdx != null ? _idxDropDown.Items.IndexOf(textIdx) : 0;
-                    }
-                    _idxDropDown.SelectedIndex = selectIndex >= 0 ? selectIndex : 0;
+                    System.Diagnostics.Debug.WriteLine($"LoadLastSession failed: {ex.Message}");
                 }
-
-                _statusLabel.Text = $"Loaded last session: {Path.GetFileName(_selectedFolder)}";
             }
         }
 
@@ -170,7 +191,7 @@ namespace PakViewer
 
             // Refresh record count
             if (_filteredIndexes != null)
-                _recordCountLabel.Text = I18n.T("Status.Records", _filteredIndexes.Count, _currentPak?.Files.Count ?? 0);
+                _recordCountLabel.Text = I18n.T("Status.Records", _filteredIndexes.Count, _currentProvider?.Count ?? 0);
 
             // Update buttons
             if (_openFolderBtn != null)
@@ -429,10 +450,6 @@ namespace PakViewer
 
             fileContextMenu.Items.Add(new SeparatorMenuItem());
 
-            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
-            exportMenuItem.Click += OnExportSelected;
-            fileContextMenu.Items.Add(exportMenuItem);
-
             var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             exportToMenuItem.Click += OnExportSelectedTo;
             fileContextMenu.Items.Add(exportToMenuItem);
@@ -600,12 +617,9 @@ namespace PakViewer
             sprGroupUnselectAllMenuItem.Click += OnSprGroupUnselectAll;
             var sprGroupDeleteMenuItem = new ButtonMenuItem { Text = I18n.T("Context.Delete") };
             sprGroupDeleteMenuItem.Click += OnSprGroupDelete;
-            var sprGroupExportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
-            sprGroupExportMenuItem.Click += OnSprGroupExport;
             var sprGroupExportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             sprGroupExportToMenuItem.Click += OnSprGroupExportTo;
 
-            sprGroupContextMenu.Items.Add(sprGroupExportMenuItem);
             sprGroupContextMenu.Items.Add(sprGroupExportToMenuItem);
             sprGroupContextMenu.Items.Add(new SeparatorMenuItem());
             sprGroupContextMenu.Items.Add(sprGroupSelectAllMenuItem);
@@ -974,18 +988,8 @@ namespace PakViewer
 
         private Bitmap LoadThumbnailForFileItem(FileItem fileItem, int size)
         {
-            // 使用 _currentProvider 或 PAK 模式
-            if (_currentProvider != null)
-            {
-                return LoadThumbnailForFileItem(fileItem, size, _currentProvider);
-            }
-            else
-            {
-                var pak = fileItem.SourcePak ?? _currentPak;
-                if (pak == null) return null;
-                var data = pak.Extract(fileItem.Index);
-                return LoadThumbnailFromData(data, fileItem.FileName, size);
-            }
+            if (_currentProvider == null) return null;
+            return LoadThumbnailForFileItem(fileItem, size, _currentProvider);
         }
 
         /// <summary>
@@ -1128,11 +1132,10 @@ namespace PakViewer
         {
             if (item?.Tag is FileItem fileItem)
             {
-                var pak = fileItem.SourcePak ?? _currentPak;
-                if (pak == null) return;
+                if (fileItem.SourcePak == null) return;
 
                 // 開啟詳細檢視視窗
-                var dialog = new ViewerDialog(pak, _rightGalleryItems, item.Index);
+                var dialog = new ViewerDialog(fileItem.SourcePak, _rightGalleryItems, item.Index);
                 dialog.Show();
             }
         }
@@ -1165,39 +1168,18 @@ namespace PakViewer
             var openInTabMenuItem = new ButtonMenuItem { Text = I18n.T("Context.OpenInNewTab") };
             openInTabMenuItem.Click += (s, e) =>
             {
-                var pak = fileItem.SourcePak ?? _currentPak;
-                if (pak == null) return;
-                var dialog = new ViewerDialog(pak, _rightGalleryItems, galleryIndex);
+                if (fileItem.SourcePak == null) return;
+                var dialog = new ViewerDialog(fileItem.SourcePak, _rightGalleryItems, galleryIndex);
                 dialog.Show();
             };
             menu.Items.Add(openInTabMenuItem);
 
             menu.Items.Add(new SeparatorMenuItem());
 
-            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
-            exportMenuItem.Click += (s, e) =>
-            {
-                var pak = fileItem.SourcePak ?? _currentPak;
-                if (pak == null) return;
-                try
-                {
-                    var data = pak.Extract(fileItem.Index);
-                    var savePath = Path.Combine(_selectedFolder ?? ".", fileItem.FileName);
-                    File.WriteAllBytes(savePath, data);
-                    _statusLabel.Text = string.Format(I18n.T("Status.Exported"), 1);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(this, ex.Message, I18n.T("Dialog.Error"), MessageBoxType.Error);
-                }
-            };
-            menu.Items.Add(exportMenuItem);
-
             var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             exportToMenuItem.Click += (s, e) =>
             {
-                var pak = fileItem.SourcePak ?? _currentPak;
-                if (pak == null) return;
+                if (fileItem.SourcePak == null) return;
 
                 var dialog = new SaveFileDialog
                 {
@@ -1209,7 +1191,7 @@ namespace PakViewer
                 {
                     try
                     {
-                        var data = pak.Extract(fileItem.Index);
+                        var data = fileItem.SourcePak.Extract(fileItem.Index);
                         File.WriteAllBytes(dialog.FileName, data);
                         _statusLabel.Text = string.Format(I18n.T("Status.Exported"), 1);
                     }
@@ -1233,10 +1215,6 @@ namespace PakViewer
 
         private void BuildSprGroupContextMenu(ContextMenu menu, SprGroup sprGroup)
         {
-            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
-            exportMenuItem.Click += (s, e) => ExportSprGroup(sprGroup, false);
-            menu.Items.Add(exportMenuItem);
-
             var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             exportToMenuItem.Click += (s, e) => ExportSprGroup(sprGroup, true);
             menu.Items.Add(exportToMenuItem);
@@ -1253,14 +1231,6 @@ namespace PakViewer
 
         private void BuildSprListItemContextMenu(ContextMenu menu, SprListItem sprListItem)
         {
-            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
-            exportMenuItem.Click += (s, e) =>
-            {
-                if (_sprGroups != null && _sprGroups.TryGetValue(sprListItem.SpriteId, out var group))
-                    ExportSprGroup(group, false);
-            };
-            menu.Items.Add(exportMenuItem);
-
             var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             exportToMenuItem.Click += (s, e) =>
             {
@@ -1499,12 +1469,7 @@ namespace PakViewer
             {
                 try
                 {
-                    // 清除舊的 PAK 模式
-                    _currentPak?.Dispose();
-                    _currentPak = null;
-                    _allPakFiles?.Values.ToList().ForEach(p => p?.Dispose());
-                    _allPakFiles = null;
-                    _isAllIdxMode = false;
+                    // 清除舊的 Provider
                     _currentProvider?.Dispose();
 
                     // 重置搜索狀態
@@ -2624,68 +2589,16 @@ namespace PakViewer
             _contentSearchResults = null;
             _contentSearchBox.Text = "";
 
-            // Provider 模式 - 讓 Provider 處理選項變更
-            if (_currentProvider != null)
-            {
-                var selected = _idxDropDown.SelectedValue?.ToString();
-                if (!string.IsNullOrEmpty(selected))
-                {
-                    _currentProvider.SetSourceOption(selected);
-                    UpdateExtensionFilter();
-                    RefreshFileList();
-                }
-                return;
-            }
-
-            if (string.IsNullOrEmpty(_selectedFolder))
+            if (_currentProvider == null)
                 return;
 
-            // 在 SPR 或 SPR List 模式時，IDX 是鎖定的，不處理
-            if (_viewModeRadio.SelectedIndex != MODE_NORMAL)
-                return;
-
-            var selectedLegacy = _idxDropDown.SelectedValue.ToString();
-            if (selectedLegacy == I18n.T("Filter.All"))
+            // 讓 Provider 處理選項變更
+            var selected = _idxDropDown.SelectedValue?.ToString();
+            if (!string.IsNullOrEmpty(selected))
             {
-                LoadAllIdxFiles();
-            }
-            else
-            {
-                _isAllIdxMode = false;
-                _allPakFiles = null;
-                var idxFile = Path.Combine(_selectedFolder, selectedLegacy);
-                LoadIdxFile(idxFile);
-            }
-        }
-
-        private void LoadAllIdxFiles()
-        {
-            if (string.IsNullOrEmpty(_selectedFolder)) return;
-
-            _isAllIdxMode = true;
-            _allPakFiles = new Dictionary<string, PakFile>();
-
-            var idxFiles = Directory.GetFiles(_selectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
-            foreach (var idxFile in idxFiles.OrderBy(f => f))
-            {
-                try
-                {
-                    var idxName = Path.GetFileName(idxFile);
-                    var pak = new PakFile(idxFile);
-                    _allPakFiles[idxName] = pak;
-                }
-                catch { }
-            }
-
-            // Set first PAK as current (for fallback)
-            _currentPak = _allPakFiles.Values.FirstOrDefault();
-            UpdateExtensionFilter();
-            RefreshFileList();
-
-            // 如果在相簿模式，重新整理相簿
-            if (_galleryModeRadio?.Checked == true)
-            {
-                RefreshRightGallery();
+                _currentProvider.SetSourceOption(selected);
+                UpdateExtensionFilter();
+                RefreshFileList();
             }
         }
 
@@ -2947,8 +2860,9 @@ namespace PakViewer
         {
             try
             {
-                _currentPak?.Dispose();
-                _currentPak = new PakFile(idxPath);
+                // 清理舊的 provider
+                _currentProvider?.Dispose();
+                _currentProvider = new SinglePakProvider(idxPath);
 
                 _selectedFolder = Path.GetDirectoryName(idxPath);
                 _folderLabel.Text = Path.GetFileName(_selectedFolder);
@@ -2971,7 +2885,8 @@ namespace PakViewer
                     RefreshRightGallery();
                 }
 
-                _statusLabel.Text = $"Loaded: {Path.GetFileName(idxPath)} ({_currentPak.Count} files, {_currentPak.EncryptionType})";
+                var singleProvider = (SinglePakProvider)_currentProvider;
+                _statusLabel.Text = $"Loaded: {Path.GetFileName(idxPath)} ({singleProvider.Count} files, {singleProvider.PakFile.EncryptionType})";
             }
             catch (Exception ex)
             {
@@ -2981,34 +2896,7 @@ namespace PakViewer
 
         private void UpdateExtensionFilter()
         {
-            IEnumerable<string> extensions;
-
-            // Provider 模式
-            if (_currentProvider != null)
-            {
-                extensions = _currentProvider.GetExtensions();
-            }
-            else if (_isAllIdxMode && _allPakFiles != null)
-            {
-                extensions = _allPakFiles.Values
-                    .SelectMany(pak => pak.Files)
-                    .Select(f => Path.GetExtension(f.FileName).ToLowerInvariant())
-                    .Where(ext => !string.IsNullOrEmpty(ext))
-                    .Distinct()
-                    .OrderBy(ext => ext);
-            }
-            else if (_currentPak != null)
-            {
-                extensions = _currentPak.Files
-                    .Select(f => Path.GetExtension(f.FileName).ToLowerInvariant())
-                    .Where(ext => !string.IsNullOrEmpty(ext))
-                    .Distinct()
-                    .OrderBy(ext => ext);
-            }
-            else
-            {
-                extensions = Enumerable.Empty<string>();
-            }
+            var extensions = _currentProvider?.GetExtensions() ?? Enumerable.Empty<string>();
 
             _extFilterDropDown.Items.Clear();
             _extFilterDropDown.Items.Add("All");
@@ -3078,58 +2966,159 @@ namespace PakViewer
             RefreshFileList();
         }
 
-        private void OnContentSearch(object sender, EventArgs e)
+        private CancellationTokenSource _searchCancellation;
+
+        // 跳過的二進制/圖片檔案副檔名（這些不會有可搜尋的文字內容）
+        private static readonly HashSet<string> SkipSearchExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".spr", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".img", ".til", ".wav", ".mp3", ".ogg"
+        };
+
+        private async void OnContentSearch(object sender, EventArgs e)
         {
             var keyword = _contentSearchBox.Text?.Trim();
             if (string.IsNullOrEmpty(keyword))
                 return;
 
-            if (_isAllIdxMode)
+            if (_currentProvider == null)
             {
-                MessageBox.Show(this, "Content search is not supported in 'All IDX' mode.\nPlease select a specific IDX file.", "Content Search", MessageBoxType.Information);
+                MessageBox.Show(this, "Please open a folder or IDX file first.", "Content Search", MessageBoxType.Information);
                 return;
             }
 
-            if (_currentPak == null)
-                return;
+            // 取消之前的搜尋
+            _searchCancellation?.Cancel();
+            _searchCancellation = new CancellationTokenSource();
+            var cancellationToken = _searchCancellation.Token;
 
             _contentSearchKeyword = keyword;
-            _statusLabel.Text = I18n.T("Status.SearchingContent");
+            var provider = _currentProvider;
 
-            // 先提取所有檔案資料（PAK 提取不一定 thread-safe）
-            var fileDataList = new List<(int Index, string FileName, string Ext, byte[] Data)>();
-            for (int i = 0; i < _currentPak.Count; i++)
+            // 預先篩選可搜尋的檔案（跳過已知的二進制/圖片檔案）
+            var searchableFiles = new List<(int Index, string FileName, string Ext)>();
+            for (int i = 0; i < provider.Count; i++)
             {
-                try
+                var file = provider.Files[i];
+                var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (!SkipSearchExtensions.Contains(ext))
                 {
-                    var file = _currentPak.Files[i];
-                    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-                    var data = _currentPak.Extract(i);
-                    fileDataList.Add((i, file.FileName, ext, data));
+                    searchableFiles.Add((i, file.FileName, ext));
                 }
-                catch { }
             }
 
-            // 平行搜尋
+            var totalCount = searchableFiles.Count;
+            if (totalCount == 0)
+            {
+                MessageBox.Show(this, "No searchable text files found.", "Content Search", MessageBoxType.Information);
+                return;
+            }
+
+            // 建立進度對話框
+            var progressDialog = new Dialog
+            {
+                Title = "Content Search",
+                MinimumSize = new Size(400, 120),
+                Resizable = false
+            };
+
+            var progressBar = new ProgressBar { MinValue = 0, MaxValue = totalCount };
+            var progressLabel = new Label { Text = $"Searching 0 / {totalCount} text files..." };
+            var cancelButton = new Button { Text = "Cancel" };
+            cancelButton.Click += (s, ev) =>
+            {
+                _searchCancellation?.Cancel();
+                progressDialog.Close();
+            };
+
+            progressDialog.Content = new StackLayout
+            {
+                Padding = 20,
+                Spacing = 10,
+                Items =
+                {
+                    progressLabel,
+                    progressBar,
+                    new StackLayoutItem(cancelButton, HorizontalAlignment.Center)
+                }
+            };
+
+            // 進度更新計數器
+            int processed = 0;
             var results = new System.Collections.Concurrent.ConcurrentBag<int>();
-            System.Threading.Tasks.Parallel.ForEach(fileDataList, item =>
+
+            // 背景搜尋任務 - 使用 Partitioner 減少同步開銷，增加平行度
+            var searchTask = Task.Run(() =>
+            {
+                var partitioner = Partitioner.Create(searchableFiles, EnumerablePartitionerOptions.NoBuffering);
+                var parallelOptions = new ParallelOptions
+                {
+                    CancellationToken = cancellationToken,
+                    MaxDegreeOfParallelism = Environment.ProcessorCount * 2  // I/O bound，可以更高
+                };
+
+                Parallel.ForEach(partitioner, parallelOptions, item =>
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        return;
+
+                    try
+                    {
+                        var data = provider.Extract(item.Index);
+
+                        using var viewer = Viewers.ViewerFactory.CreateViewer(item.Ext);
+                        var text = viewer.GetTextContent(data, item.FileName);
+
+                        if (text != null && text.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                        {
+                            results.Add(item.Index);
+                        }
+                    }
+                    catch { }
+
+                    Interlocked.Increment(ref processed);
+                });
+            }, cancellationToken);
+
+            // 進度更新 Timer
+            var progressTimer = new UITimer { Interval = 0.1 };
+            progressTimer.Elapsed += (s, ev) =>
+            {
+                var current = processed;
+                progressBar.Value = Math.Min(current, totalCount);
+                progressLabel.Text = $"Searching {current} / {totalCount} text files... (found {results.Count})";
+
+                if (searchTask.IsCompleted)
+                {
+                    progressTimer.Stop();
+                    progressDialog.Close();
+                }
+            };
+            progressTimer.Start();
+
+            // 顯示對話框
+            progressDialog.ShowModal(this);
+
+            // 對話框關閉後（完成或取消）
+            progressTimer.Stop();
+
+            if (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    using var viewer = Viewers.ViewerFactory.CreateViewer(item.Ext);
-                    var text = viewer.GetTextContent(item.Data, item.FileName);
-
-                    if (text != null && text.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                    {
-                        results.Add(item.Index);
-                    }
+                    await searchTask;
+                    _contentSearchResults = new HashSet<int>(results);
+                    _statusLabel.Text = $"Content search: found {_contentSearchResults.Count} files containing '{keyword}'";
+                    RefreshFileList();
                 }
-                catch { }
-            });
-
-            _contentSearchResults = new HashSet<int>(results);
-            _statusLabel.Text = $"Content search: found {_contentSearchResults.Count} files containing '{keyword}'";
-            RefreshFileList();
+                catch (OperationCanceledException)
+                {
+                    _statusLabel.Text = "Search cancelled";
+                }
+            }
+            else
+            {
+                _statusLabel.Text = "Search cancelled";
+            }
         }
 
         private void OnClearContentSearch(object sender, EventArgs e)
@@ -3147,119 +3136,71 @@ namespace PakViewer
             _filteredIndexes = new List<int>();
             int totalCount = 0;
 
-            // Provider 模式 (資料夾/單一檔案)
-            if (_currentProvider != null)
+            if (_currentProvider == null)
+                return;
+
+            totalCount = _currentProvider.Count;
+            var showIdxColumn = _currentProvider.HasMultipleSourceOptions;
+
+            for (int i = 0; i < _currentProvider.Count; i++)
             {
-                totalCount = _currentProvider.Count;
+                var file = _currentProvider.Files[i];
+                var fileName = file.FileName;
+                var lowerName = fileName.ToLowerInvariant();
 
-                for (int i = 0; i < _currentProvider.Count; i++)
+                // Apply extension filter
+                if (_currentExtFilter != "All")
                 {
-                    var file = _currentProvider.Files[i];
-                    var fileName = file.FileName;
-                    var lowerName = fileName.ToLowerInvariant();
-
-                    // Apply extension filter
-                    if (_currentExtFilter != "All")
-                    {
-                        var ext = Path.GetExtension(fileName).ToLowerInvariant();
-                        if (ext != _currentExtFilter)
-                            continue;
-                    }
-
-                    // Apply filename search filter
-                    if (!string.IsNullOrEmpty(_currentFilter))
-                    {
-                        if (!fileName.Contains(_currentFilter, StringComparison.OrdinalIgnoreCase))
-                            continue;
-                    }
-
-                    _filteredIndexes.Add(i);
-                    items.Add(new FileItem
-                    {
-                        Index = i,
-                        FileName = fileName,
-                        FileSize = (int)file.FileSize,
-                        Offset = file.Offset,
-                        IdxName = file.SourceName,
-                        SourcePak = null  // Provider 模式不使用 SourcePak
-                    });
-                }
-            }
-            else
-            {
-                // PAK 模式
-                // Get PAK files to iterate
-                IEnumerable<KeyValuePair<string, PakFile>> pakSources;
-                if (_isAllIdxMode && _allPakFiles != null)
-                {
-                    pakSources = _allPakFiles;
-                }
-                else if (_currentPak != null)
-                {
-                    var currentIdxName = _idxDropDown.SelectedValue?.ToString() ?? "";
-                    pakSources = new[] { new KeyValuePair<string, PakFile>(currentIdxName, _currentPak) };
-                }
-                else
-                {
-                    return;
+                    var ext = Path.GetExtension(fileName).ToLowerInvariant();
+                    if (ext != _currentExtFilter)
+                        continue;
                 }
 
-                foreach (var pakEntry in pakSources)
+                // Apply language filter
+                if (_currentLangFilter != "All")
                 {
-                    var idxName = pakEntry.Key;
-                    var pak = pakEntry.Value;
-                    totalCount += pak.Count;
-
-                    for (int i = 0; i < pak.Count; i++)
-                    {
-                        var file = pak.Files[i];
-                        var fileName = file.FileName;
-                        var lowerName = fileName.ToLowerInvariant();
-
-                        // Apply extension filter
-                        if (_currentExtFilter != "All")
-                        {
-                            var ext = Path.GetExtension(fileName).ToLowerInvariant();
-                            if (ext != _currentExtFilter)
-                                continue;
-                        }
-
-                        // Apply language filter
-                        if (_currentLangFilter != "All")
-                        {
-                            bool hasLangSuffix = lowerName.Contains(_currentLangFilter + ".") ||
-                                                 lowerName.Contains(_currentLangFilter + "_") ||
-                                                 lowerName.EndsWith(_currentLangFilter);
-                            if (!hasLangSuffix)
-                                continue;
-                        }
-
-                        // Apply filename search filter
-                        if (!string.IsNullOrEmpty(_currentFilter))
-                        {
-                            if (!fileName.Contains(_currentFilter, StringComparison.OrdinalIgnoreCase))
-                                continue;
-                        }
-
-                        // Apply content search filter (only for single PAK mode)
-                        if (!_isAllIdxMode && _contentSearchResults != null)
-                        {
-                            if (!_contentSearchResults.Contains(i))
-                                continue;
-                        }
-
-                        _filteredIndexes.Add(i);
-                        items.Add(new FileItem
-                        {
-                            Index = i,
-                            FileName = fileName,
-                            FileSize = file.FileSize,
-                            Offset = file.Offset,
-                            IdxName = _isAllIdxMode ? idxName : null,
-                            SourcePak = pak
-                        });
-                    }
+                    bool hasLangSuffix = lowerName.Contains(_currentLangFilter + ".") ||
+                                         lowerName.Contains(_currentLangFilter + "_") ||
+                                         lowerName.EndsWith(_currentLangFilter);
+                    if (!hasLangSuffix)
+                        continue;
                 }
+
+                // Apply filename search filter
+                if (!string.IsNullOrEmpty(_currentFilter))
+                {
+                    if (!fileName.Contains(_currentFilter, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                }
+
+                // Apply content search filter
+                if (_contentSearchResults != null)
+                {
+                    if (!_contentSearchResults.Contains(i))
+                        continue;
+                }
+
+                // 取得對應的 PakFile (用於提取)
+                PakFile sourcePak = null;
+                if (_currentProvider is SinglePakProvider singleProvider)
+                {
+                    sourcePak = singleProvider.PakFile;
+                }
+                else if (_currentProvider is LinClientProvider linProvider)
+                {
+                    sourcePak = linProvider.GetPakFile(file.SourceName);
+                }
+
+                _filteredIndexes.Add(i);
+                items.Add(new FileItem
+                {
+                    Index = i,
+                    FileName = fileName,
+                    FileSize = (int)file.FileSize,
+                    Offset = file.Offset,
+                    IdxName = showIdxColumn ? file.SourceName : null,
+                    SourcePak = sourcePak
+                });
             }
 
             // Apply sorting if any
@@ -3372,23 +3313,10 @@ namespace PakViewer
 
             try
             {
-                byte[] data;
+                if (_currentProvider == null) return;
 
-                // Provider 模式
-                if (_currentProvider != null)
-                {
-                    data = _currentProvider.Extract(selected.Index);
-                    _currentViewerPak = null;
-                }
-                else
-                {
-                    // PAK 模式
-                    var pak = selected.SourcePak ?? _currentPak;
-                    if (pak == null) return;
-
-                    data = pak.Extract(selected.Index);
-                    _currentViewerPak = pak;
-                }
+                var data = _currentProvider.Extract(selected.Index);
+                _currentViewerPak = selected.SourcePak;  // 用於儲存功能
 
                 var ext = Path.GetExtension(selected.FileName).ToLowerInvariant();
 
@@ -3518,7 +3446,7 @@ namespace PakViewer
             foreach (var row in _fileGrid.SelectedRows)
             {
                 var item = (FileItem)_fileGrid.DataStore.ElementAt(row);
-                var pak = item.SourcePak ?? _currentPak;
+                var pak = item.SourcePak;
                 if (pak == null) { failed++; continue; }
                 try
                 {
@@ -3552,7 +3480,7 @@ namespace PakViewer
             foreach (var row in _fileGrid.SelectedRows)
             {
                 var item = (FileItem)_fileGrid.DataStore.ElementAt(row);
-                var pak = item.SourcePak ?? _currentPak;
+                var pak = item.SourcePak;
                 if (pak == null) continue;
 
                 try
@@ -3599,7 +3527,7 @@ namespace PakViewer
 
             foreach (var item in sprItems)
             {
-                var pak = item.SourcePak ?? _currentPak;
+                var pak = item.SourcePak;
                 if (pak == null) continue;
 
                 try
@@ -3663,101 +3591,69 @@ namespace PakViewer
 
             var count = itemsToDelete.Count;
 
-            if (_isAllIdxMode)
+            // 按來源 PAK 分組
+            var groupedByPak = itemsToDelete
+                .Where(item => item.SourcePak != null)
+                .GroupBy(item => item.SourcePak)
+                .ToList();
+
+            if (groupedByPak.Count == 0)
             {
-                // All IDX 模式: 按來源 PAK 分組
-                var groupedByPak = itemsToDelete
-                    .Where(item => item.SourcePak != null)
-                    .GroupBy(item => item.SourcePak)
-                    .ToList();
+                MessageBox.Show(this, I18n.T("Status.NoSelection"), I18n.T("Context.Delete"), MessageBoxType.Information);
+                return;
+            }
 
-                if (groupedByPak.Count == 0)
-                {
-                    MessageBox.Show(this, I18n.T("Status.NoSelection"), I18n.T("Context.Delete"), MessageBoxType.Information);
-                    return;
-                }
-
-                // 組建確認訊息，顯示各 PAK 刪除數量
+            // 組建確認訊息
+            string confirmMessage = I18n.T("Dialog.DeleteConfirm", count);
+            if (groupedByPak.Count > 1)
+            {
+                // 多個 PAK 時顯示詳細資訊
                 var detailLines = groupedByPak
                     .Select(g => $"  {Path.GetFileName(g.Key.PakPath)}: {g.Count()}")
                     .ToList();
-                var detailText = string.Join("\n", detailLines);
-
-                var result = MessageBox.Show(this,
-                    I18n.T("Dialog.DeleteConfirm", count) + $"\n\n{detailText}",
-                    I18n.T("Context.Delete"),
-                    MessageBoxButtons.YesNo,
-                    MessageBoxType.Warning);
-
-                if (result != DialogResult.Yes) return;
-
-                try
-                {
-                    // 逐個 PAK 處理刪除
-                    foreach (var group in groupedByPak)
-                    {
-                        var pak = group.Key;
-                        // 從大到小排序，避免 index 變動問題
-                        var sortedItems = group.OrderByDescending(item => item.Index).ToList();
-
-                        foreach (var item in sortedItems)
-                        {
-                            pak.Delete(item.Index);
-                        }
-
-                        // 儲存此 PAK 的變更
-                        pak.Save();
-                    }
-
-                    // 重新載入檔案列表
-                    RefreshFileList();
-
-                    _statusLabel.Text = I18n.T("Status.Deleted", count);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(this, $"{I18n.T("Error.DeleteFailed")}: {ex.Message}", I18n.T("Error.Title"), MessageBoxType.Error);
-                }
+                confirmMessage += $"\n\n{string.Join("\n", detailLines)}";
             }
-            else
+
+            var result = MessageBox.Show(this,
+                confirmMessage,
+                I18n.T("Context.Delete"),
+                MessageBoxButtons.YesNo,
+                MessageBoxType.Warning);
+
+            if (result != DialogResult.Yes) return;
+
+            try
             {
-                // 單一 IDX 模式
-                if (_currentPak == null)
+                // 逐個 PAK 處理刪除
+                foreach (var group in groupedByPak)
                 {
-                    MessageBox.Show(this, I18n.T("Status.NoSelection"), I18n.T("Context.Delete"), MessageBoxType.Information);
-                    return;
-                }
-
-                var result = MessageBox.Show(this,
-                    I18n.T("Dialog.DeleteConfirm", count),
-                    I18n.T("Context.Delete"),
-                    MessageBoxButtons.YesNo,
-                    MessageBoxType.Warning);
-
-                if (result != DialogResult.Yes) return;
-
-                try
-                {
+                    var pak = group.Key;
                     // 從大到小排序，避免 index 變動問題
-                    var sortedItems = itemsToDelete.OrderByDescending(item => item.Index).ToList();
+                    var sortedItems = group.OrderByDescending(item => item.Index).ToList();
 
                     foreach (var item in sortedItems)
                     {
-                        _currentPak.Delete(item.Index);
+                        pak.Delete(item.Index);
                     }
 
-                    // 儲存變更
-                    _currentPak.Save();
-
-                    // 重新載入檔案列表
-                    RefreshFileList();
-
-                    _statusLabel.Text = I18n.T("Status.Deleted", count);
+                    // 儲存此 PAK 的變更
+                    pak.Save();
                 }
-                catch (Exception ex)
+
+                // 如果是 SinglePakProvider，需要刷新其檔案列表
+                if (_currentProvider is SinglePakProvider singleProvider)
                 {
-                    MessageBox.Show(this, $"{I18n.T("Error.DeleteFailed")}: {ex.Message}", I18n.T("Error.Title"), MessageBoxType.Error);
+                    singleProvider.Refresh();
                 }
+
+                // 重新載入檔案列表
+                RefreshFileList();
+
+                _statusLabel.Text = I18n.T("Status.Deleted", count);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"{I18n.T("Error.DeleteFailed")}: {ex.Message}", I18n.T("Error.Title"), MessageBoxType.Error);
             }
         }
 
@@ -3767,7 +3663,7 @@ namespace PakViewer
             if (selected == null) return;
 
             // 格式: pakFileName#fileName (例如 tile.pak#SummonUi.xml)
-            var pak = selected.SourcePak ?? _currentPak;
+            var pak = selected.SourcePak;
             var pakName = pak != null ? Path.GetFileName(pak.PakPath) : "";
             var copyText = string.IsNullOrEmpty(pakName)
                 ? selected.FileName
@@ -3810,7 +3706,7 @@ namespace PakViewer
 
         private void OpenFileInNewTab(FileItem item)
         {
-            var pak = item.SourcePak ?? _currentPak;
+            var pak = item.SourcePak;
             if (pak == null) return;
 
             var tabKey = $"{pak.IdxPath}:{item.Index}";
@@ -4111,18 +4007,25 @@ namespace PakViewer
 
         private void OnExportAll(object sender, EventArgs e)
         {
-            IEnumerable<KeyValuePair<string, PakFile>> pakSources;
-            if (_isAllIdxMode && _allPakFiles != null)
+            if (_currentProvider == null)
             {
-                pakSources = _allPakFiles;
+                MessageBox.Show(this, "No PAK file loaded", "Export", MessageBoxType.Information);
+                return;
             }
-            else if (_currentPak != null)
+
+            // 從 Provider 取得 PakFiles
+            IEnumerable<KeyValuePair<string, PakFile>> pakSources;
+            if (_currentProvider is LinClientProvider linProvider)
             {
-                pakSources = new[] { new KeyValuePair<string, PakFile>(Path.GetFileName(_currentPak.IdxPath), _currentPak) };
+                pakSources = linProvider.PakFiles;
+            }
+            else if (_currentProvider is SinglePakProvider singleProvider)
+            {
+                pakSources = new[] { new KeyValuePair<string, PakFile>(singleProvider.IdxName, singleProvider.PakFile) };
             }
             else
             {
-                MessageBox.Show(this, "No PAK file loaded", "Export", MessageBoxType.Information);
+                MessageBox.Show(this, "Export not supported for this provider type", "Export", MessageBoxType.Information);
                 return;
             }
 
@@ -4534,15 +4437,13 @@ namespace PakViewer
 
         private void RestoreIdxDropDown()
         {
-            if (string.IsNullOrEmpty(_selectedFolder)) return;
+            if (_currentProvider == null) return;
 
+            // 從 Provider 取得選項填入下拉選單
             _idxDropDown.Items.Clear();
-            var idxFiles = Directory.GetFiles(_selectedFolder, "*.idx", SearchOption.TopDirectoryOnly);
-            if (idxFiles.Length > 1)
-                _idxDropDown.Items.Add(I18n.T("Filter.All"));
-            foreach (var file in idxFiles.OrderBy(f => f))
+            foreach (var option in _currentProvider.GetSourceOptions())
             {
-                _idxDropDown.Items.Add(Path.GetFileName(file));
+                _idxDropDown.Items.Add(option);
             }
 
             if (_idxDropDown.Items.Count > 0)

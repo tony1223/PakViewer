@@ -29,8 +29,7 @@ namespace PakViewer
     {
         // Data
         private string _selectedFolder;
-        private PakFile _currentPak;
-        private IFileProvider _currentProvider;  // 檔案提供者 (資料夾/單一檔案模式)
+        private IFileProvider _currentProvider;  // 檔案提供者
         private List<int> _filteredIndexes;
         private HashSet<int> _checkedIndexes = new HashSet<int>();
         private string _currentFilter = "";
@@ -67,10 +66,6 @@ namespace PakViewer
         private CheckBox _sprModeListSprCheck;      // list.spr 是否已設定
         private Label _sprModeListSprLabel;         // list.spr 路徑顯示
         private string _originalIdxText;            // 儲存原本的 IDX 選項
-
-        // All IDX mode
-        private bool _isAllIdxMode = false;
-        private Dictionary<string, PakFile> _allPakFiles;  // IdxName -> PakFile mapping
 
         // 當前預覽檔案的來源（用於儲存功能）
         private PakFile _currentViewerPak;
@@ -152,7 +147,6 @@ namespace PakViewer
         protected override void OnClosed(EventArgs e)
         {
             _currentViewer?.Dispose();
-            _currentPak?.Dispose();
             _currentProvider?.Dispose();
             base.OnClosed(e);
         }
