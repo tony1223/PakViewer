@@ -1512,6 +1512,8 @@ namespace PakViewer
                     _currentFilter = "";
                     _contentSearchKeyword = "";
                     _contentSearchResults = null;
+                    _textContentCache = null;
+                    _textContentCacheSource = null;
                     _searchBox.Text = "";
                     _contentSearchBox.Text = "";
 
@@ -2623,6 +2625,8 @@ namespace PakViewer
             _contentSearchKeyword = "";
             _contentSearchResults = null;
             _contentSearchBox.Text = "";
+            _textContentCache = null;
+            _textContentCacheSource = null;
 
             // Provider 模式 - 讓 Provider 處理選項變更
             if (_currentProvider != null)
@@ -3078,11 +3082,44 @@ namespace PakViewer
             RefreshFileList();
         }
 
-        private void OnContentSearch(object sender, EventArgs e)
+        // 可搜尋文字內容的副檔名
+        private static readonly HashSet<string> _textSearchableExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".txt", ".html", ".htm", ".xml", ".s", ".tbl", ".json", ".list"
+        };
+
+        // 文字內容快取: 切換 IDX 時清除
+        private Dictionary<int, string> _textContentCache;
+        private string _textContentCacheSource;
+
+        private async void OnContentSearch(object sender, EventArgs e)
         {
             var keyword = _contentSearchBox.Text?.Trim();
             if (string.IsNullOrEmpty(keyword))
                 return;
+
+            // Provider 模式（資料夾開啟）
+            if (_currentProvider != null)
+            {
+                if (_currentProvider.CurrentSourceOption == LinClientProvider.AllSourcesOption)
+                {
+                    MessageBox.Show(this, "Content search is not supported in 'All IDX' mode.\nPlease select a specific IDX file.", "Content Search", MessageBoxType.Information);
+                    return;
+                }
+
+                _contentSearchKeyword = keyword;
+                _statusLabel.Text = I18n.T("Status.SearchingContent");
+
+                var provider = _currentProvider as LinClientProvider;
+                if (provider == null) return;
+                var sourceKey = provider.CurrentSourceOption;
+                var results = await System.Threading.Tasks.Task.Run(() => DoContentSearchProvider(provider, sourceKey, keyword));
+
+                _contentSearchResults = results;
+                _statusLabel.Text = $"Content search: found {results.Count} files containing '{keyword}'";
+                RefreshFileList();
+                return;
+            }
 
             if (_isAllIdxMode)
             {
@@ -3096,40 +3133,144 @@ namespace PakViewer
             _contentSearchKeyword = keyword;
             _statusLabel.Text = I18n.T("Status.SearchingContent");
 
-            // 先提取所有檔案資料（PAK 提取不一定 thread-safe）
-            var fileDataList = new List<(int Index, string FileName, string Ext, byte[] Data)>();
-            for (int i = 0; i < _currentPak.Count; i++)
+            var pak = _currentPak;
+            var pakPath = pak.PakPath;
+            var results2 = await System.Threading.Tasks.Task.Run(() => DoContentSearchPak(pak, pakPath, keyword));
+
+            _contentSearchResults = results2;
+            _statusLabel.Text = $"Content search: found {results2.Count} files containing '{keyword}'";
+            RefreshFileList();
+        }
+
+        private HashSet<int> DoContentSearchProvider(LinClientProvider provider, string sourceKey, string keyword)
+        {
+            // 取得或建立文字快取
+            var cache = GetOrBuildTextCache(sourceKey, () =>
             {
-                try
+                var pakFile = provider.GetPakFile(sourceKey);
+                if (pakFile == null) return new Dictionary<int, string>();
+                return BuildTextCacheFromPak(pakFile, provider.Files);
+            });
+
+            return SearchTextCache(cache, keyword);
+        }
+
+        private HashSet<int> DoContentSearchPak(PakFile pak, string pakPath, string keyword)
+        {
+            var cache = GetOrBuildTextCache(pakPath, () => BuildTextCacheFromPakDirect(pak));
+            return SearchTextCache(cache, keyword);
+        }
+
+        private Dictionary<int, string> GetOrBuildTextCache(string sourceKey, Func<Dictionary<int, string>> builder)
+        {
+            if (_textContentCache != null && _textContentCacheSource == sourceKey)
+                return _textContentCache;
+
+            var cache = builder();
+            _textContentCache = cache;
+            _textContentCacheSource = sourceKey;
+            return cache;
+        }
+
+        /// <summary>
+        /// 從 PakFile 批次提取文字檔並建立快取 (Provider 模式)
+        /// </summary>
+        private Dictionary<int, string> BuildTextCacheFromPak(PakFile pak, IReadOnlyList<Providers.FileEntry> providerFiles)
+        {
+            // 收集需要提取的檔案: provider index -> pak internal index
+            var textFileIndices = new List<(int ProviderIndex, int PakIndex)>();
+            for (int i = 0; i < providerFiles.Count; i++)
+            {
+                var file = providerFiles[i];
+                var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (!_textSearchableExtensions.Contains(ext))
+                    continue;
+
+                // 找 pak 內的真實索引
+                var pakIndex = -1;
+                for (int j = 0; j < pak.Files.Count; j++)
                 {
-                    var file = _currentPak.Files[i];
-                    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-                    var data = _currentPak.Extract(i);
-                    fileDataList.Add((i, file.FileName, ext, data));
+                    if (pak.Files[j].FileName == file.FileName && pak.Files[j].Offset == file.Offset)
+                    { pakIndex = j; break; }
                 }
-                catch { }
+                if (pakIndex >= 0)
+                    textFileIndices.Add((i, pakIndex));
             }
 
-            // 平行搜尋
-            var results = new System.Collections.Concurrent.ConcurrentBag<int>();
-            System.Threading.Tasks.Parallel.ForEach(fileDataList, item =>
+            // 批次提取（單一 FileStream）
+            var pakIndices = textFileIndices.Select(x => x.PakIndex).ToList();
+            var extracted = pak.ExtractBatch(pakIndices);
+            var extractedDict = new Dictionary<int, byte[]>(extracted.Count);
+            foreach (var (idx, data) in extracted)
+                extractedDict[idx] = data;
+
+            // 平行解碼文字
+            var cache = new System.Collections.Concurrent.ConcurrentDictionary<int, string>();
+            System.Threading.Tasks.Parallel.ForEach(textFileIndices, item =>
             {
+                if (!extractedDict.TryGetValue(item.PakIndex, out var data) || data == null || data.Length == 0)
+                    return;
                 try
                 {
-                    using var viewer = Viewers.ViewerFactory.CreateViewer(item.Ext);
-                    var text = viewer.GetTextContent(item.Data, item.FileName);
-
-                    if (text != null && text.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                    {
-                        results.Add(item.Index);
-                    }
+                    var fileName = providerFiles[item.ProviderIndex].FileName;
+                    using var viewer = Viewers.ViewerFactory.CreateViewer(
+                        Path.GetExtension(fileName).ToLowerInvariant());
+                    var text = viewer.GetTextContent(data, fileName);
+                    if (text != null)
+                        cache[item.ProviderIndex] = text;
                 }
                 catch { }
             });
 
-            _contentSearchResults = new HashSet<int>(results);
-            _statusLabel.Text = $"Content search: found {_contentSearchResults.Count} files containing '{keyword}'";
-            RefreshFileList();
+            return new Dictionary<int, string>(cache);
+        }
+
+        /// <summary>
+        /// 從 PakFile 批次提取文字檔並建立快取 (直接 PAK 模式)
+        /// </summary>
+        private Dictionary<int, string> BuildTextCacheFromPakDirect(PakFile pak)
+        {
+            var textIndices = new List<int>();
+            for (int i = 0; i < pak.Files.Count; i++)
+            {
+                var ext = Path.GetExtension(pak.Files[i].FileName).ToLowerInvariant();
+                if (_textSearchableExtensions.Contains(ext))
+                    textIndices.Add(i);
+            }
+
+            var extracted = pak.ExtractBatch(textIndices);
+
+            var cache = new System.Collections.Concurrent.ConcurrentDictionary<int, string>();
+            System.Threading.Tasks.Parallel.ForEach(extracted, item =>
+            {
+                if (item.Data == null || item.Data.Length == 0) return;
+                try
+                {
+                    var fileName = pak.Files[item.Index].FileName;
+                    using var viewer = Viewers.ViewerFactory.CreateViewer(
+                        Path.GetExtension(fileName).ToLowerInvariant());
+                    var text = viewer.GetTextContent(item.Data, fileName);
+                    if (text != null)
+                        cache[item.Index] = text;
+                }
+                catch { }
+            });
+
+            return new Dictionary<int, string>(cache);
+        }
+
+        /// <summary>
+        /// 在文字快取中搜尋關鍵字
+        /// </summary>
+        private static HashSet<int> SearchTextCache(Dictionary<int, string> cache, string keyword)
+        {
+            var results = new System.Collections.Concurrent.ConcurrentBag<int>();
+            System.Threading.Tasks.Parallel.ForEach(cache, kvp =>
+            {
+                if (kvp.Value.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                    results.Add(kvp.Key);
+            });
+            return new HashSet<int>(results);
         }
 
         private void OnClearContentSearch(object sender, EventArgs e)
@@ -3170,6 +3311,13 @@ namespace PakViewer
                     if (!string.IsNullOrEmpty(_currentFilter))
                     {
                         if (!fileName.Contains(_currentFilter, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                    }
+
+                    // Apply content search filter
+                    if (_contentSearchResults != null)
+                    {
+                        if (!_contentSearchResults.Contains(i))
                             continue;
                     }
 
