@@ -316,6 +316,68 @@ namespace Lin.Helper.Core.Pak
             }
         }
 
+        /// <summary>
+        /// 批次提取多個檔案（共用同一個 FileStream，減少 I/O 開銷）
+        /// 索引會依 offset 排序讀取以利循序 I/O。
+        /// </summary>
+        /// <param name="indices">要提取的檔案索引</param>
+        /// <returns>依照傳入順序回傳 (index, data) 對</returns>
+        public List<(int Index, byte[] Data)> ExtractBatch(IEnumerable<int> indices)
+        {
+            // 依 offset 排序以利循序 I/O
+            var sorted = indices
+                .Where(i => i >= 0 && i < _records.Count)
+                .Select(i => (Index: i, Record: _records[i]))
+                .OrderBy(x => x.Record.Offset)
+                .ToList();
+
+            var resultDict = new Dictionary<int, byte[]>(sorted.Count);
+
+            using (var fs = new FileStream(_pakPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                bufferSize: 65536, FileOptions.SequentialScan))
+            {
+                foreach (var (idx, rec) in sorted)
+                {
+                    try
+                    {
+                        byte[] data;
+                        if (_encryptionType == "ExtB" && rec.CompressedSize > 0)
+                        {
+                            data = new byte[rec.CompressedSize];
+                            fs.Seek(rec.Offset, SeekOrigin.Begin);
+                            fs.ReadExactly(data, 0, rec.CompressedSize);
+                            data = DecompressExtB(data, rec.FileSize);
+                        }
+                        else
+                        {
+                            data = new byte[rec.FileSize];
+                            fs.Seek(rec.Offset, SeekOrigin.Begin);
+                            fs.ReadExactly(data, 0, rec.FileSize);
+
+                            if (_isProtected && _encryptionType == "L1")
+                            {
+                                data = PakTools.Decode(data, 0);
+                            }
+                        }
+                        resultDict[idx] = data;
+                    }
+                    catch
+                    {
+                        // skip failed files
+                    }
+                }
+            }
+
+            // 依照原始順序回傳
+            var result = new List<(int Index, byte[] Data)>(resultDict.Count);
+            foreach (var i in indices)
+            {
+                if (resultDict.TryGetValue(i, out var d))
+                    result.Add((i, d));
+            }
+            return result;
+        }
+
         private byte[] DecompressExtB(byte[] compressedData, int originalSize)
         {
             // 嘗試 Brotli 解壓縮

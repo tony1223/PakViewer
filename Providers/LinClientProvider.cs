@@ -113,14 +113,37 @@ namespace PakViewer.Providers
             if (!_pakFiles.TryGetValue(entry.SourceName, out var pak))
                 throw new InvalidOperationException($"PAK file not found: {entry.SourceName}");
 
-            // 找出在該 PAK 內的實際索引
-            var pakIndex = pak.Files.ToList().FindIndex(f =>
-                f.FileName == entry.FileName && f.Offset == entry.Offset);
+            // 使用快取的索引對照表
+            var pakIndex = GetPakIndex(entry.SourceName, entry.FileName, entry.Offset);
 
             if (pakIndex < 0)
                 throw new InvalidOperationException($"File not found in PAK: {entry.FileName}");
 
             return pak.Extract(pakIndex);
+        }
+
+        // 快取: (idxName) -> { (fileName, offset) -> pakIndex }
+        private readonly Dictionary<string, Dictionary<(string, long), int>> _pakIndexCache
+            = new Dictionary<string, Dictionary<(string, long), int>>(StringComparer.OrdinalIgnoreCase);
+
+        private int GetPakIndex(string idxName, string fileName, long offset)
+        {
+            if (!_pakIndexCache.TryGetValue(idxName, out var indexMap))
+            {
+                if (!_pakFiles.TryGetValue(idxName, out var pak))
+                    return -1;
+
+                indexMap = new Dictionary<(string, long), int>();
+                var files = pak.Files;
+                for (int i = 0; i < files.Count; i++)
+                {
+                    var f = files[i];
+                    indexMap[(f.FileName, f.Offset)] = i;
+                }
+                _pakIndexCache[idxName] = indexMap;
+            }
+
+            return indexMap.TryGetValue((fileName, offset), out var idx) ? idx : -1;
         }
 
         public IEnumerable<string> GetExtensions()
