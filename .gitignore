@@ -5,6 +5,7 @@ publish
 .idea
 /.claude/settings.local.json
 resources/
-tools/
+tools/*/bin/
+tools/*/obj/
 nuget.config
 nupkg/

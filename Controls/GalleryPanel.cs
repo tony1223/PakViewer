@@ -70,6 +70,8 @@ namespace PakViewer.Controls
             _drawable.MouseDoubleClick += OnMouseDoubleClick;
             _drawable.MouseMove += OnMouseMove;
             _drawable.MouseLeave += OnMouseLeave;
+            _drawable.CanFocus = true;
+            _drawable.KeyDown += OnKeyDown;
 
             Content = _drawable;
             ScrollPosition = Point.Empty;
@@ -245,6 +247,8 @@ namespace PakViewer.Controls
                 _selectedIndex = index;
                 _drawable.Invalidate();
 
+                _drawable.Focus();
+
                 if (e.Buttons == MouseButtons.Alternate)  // 右鍵
                 {
                     ItemRightClicked?.Invoke(this, _items[index]);
@@ -281,6 +285,44 @@ namespace PakViewer.Controls
             {
                 _hoverIndex = -1;
                 _drawable.Invalidate();
+            }
+        }
+
+        private void OnKeyDown(object sender, KeyEventArgs e)
+        {
+            if (_items.Count == 0) return;
+
+            int itemHeight = _thumbnailSize + LABEL_HEIGHT + PADDING * 2;
+            int visibleRows = Math.Max(1, (int)(Height / itemHeight));
+
+            switch (e.Key)
+            {
+                case Keys.PageDown:
+                    {
+                        int newScrollY = ScrollPosition.Y + visibleRows * itemHeight;
+                        int maxScrollY = Math.Max(0, _drawable.Height - (int)Height);
+                        ScrollPosition = new Point(ScrollPosition.X, Math.Min(newScrollY, maxScrollY));
+                        e.Handled = true;
+                    }
+                    break;
+                case Keys.PageUp:
+                    {
+                        int newScrollY = ScrollPosition.Y - visibleRows * itemHeight;
+                        ScrollPosition = new Point(ScrollPosition.X, Math.Max(0, newScrollY));
+                        e.Handled = true;
+                    }
+                    break;
+                case Keys.Home:
+                    ScrollPosition = new Point(ScrollPosition.X, 0);
+                    e.Handled = true;
+                    break;
+                case Keys.End:
+                    {
+                        int maxScrollY = Math.Max(0, _drawable.Height - (int)Height);
+                        ScrollPosition = new Point(ScrollPosition.X, maxScrollY);
+                        e.Handled = true;
+                    }
+                    break;
             }
         }
 

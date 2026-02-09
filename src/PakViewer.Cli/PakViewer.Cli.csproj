@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>PakViewer.Cli</RootNamespace>
+    <AssemblyName>pakviewer-cli</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- 版本號設定 (可透過 /p:Version=1.yy.MMddHHmm 覆蓋) -->
+    <Version>1.0.0</Version>
+    <!-- 抑制 NuGet 警告 -->
+    <!-- NU1510: System.Text.Encoding.CodePages 是必要的 (用於文字編碼偵測) -->
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lin.Helper.Core\Lin.Helper.Core.csproj" />
+  </ItemGroup>
+
+</Project>

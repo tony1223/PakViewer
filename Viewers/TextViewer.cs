@@ -14,6 +14,11 @@ namespace PakViewer.Viewers
     public class TextViewer : BaseViewer
     {
         private TextArea _textArea;
+        private Drawable _lineNumberGutter;
+        private UITimer _scrollTimer;
+        private Font _editorFont;
+        private int _firstVisibleLine;
+        private int _lineCount;
         private TextBox _searchBox;
         private Label _searchResultLabel;
         private Label _encryptLabel;
@@ -59,21 +64,58 @@ namespace PakViewer.Viewers
 
             _text = encoding.GetString(displayData);
 
+            _editorFont = new Font("Consolas, monospace", 12);
+
             _textArea = new TextArea
             {
                 ReadOnly = false,
                 Text = _text,
-                Font = new Font("Consolas, monospace", 12),
+                Font = _editorFont,
                 Wrap = false  // 不自動換行，允許水平捲動
             };
+
+            _lineCount = CountLines(_text);
+
+            // 行號面板
+            _lineNumberGutter = new Drawable();
+            _lineNumberGutter.Paint += PaintLineNumbers;
+            UpdateGutterWidth();
 
             // 監聽文字變更
             _textArea.TextChanged += (s, e) =>
             {
                 _hasChanges = (_textArea.Text != _text);
+                _lineCount = CountLines(_textArea.Text);
+                UpdateGutterWidth();
+                _lineNumberGutter.Invalidate();
             };
 
-            _control = _textArea;
+            // 捲動同步計時器
+            _scrollTimer = new UITimer { Interval = 0.05 };
+            _scrollTimer.Elapsed += (s, e) =>
+            {
+                int newFirst = GetFirstVisibleLine();
+                if (newFirst != _firstVisibleLine)
+                {
+                    _firstVisibleLine = newFirst;
+                    _lineNumberGutter.Invalidate();
+                }
+            };
+            _scrollTimer.Start();
+
+            var layout = new TableLayout
+            {
+                Spacing = Size.Empty,
+                Rows =
+                {
+                    new TableRow(
+                        new TableCell(_lineNumberGutter, false),
+                        new TableCell(_textArea, true)
+                    )
+                }
+            };
+
+            _control = layout;
         }
 
         private bool IsXmlFile(string fileName)
@@ -319,8 +361,89 @@ namespace PakViewer.Viewers
             return encoding.GetString(displayData);
         }
 
+        #region 行號
+
+        private static int CountLines(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return 1;
+            int count = 1;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (text[i] == '\n') count++;
+            }
+            return count;
+        }
+
+        private void UpdateGutterWidth()
+        {
+            int digits = Math.Max(3, _lineCount.ToString().Length);
+            _lineNumberGutter.Width = (digits * 9) + 16;
+        }
+
+        private int GetFirstVisibleLine()
+        {
+            try
+            {
+                // WPF: System.Windows.Controls.TextBox.GetFirstVisibleLineIndex()
+                dynamic native = _textArea.ControlObject;
+                int line = (int)native.GetFirstVisibleLineIndex();
+                if (line >= 0) return line;
+            }
+            catch { }
+
+            // Fallback: 使用游標位置估算
+            return Math.Max(0, GetLineFromCharIndex(_textArea.CaretIndex));
+        }
+
+        private int GetLineFromCharIndex(int charIndex)
+        {
+            var text = _textArea.Text ?? "";
+            int line = 0;
+            for (int i = 0; i < charIndex && i < text.Length; i++)
+            {
+                if (text[i] == '\n') line++;
+            }
+            return line;
+        }
+
+        private void PaintLineNumbers(object sender, PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            float w = _lineNumberGutter.Width;
+            float h = _lineNumberGutter.Height;
+
+            // 背景
+            g.FillRectangle(new Color(0.95f, 0.95f, 0.95f), 0, 0, w, h);
+
+            float lineHeight = _editorFont.LineHeight;
+            float padding = 1f;
+            int visibleLines = (int)(h / lineHeight) + 2;
+
+            for (int i = 0; i < visibleLines; i++)
+            {
+                int lineNum = _firstVisibleLine + i + 1;
+                if (lineNum > _lineCount) break;
+
+                float y = padding + i * lineHeight;
+                string numStr = lineNum.ToString();
+                var size = g.MeasureString(_editorFont, numStr);
+                float x = w - size.Width - 8;
+
+                g.DrawText(_editorFont, Colors.Gray, x, y, numStr);
+            }
+
+            // 右側分隔線
+            g.DrawLine(new Color(0.85f, 0.85f, 0.85f), w - 1, 0, w - 1, h);
+        }
+
+        #endregion
+
         public override void Dispose()
         {
+            _scrollTimer?.Stop();
+            _scrollTimer = null;
+            _lineNumberGutter = null;
+            _editorFont = null;
             _textArea = null;
             _searchBox = null;
             _text = null;

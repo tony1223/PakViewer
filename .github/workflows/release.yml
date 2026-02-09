@@ -78,6 +78,25 @@ jobs:
         name: ${{ env.PROJECT_NAME }}-win-x64
         path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-win-x64.zip
 
+    # CLI Build
+    - name: Restore CLI dependencies
+      run: dotnet restore src/PakViewer.Cli/PakViewer.Cli.csproj -r win-x64
+
+    - name: Build CLI (Self-Contained)
+      run: |
+        dotnet publish src/PakViewer.Cli/PakViewer.Cli.csproj -f net10.0 --configuration Release --runtime win-x64 --self-contained true --no-restore -o publish-cli /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
+
+    - name: Create CLI ZIP
+      shell: pwsh
+      run: |
+        Compress-Archive -Path "publish-cli/*" -DestinationPath "pakviewer-cli-${{ steps.get_version.outputs.TAG }}-win-x64.zip"
+
+    - name: Upload CLI artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: pakviewer-cli-win-x64
+        path: pakviewer-cli-${{ steps.get_version.outputs.TAG }}-win-x64.zip
+
   build-linux:
     runs-on: ubuntu-latest
 
@@ -135,6 +154,23 @@ jobs:
       with:
         name: ${{ env.PROJECT_NAME }}-linux-x64
         path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-linux-x64.zip
+
+    # CLI Build
+    - name: Build CLI
+      run: |
+        dotnet publish src/PakViewer.Cli/PakViewer.Cli.csproj -f net10.0 --configuration Release --runtime linux-x64 --self-contained true -o publish-cli /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
+
+    - name: Create CLI ZIP
+      run: |
+        cd publish-cli
+        chmod +x pakviewer-cli* 2>/dev/null || true
+        zip -r "../pakviewer-cli-${{ steps.get_version.outputs.TAG }}-linux-x64.zip" .
+
+    - name: Upload CLI artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: pakviewer-cli-linux-x64
+        path: pakviewer-cli-${{ steps.get_version.outputs.TAG }}-linux-x64.zip
 
   build-macos:
     runs-on: macos-latest
@@ -222,6 +258,23 @@ jobs:
         name: ${{ env.PROJECT_NAME }}-osx-universal
         path: ${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.dmg
 
+    # CLI Build (arm64 only)
+    - name: Build CLI
+      run: |
+        dotnet publish src/PakViewer.Cli/PakViewer.Cli.csproj -f net10.0 --configuration Release --runtime osx-arm64 --self-contained true -o publish-cli /p:PublishSingleFile=true /p:Version=${{ steps.get_version.outputs.DOTNET_VERSION }}
+
+    - name: Create CLI ZIP
+      run: |
+        cd publish-cli
+        chmod +x pakviewer-cli* 2>/dev/null || true
+        zip -r "../pakviewer-cli-${{ steps.get_version.outputs.TAG }}-osx-arm64.zip" .
+
+    - name: Upload CLI artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: pakviewer-cli-osx-arm64
+        path: pakviewer-cli-${{ steps.get_version.outputs.TAG }}-osx-arm64.zip
+
   release:
     needs: [build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
@@ -256,12 +309,22 @@ jobs:
 
           ### Downloads
 
+          #### GUI (PakViewer)
+
           | Platform | File | Note |
           |----------|------|------|
-          | Windows x64 | `*-win-x64.zip` | 需安裝 [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
-          | Windows x64 | `*-win-x64-self-contained.zip` | 包含 .NET Runtime，可直接執行 |
-          | Linux x64 | `*-linux-x64.zip` | Self-contained |
-          | macOS Universal | `*-osx-universal.dmg` | Self-contained, 支援 Intel & Apple Silicon |
+          | Windows x64 | `PakViewer-*-win-x64.zip` | 需安裝 [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
+          | Windows x64 | `PakViewer-*-win-x64-self-contained.zip` | 包含 .NET Runtime，可直接執行 |
+          | Linux x64 | `PakViewer-*-linux-x64.zip` | Self-contained |
+          | macOS Universal | `PakViewer-*-osx-universal.dmg` | Self-contained, 支援 Intel & Apple Silicon |
+
+          #### CLI (pakviewer-cli)
+
+          | Platform | File | Note |
+          |----------|------|------|
+          | Windows x64 | `pakviewer-cli-*-win-x64.zip` | Self-contained |
+          | Linux x64 | `pakviewer-cli-*-linux-x64.zip` | Self-contained |
+          | macOS arm64 | `pakviewer-cli-*-osx-arm64.zip` | Self-contained (Apple Silicon) |
 
           ### macOS / Linux 使用說明
 
