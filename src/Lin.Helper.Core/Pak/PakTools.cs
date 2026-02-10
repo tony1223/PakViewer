@@ -299,10 +299,17 @@ namespace Lin.Helper.Core.Pak
         public int FileSize;
         public string SourcePak;
         /// <summary>
-        /// 壓縮後大小 (僅 ExtB 格式使用)
+        /// 壓縮後大小 (ExtB / _EXT 格式使用)
         /// </summary>
         public int CompressedSize;
+        /// <summary>
+        /// 旗標 (_EXT 格式: 0=未壓縮, 2=已壓縮)
+        /// </summary>
+        public int Flags;
 
+        /// <summary>
+        /// 從舊格式 (28 bytes) 解析
+        /// </summary>
         public IndexRecord(byte[] data, int index)
         {
             // 使用 unsigned 讀取以支援超過 2GB 的 PAK
@@ -311,6 +318,7 @@ namespace Lin.Helper.Core.Pak
             FileSize = BitConverter.ToInt32(data, index + 24);
             SourcePak = null;
             CompressedSize = 0;
+            Flags = 0;
         }
 
         public IndexRecord(string filename, int size, long offset)
@@ -320,6 +328,7 @@ namespace Lin.Helper.Core.Pak
             FileSize = size;
             SourcePak = null;
             CompressedSize = 0;
+            Flags = 0;
         }
 
         public IndexRecord(string filename, int size, long offset, string sourcePak)
@@ -329,10 +338,78 @@ namespace Lin.Helper.Core.Pak
             FileSize = size;
             SourcePak = sourcePak;
             CompressedSize = 0;
+            Flags = 0;
+        }
+
+        private static string ExtractNullTerminated(byte[] data, int offset, int maxLen)
+        {
+            int end = Array.IndexOf(data, (byte)0, offset, maxLen);
+            int len = (end >= 0) ? end - offset : maxLen;
+            return Encoding.Default.GetString(data, offset, len);
+        }
+
+        /// <summary>
+        /// 從 _EXT 格式條目 (128 bytes) 解析
+        /// </summary>
+        public static IndexRecord FromExtEntry(byte[] data, int index)
+        {
+            return new IndexRecord
+            {
+                Offset = BitConverter.ToUInt32(data, index),
+                FileSize = BitConverter.ToInt32(data, index + 4),
+                CompressedSize = BitConverter.ToInt32(data, index + 8),
+                Flags = BitConverter.ToInt32(data, index + 12),
+                FileName = ExtractNullTerminated(data, index + 16, 112),
+                SourcePak = null
+            };
+        }
+
+        /// <summary>
+        /// 序列化為 _EXT 格式 (128 bytes)
+        /// </summary>
+        public byte[] ToExtBytes()
+        {
+            byte[] data = new byte[128];
+            BitConverter.GetBytes((uint)Offset).CopyTo(data, 0);
+            BitConverter.GetBytes(FileSize).CopyTo(data, 4);
+            BitConverter.GetBytes(CompressedSize).CopyTo(data, 8);
+            BitConverter.GetBytes(Flags).CopyTo(data, 12);
+            byte[] nameBytes = Encoding.Default.GetBytes(FileName);
+            Array.Copy(nameBytes, 0, data, 16, Math.Min(nameBytes.Length, 111));
+            return data;
+        }
+
+        /// <summary>
+        /// 序列化為舊格式 (28 bytes)
+        /// </summary>
+        public byte[] ToOldBytes()
+        {
+            byte[] data = new byte[28];
+            BitConverter.GetBytes((uint)Offset).CopyTo(data, 0);
+            byte[] nameBytes = Encoding.Default.GetBytes(FileName);
+            Array.Copy(nameBytes, 0, data, 4, Math.Min(nameBytes.Length, 20));
+            BitConverter.GetBytes(FileSize).CopyTo(data, 24);
+            return data;
+        }
+
+        /// <summary>
+        /// 序列化為 _IDX 格式 (32 bytes): offset(4) + filename(20) + size(4) + flags(4)
+        /// </summary>
+        public byte[] ToIdxV2Bytes()
+        {
+            byte[] data = new byte[32];
+            BitConverter.GetBytes((uint)Offset).CopyTo(data, 0);
+            byte[] nameBytes = Encoding.Default.GetBytes(FileName);
+            Array.Copy(nameBytes, 0, data, 4, Math.Min(nameBytes.Length, 20));
+            BitConverter.GetBytes(FileSize).CopyTo(data, 24);
+            BitConverter.GetBytes(Flags).CopyTo(data, 28);
+            return data;
         }
 
         public override string ToString()
         {
+            if (Flags == 2 && CompressedSize > 0)
+                return $"{FileName} (size={FileSize}, compressed={CompressedSize}, offset=0x{Offset:X})";
             return $"{FileName} (size={FileSize}, offset=0x{Offset:X})";
         }
     }

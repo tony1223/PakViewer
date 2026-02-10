@@ -2,9 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Lin.Helper.Core.Pak
 {
@@ -13,6 +11,8 @@ namespace Lin.Helper.Core.Pak
     /// </summary>
     public class PakFile : IDisposable
     {
+        private static readonly IdxHandler[] _prototypes = IdxHandler.CreatePrototypes();
+
         private readonly string _idxPath;
         private readonly string _pakPath;
         private List<IndexRecord> _records;
@@ -20,6 +20,7 @@ namespace Lin.Helper.Core.Pak
         private string _encryptionType;
         private bool _disposed;
         private bool _modified;
+        private IdxHandler _handler;
 
         // 待處理的變更
         private readonly List<PendingChange> _pendingChanges = new List<PendingChange>();
@@ -40,7 +41,7 @@ namespace Lin.Helper.Core.Pak
         public bool IsProtected => _isProtected;
 
         /// <summary>
-        /// 加密類型 (L1/DES/ExtB/None)
+        /// 加密類型 (L1/DES/ExtB/Ext/Ext+DES/Idx/Idx+DES/None)
         /// </summary>
         public string EncryptionType => _encryptionType;
 
@@ -72,6 +73,17 @@ namespace Lin.Helper.Core.Pak
             LoadIndex();
         }
 
+        private PakFile(string idxPath, string pakPath, IdxHandler handler,
+                        bool isProtected, string encryptionType)
+        {
+            _idxPath = idxPath;
+            _pakPath = pakPath;
+            _handler = handler;
+            _isProtected = isProtected;
+            _encryptionType = encryptionType;
+            _records = new List<IndexRecord>();
+        }
+
         /// <summary>
         /// 建立新的 PAK 檔案
         /// </summary>
@@ -79,190 +91,36 @@ namespace Lin.Helper.Core.Pak
         {
             string pakPath = Path.ChangeExtension(idxPath, ".pak");
 
-            // 建立空的 IDX 和 PAK 檔案
-            byte[] emptyIdx = encrypted
-                ? new byte[] { 0, 0, 0, 0 } // 4 bytes header (count = 0)
-                : new byte[] { 0, 0, 0, 0 };
-
+            var handler = new OldL1Handler(encrypted);
+            byte[] emptyIdx = handler.BuildIndex(new List<IndexRecord>());
             File.WriteAllBytes(idxPath, emptyIdx);
-            File.WriteAllBytes(pakPath, new byte[0]);
+            File.WriteAllBytes(pakPath, Array.Empty<byte>());
 
-            return new PakFile(idxPath);
+            return new PakFile(idxPath, pakPath, handler,
+                               encrypted, encrypted ? "L1" : "None");
         }
 
         private void LoadIndex()
         {
             byte[] idxData = File.ReadAllBytes(_idxPath);
 
-            // 嘗試自動偵測格式
-            var result = LoadIndexAuto(idxData);
-            if (result == null)
-                throw new InvalidDataException("Cannot parse IDX file");
-
-            (_records, _isProtected, _encryptionType) = result.Value;
-        }
-
-        private (List<IndexRecord> records, bool isProtected, string encryptionType)? LoadIndexAuto(byte[] idxData)
-        {
-            // 1. 嘗試 ExtB 格式
-            if (IsExtBFormat(idxData))
+            foreach (var proto in _prototypes)
             {
-                var extbResult = LoadIndexExtB(idxData);
-                if (extbResult != null)
-                    return (extbResult.Value.records, true, "ExtB");
-            }
+                if (!proto.CanHandle(idxData)) continue;
 
-            // 2. 嘗試標準 L1 加密
-            var l1Result = LoadIndexL1(idxData);
-            if (l1Result != null)
-                return (l1Result.Value.records, l1Result.Value.isProtected, l1Result.Value.isProtected ? "L1" : "None");
-
-            // 3. 嘗試 DES 加密
-            var desResult = LoadIndexDES(idxData);
-            if (desResult != null)
-                return (desResult.Value.records, true, "DES");
-
-            return null;
-        }
-
-        private (List<IndexRecord> records, bool isProtected)? LoadIndexL1(byte[] idxData)
-        {
-            if (idxData.Length < 32)
-                return null;
-
-            // 檢查是否加密
-            IndexRecord firstRecord = PakTools.DecodeIndexFirstRecord(idxData);
-            bool isProtected = !Regex.IsMatch(
-                Encoding.Default.GetString(idxData, 8, 20),
-                "^([a-zA-Z0-9_\\-\\.']+)",
-                RegexOptions.IgnoreCase);
-
-            if (isProtected)
-            {
-                if (!Regex.IsMatch(firstRecord.FileName, "^([a-zA-Z0-9_\\-\\.']+)", RegexOptions.IgnoreCase))
-                    return null;
-            }
-
-            byte[] indexData = isProtected ? PakTools.Decode(idxData, 4) : idxData;
-
-            int recordSize = 28;
-            int startOffset = isProtected ? 0 : 4;
-            int recordCount = (indexData.Length - startOffset) / recordSize;
-            var records = new List<IndexRecord>(recordCount);
-
-            for (int i = 0; i < recordCount; i++)
-            {
-                records.Add(new IndexRecord(indexData, startOffset + i * recordSize));
-            }
-
-            return (records, isProtected);
-        }
-
-        private (List<IndexRecord> records, bool isProtected)? LoadIndexDES(byte[] idxData)
-        {
-            if (idxData.Length < 32)
-                return null;
-
-            int recordCount = BitConverter.ToInt32(idxData, 0);
-            int expectedSize = 4 + recordCount * 28;
-
-            if (idxData.Length != expectedSize || recordCount <= 0 || recordCount > 100000)
-                return null;
-
-            byte[] key = new byte[] { 0x7e, 0x21, 0x40, 0x23, 0x25, 0x5e, 0x24, 0x3c }; // ~!@#%^$<
-            byte[] entriesData = new byte[idxData.Length - 4];
-            Array.Copy(idxData, 4, entriesData, 0, entriesData.Length);
-
-            try
-            {
-                using (var des = DES.Create())
+                var handler = proto.CreateInstance();
+                var result = handler.TryParse(idxData);
+                if (result != null)
                 {
-                    des.Key = key;
-                    des.Mode = CipherMode.ECB;
-                    des.Padding = PaddingMode.None;
-
-                    using (var decryptor = des.CreateDecryptor())
-                    {
-                        int blockCount = entriesData.Length / 8;
-                        for (int i = 0; i < blockCount; i++)
-                        {
-                            int offset = i * 8;
-                            byte[] block = new byte[8];
-                            Array.Copy(entriesData, offset, block, 0, 8);
-                            byte[] decrypted = decryptor.TransformFinalBlock(block, 0, 8);
-                            Array.Copy(decrypted, 0, entriesData, offset, 8);
-                        }
-                    }
+                    _handler = handler;
+                    _records = result.Records;
+                    _isProtected = result.IsProtected;
+                    _encryptionType = result.EncryptionType;
+                    return;
                 }
-
-                var records = new List<IndexRecord>(recordCount);
-                for (int i = 0; i < recordCount; i++)
-                {
-                    var rec = new IndexRecord(entriesData, i * 28);
-                    // 驗證檔名是否合理
-                    if (!Regex.IsMatch(rec.FileName, "^([a-zA-Z0-9_\\-\\.']+)", RegexOptions.IgnoreCase))
-                        return null;
-                    records.Add(rec);
-                }
-
-                return (records, true);
             }
-            catch
-            {
-                return null;
-            }
-        }
 
-        private bool IsExtBFormat(byte[] data)
-        {
-            if (data.Length < 6) return false;
-            return data[0] == '_' && data[1] == 'E' && data[2] == 'X' &&
-                   data[3] == 'T' && data[4] == 'B' && data[5] == '$';
-        }
-
-        private (List<IndexRecord> records, bool isProtected)? LoadIndexExtB(byte[] idxData)
-        {
-            if (!IsExtBFormat(idxData))
-                return null;
-
-            try
-            {
-                int pos = 6;
-                int recordCount = BitConverter.ToInt32(idxData, pos);
-                pos += 4;
-
-                var records = new List<IndexRecord>(recordCount);
-
-                for (int i = 0; i < recordCount; i++)
-                {
-                    // 使用 unsigned 讀取以支援超過 2GB 的 PAK
-                    long offset = BitConverter.ToUInt32(idxData, pos);
-                    pos += 4;
-                    int size = BitConverter.ToInt32(idxData, pos);
-                    pos += 4;
-                    int compressedSize = BitConverter.ToInt32(idxData, pos);
-                    pos += 4;
-
-                    int nameLen = 0;
-                    while (pos + nameLen < idxData.Length && idxData[pos + nameLen] != 0)
-                        nameLen++;
-
-                    string fileName = Encoding.Default.GetString(idxData, pos, nameLen);
-                    pos += nameLen + 1;
-
-                    var rec = new IndexRecord(fileName, size, offset)
-                    {
-                        CompressedSize = compressedSize
-                    };
-                    records.Add(rec);
-                }
-
-                return (records, true);
-            }
-            catch
-            {
-                return null;
-            }
+            throw new InvalidDataException("Cannot parse IDX file");
         }
 
         #region 讀取操作
@@ -290,63 +148,7 @@ namespace Lin.Helper.Core.Pak
 
             using (var fs = new FileStream(_pakPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
-                byte[] data;
-
-                if (_encryptionType == "ExtB" && rec.CompressedSize > 0)
-                {
-                    // ExtB 格式需要解壓縮
-                    data = new byte[rec.CompressedSize];
-                    fs.Seek(rec.Offset, SeekOrigin.Begin);
-                    fs.ReadExactly(data, 0, rec.CompressedSize);
-                    data = DecompressExtB(data, rec.FileSize);
-                }
-                else
-                {
-                    data = new byte[rec.FileSize];
-                    fs.Seek(rec.Offset, SeekOrigin.Begin);
-                    fs.ReadExactly(data, 0, rec.FileSize);
-
-                    if (_isProtected && _encryptionType == "L1")
-                    {
-                        data = PakTools.Decode(data, 0);
-                    }
-                }
-
-                return data;
-            }
-        }
-
-        private byte[] DecompressExtB(byte[] compressedData, int originalSize)
-        {
-            // 嘗試 Brotli 解壓縮
-            try
-            {
-                using (var input = new MemoryStream(compressedData))
-                using (var output = new MemoryStream())
-                using (var brotli = new System.IO.Compression.BrotliStream(input, System.IO.Compression.CompressionMode.Decompress))
-                {
-                    brotli.CopyTo(output);
-                    return output.ToArray();
-                }
-            }
-            catch
-            {
-                // 嘗試 Zlib/Deflate 解壓縮
-                try
-                {
-                    using (var input = new MemoryStream(compressedData, 2, compressedData.Length - 2)) // skip zlib header
-                    using (var output = new MemoryStream())
-                    using (var deflate = new System.IO.Compression.DeflateStream(input, System.IO.Compression.CompressionMode.Decompress))
-                    {
-                        deflate.CopyTo(output);
-                        return output.ToArray();
-                    }
-                }
-                catch
-                {
-                    // 返回原始資料
-                    return compressedData;
-                }
+                return _handler.ExtractEntry(fs, rec);
             }
         }
 
@@ -496,8 +298,9 @@ namespace Lin.Helper.Core.Pak
             if (string.IsNullOrEmpty(fileName))
                 throw new ArgumentException("File name cannot be empty", nameof(fileName));
 
-            if (Encoding.Default.GetByteCount(fileName) > 19)
-                throw new ArgumentException("File name too long (max 19 bytes)", nameof(fileName));
+            int maxBytes = _handler.MaxFileNameBytes;
+            if (Encoding.Default.GetByteCount(fileName) > maxBytes)
+                throw new ArgumentException($"File name too long (max {maxBytes} bytes)", nameof(fileName));
 
             if (Contains(fileName))
                 throw new InvalidOperationException($"File already exists: {fileName}");
@@ -587,7 +390,7 @@ namespace Lin.Helper.Core.Pak
             if (!_modified || _pendingChanges.Count == 0)
                 return;
 
-            if (_encryptionType == "ExtB" || _encryptionType == "DES")
+            if (!_handler.CanWrite)
                 throw new NotSupportedException($"Writing to {_encryptionType} format is not supported");
 
             // 建立備份
@@ -658,37 +461,42 @@ namespace Lin.Helper.Core.Pak
                 string tempIdx = _idxPath + ".tmp";
 
                 var newRecords = new List<IndexRecord>();
-                long currentOffset = 0;  // 使用 long 支援大型 PAK
+                long currentOffset = 0;
 
                 using (var srcStream = new FileStream(_pakPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 using (var dstStream = new FileStream(tempPak, FileMode.Create, FileAccess.Write))
                 {
                     foreach (var (fileName, srcIndex, newData) in entries)
                     {
-                        byte[] fileData;
+                        byte[] pakData;
 
                         if (newData != null)
                         {
-                            // 新增或替換的資料
-                            fileData = _isProtected ? PakTools.Encode(newData, 0) : newData;
+                            // 新增或替換的資料：用 handler 編碼
+                            pakData = _handler.EncodeEntry(newData);
+                            newRecords.Add(new IndexRecord(fileName, pakData.Length, currentOffset));
                         }
                         else
                         {
-                            // 從原始 PAK 讀取
+                            // 從原始 PAK 複製 (保留原始 metadata)
                             var rec = _records[srcIndex];
-                            fileData = new byte[rec.FileSize];
+                            int rawSize = _handler.GetRawSize(rec);
+                            pakData = new byte[rawSize];
                             srcStream.Seek(rec.Offset, SeekOrigin.Begin);
-                            srcStream.ReadExactly(fileData, 0, rec.FileSize);
+                            srcStream.ReadExactly(pakData, 0, rawSize);
+
+                            var newRec = rec;
+                            newRec.Offset = currentOffset;
+                            newRecords.Add(newRec);
                         }
 
-                        dstStream.Write(fileData, 0, fileData.Length);
-                        newRecords.Add(new IndexRecord(fileName, fileData.Length, currentOffset));
-                        currentOffset += fileData.Length;
+                        dstStream.Write(pakData, 0, pakData.Length);
+                        currentOffset += pakData.Length;
                     }
                 }
 
                 // 重建 IDX
-                RebuildIndex(tempIdx, newRecords, _isProtected);
+                File.WriteAllBytes(tempIdx, _handler.BuildIndex(newRecords));
 
                 // 替換檔案
                 File.Delete(_pakPath);
@@ -720,48 +528,6 @@ namespace Lin.Helper.Core.Pak
                 }
                 throw;
             }
-        }
-
-        private void RebuildIndex(string idxFile, List<IndexRecord> records, bool isProtected)
-        {
-            int recordSize = 28;
-            byte[] indexData = new byte[records.Count * recordSize];
-
-            for (int i = 0; i < records.Count; i++)
-            {
-                int offset = i * recordSize;
-
-                // 將 long offset 寫為 uint (限制最大 2GB 以確保相容性)
-                if (records[i].Offset > int.MaxValue)
-                    throw new InvalidOperationException($"File offset exceeds 2GB limit: {records[i].FileName}");
-                byte[] offsetBytes = BitConverter.GetBytes((uint)records[i].Offset);
-                Array.Copy(offsetBytes, 0, indexData, offset, 4);
-
-                byte[] nameBytes = Encoding.Default.GetBytes(records[i].FileName);
-                Array.Copy(nameBytes, 0, indexData, offset + 4, Math.Min(nameBytes.Length, 20));
-
-                byte[] sizeBytes = BitConverter.GetBytes(records[i].FileSize);
-                Array.Copy(sizeBytes, 0, indexData, offset + 24, 4);
-            }
-
-            byte[] finalData;
-            if (isProtected)
-            {
-                byte[] encoded = PakTools.Encode(indexData, 0);
-                finalData = new byte[4 + encoded.Length];
-                byte[] countBytes = BitConverter.GetBytes(records.Count);
-                Array.Copy(countBytes, 0, finalData, 0, 4);
-                Array.Copy(encoded, 0, finalData, 4, encoded.Length);
-            }
-            else
-            {
-                finalData = new byte[4 + indexData.Length];
-                byte[] countBytes = BitConverter.GetBytes(records.Count);
-                Array.Copy(countBytes, 0, finalData, 0, 4);
-                Array.Copy(indexData, 0, finalData, 4, indexData.Length);
-            }
-
-            File.WriteAllBytes(idxFile, finalData);
         }
 
         #endregion

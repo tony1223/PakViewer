@@ -3441,27 +3441,7 @@ namespace PakViewer
                 return;
             }
 
-            int exported = 0;
-            int failed = 0;
-            foreach (var row in _fileGrid.SelectedRows)
-            {
-                var item = (FileItem)_fileGrid.DataStore.ElementAt(row);
-                var pak = item.SourcePak;
-                if (pak == null) { failed++; continue; }
-                try
-                {
-                    var data = pak.Extract(item.Index);
-                    var outputPath = Path.Combine(outputFolder, item.FileName);
-                    File.WriteAllBytes(outputPath, data);
-                    exported++;
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    System.Diagnostics.Debug.WriteLine($"Export failed: {item.FileName} - {ex.Message}");
-                }
-            }
-
+            var (exported, failed) = ExportFilesToFolder(outputFolder);
             _statusLabel.Text = $"Exported {exported} files to {outputFolder}" + (failed > 0 ? $" ({failed} failed)" : "");
         }
 
@@ -3476,24 +3456,48 @@ namespace PakViewer
             using var dialog = new SelectFolderDialog { Title = "Select Export Folder" };
             if (dialog.ShowDialog(this) != DialogResult.Ok) return;
 
+            var (exported, _) = ExportFilesToFolder(dialog.Directory);
+            MessageBox.Show(this, $"Exported {exported} files", "Export Complete", MessageBoxType.Information);
+        }
+
+        private (int exported, int failed) ExportFilesToFolder(string outputFolder)
+        {
             int exported = 0;
+            int failed = 0;
+
             foreach (var row in _fileGrid.SelectedRows)
             {
                 var item = (FileItem)_fileGrid.DataStore.ElementAt(row);
                 var pak = item.SourcePak;
-                if (pak == null) continue;
+                if (pak == null) { failed++; continue; }
 
                 try
                 {
                     var data = pak.Extract(item.Index);
-                    var outputPath = Path.Combine(dialog.Directory, item.FileName);
+                    var outputPath = Path.Combine(outputFolder, item.FileName);
+
+                    // 寫出原始檔案 (加密 XML 保留原始狀態)
                     File.WriteAllBytes(outputPath, data);
                     exported++;
+
+                    // 加密 XML 額外匯出解密版本
+                    if (Path.GetExtension(item.FileName).Equals(".xml", StringComparison.OrdinalIgnoreCase)
+                        && XmlCracker.IsEncrypted(data))
+                    {
+                        var decrypted = XmlCracker.Decrypt((byte[])data.Clone());
+                        var decryptedPath = Path.Combine(outputFolder,
+                            Path.GetFileNameWithoutExtension(item.FileName) + ".decrypted.xml");
+                        File.WriteAllBytes(decryptedPath, decrypted);
+                    }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    failed++;
+                    System.Diagnostics.Debug.WriteLine($"Export failed: {item.FileName} - {ex.Message}");
+                }
             }
 
-            MessageBox.Show(this, $"Exported {exported} files", "Export Complete", MessageBoxType.Information);
+            return (exported, failed);
         }
 
         private void OnExportSprAsPng(object sender, EventArgs e)
@@ -4048,6 +4052,16 @@ namespace PakViewer
                         var outputPath = Path.Combine(dialog.Directory, file.FileName);
                         File.WriteAllBytes(outputPath, data);
                         exported++;
+
+                        // 加密 XML 額外匯出解密版本
+                        if (Path.GetExtension(file.FileName).Equals(".xml", StringComparison.OrdinalIgnoreCase)
+                            && XmlCracker.IsEncrypted(data))
+                        {
+                            var decrypted = XmlCracker.Decrypt((byte[])data.Clone());
+                            var decryptedPath = Path.Combine(dialog.Directory,
+                                Path.GetFileNameWithoutExtension(file.FileName) + ".decrypted.xml");
+                            File.WriteAllBytes(decryptedPath, decrypted);
+                        }
                     }
                     catch { }
 
