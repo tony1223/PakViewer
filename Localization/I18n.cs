@@ -98,6 +98,7 @@ namespace PakViewer.Localization
             { "Menu.File.OpenIdx", "開啟 IDX 檔案(&I)..." },
             { "Menu.File.OpenSprList", "開啟 SPR List (list.spr)(&L)..." },
             { "Menu.File.OpenDat", "開啟 Lineage M Icon/Image DAT(&M)..." },
+            { "Menu.File.OpenLcx", "開啟 LCX 檔案(&L)..." },
             { "Menu.File.Quit", "結束(&Q)" },
 
             // Menu - Tools
@@ -413,6 +414,7 @@ namespace PakViewer.Localization
             { "Menu.File.OpenIdx", "IDX ファイルを開く(&I)..." },
             { "Menu.File.OpenSprList", "SPR List を開く (list.spr)(&L)..." },
             { "Menu.File.OpenDat", "Lineage M Icon/Image DAT を開く(&M)..." },
+            { "Menu.File.OpenLcx", "LCX ファイルを開く(&L)..." },
             { "Menu.File.Quit", "終了(&Q)" },
 
             // Menu - Tools
@@ -728,6 +730,7 @@ namespace PakViewer.Localization
             { "Menu.File.OpenIdx", "Open &IDX File..." },
             { "Menu.File.OpenSprList", "Open SPR &List (list.spr)..." },
             { "Menu.File.OpenDat", "Open Lineage &M Icon/Image DAT..." },
+            { "Menu.File.OpenLcx", "Open &LCX File..." },
             { "Menu.File.Quit", "&Quit" },
 
             // Menu - Tools
@@ -1043,6 +1046,7 @@ namespace PakViewer.Localization
             { "Menu.File.OpenIdx", "IDX 파일 열기(&I)..." },
             { "Menu.File.OpenSprList", "SPR List 열기 (list.spr)(&L)..." },
             { "Menu.File.OpenDat", "Lineage M Icon/Image DAT 열기(&M)..." },
+            { "Menu.File.OpenLcx", "LCX 파일 열기(&L)..." },
             { "Menu.File.Quit", "종료(&Q)" },
 
             // Menu - Tools

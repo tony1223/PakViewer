@@ -20,6 +20,7 @@ using Lin.Helper.Core.Tile;
 using System.Text.Json;
 using PakViewer.Utility;
 using PakViewer.Localization;
+using Lin.Helper.Core.Lcx;
 using PakViewer.Providers;
 
 namespace PakViewer
@@ -102,6 +103,10 @@ namespace PakViewer
             var openDatCmd = new Command { MenuText = I18n.T("Menu.File.OpenDat"), Shortcut = Keys.Control | Keys.M };
             openDatCmd.Executed += OnOpenDatFile;
             fileMenu.Items.Add(openDatCmd);
+
+            var openLcxCmd = new Command { MenuText = I18n.T("Menu.File.OpenLcx"), Shortcut = Keys.Control | Keys.L };
+            openLcxCmd.Executed += OnOpenLcxFile;
+            fileMenu.Items.Add(openLcxCmd);
 
             fileMenu.Items.Add(new SeparatorMenuItem());
 
@@ -2658,6 +2663,79 @@ namespace PakViewer
             catch (Exception ex)
             {
                 MessageBox.Show(this, $"Error opening DAT: {ex.Message}", "Error", MessageBoxType.Error);
+            }
+        }
+
+        // LCX keys
+        private static readonly byte[][] LcxKeys = new byte[][]
+        {
+            Convert.FromHexString("9f39503300b36971b3575c1f02a3461e2f0eb1a90b66163c6f71b4f222dbc9e0"),
+            Convert.FromHexString("cde6d20c931f4fd52d7dfefcf32d4c62607ee70c68efc6744cede25a450d7c2f"),
+        };
+
+        private void OnOpenLcxFile(object sender, EventArgs e)
+        {
+            using var dialog = new OpenFileDialog
+            {
+                Title = I18n.T("Menu.File.OpenLcx"),
+                MultiSelect = true,
+                Filters = { new FileFilter("LCX Files", ".lcx"), new FileFilter("All Files", ".*") }
+            };
+
+            if (!string.IsNullOrEmpty(_settings.LastFolder) && Directory.Exists(_settings.LastFolder))
+            {
+                dialog.Directory = new Uri(_settings.LastFolder);
+            }
+
+            if (dialog.ShowDialog(this) == DialogResult.Ok)
+            {
+                var paths = dialog.Filenames.ToArray();
+                if (paths.Length > 0)
+                    OpenLcxInNewTab(paths);
+            }
+        }
+
+        private void OpenLcxInNewTab(string[] lcxPaths)
+        {
+            var tabKey = lcxPaths.Length == 1
+                ? $"lcx:{lcxPaths[0]}"
+                : $"lcx:{string.Join("|", lcxPaths.Select(Path.GetFileName))}";
+
+            if (_openTabs.ContainsKey(tabKey))
+            {
+                _mainTabControl.SelectedPage = _openTabs[tabKey];
+                return;
+            }
+
+            try
+            {
+                var provider = new LcxProvider(lcxPaths, LcxKeys);
+
+                var tabName = lcxPaths.Length == 1
+                    ? Path.GetFileName(lcxPaths[0])
+                    : $"LCX ({lcxPaths.Length} files)";
+
+                var browserContent = CreateProviderBrowserContent(provider);
+
+                var docPage = new TabPage
+                {
+                    Text = $"\U0001f512 {tabName}",
+                    Content = browserContent
+                };
+                docPage.Tag = tabKey;
+
+                _openTabs[tabKey] = docPage;
+                _mainTabControl.Pages.Add(docPage);
+                _mainTabControl.SelectedPage = docPage;
+
+                _settings.LastFolder = Path.GetDirectoryName(lcxPaths[0]);
+                _settings.Save();
+
+                _statusLabel.Text = $"Opened LCX: {tabName} ({provider.Count} files)";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Error opening LCX: {ex.Message}", "Error", MessageBoxType.Error);
             }
         }
 
