@@ -1261,7 +1261,7 @@ namespace PakViewer
             string exportPath = _selectedFolder;
             if (selectFolder)
             {
-                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.SelectExportFolder") };
+                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
                 if (!string.IsNullOrEmpty(_selectedFolder))
                     dialog.Directory = _selectedFolder;
                 if (dialog.ShowDialog(this) != DialogResult.Ok)
@@ -1954,10 +1954,10 @@ namespace PakViewer
 
             // Open in New Tab will be added after allItems is defined
 
-            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.Export") };
-            var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportTo") };
+            var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
+            var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             var exportSprAsPngMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSprAsPng") };
-            var copyFileNameMenuItem = new ButtonMenuItem { Text = I18n.T("Context.CopyFileName") };
+            var copyFileNameMenuItem = new ButtonMenuItem { Text = I18n.T("Context.CopyFilename") };
             var selectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.SelectAll") };
             var unselectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.UnselectAll") };
 
@@ -2264,23 +2264,26 @@ namespace PakViewer
             {
                 if (fileGrid.SelectedRows.Count() == 0) return;
 
-                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.SelectExportFolder") };
+                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
                 if (dialog.ShowDialog(this) != DialogResult.Ok) return;
 
                 int exported = 0;
+                int failed = 0;
                 foreach (var row in fileGrid.SelectedRows)
                 {
                     try
                     {
                         var item = filteredItems[row];
                         var data = provider.Extract(item.Index);
-                        File.WriteAllBytes(Path.Combine(dialog.Directory, item.FileName), data);
+                        var outputPath = Path.Combine(dialog.Directory, item.FileName);
+                        var dir = Path.GetDirectoryName(outputPath);
+                        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                        File.WriteAllBytes(outputPath, data);
                         exported++;
                     }
-                    catch { }
+                    catch { failed++; }
                 }
-                _statusLabel.Text = $"Exported {exported} files";
-                MessageBox.Show(this, $"Exported {exported} files", "Export Complete", MessageBoxType.Information);
+                _statusLabel.Text = I18n.T("Status.Exported", exported) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
             };
 
             exportSprAsPngMenuItem.Click += (s, e) =>
@@ -2294,11 +2297,11 @@ namespace PakViewer
 
                 if (sprItems.Count == 0)
                 {
-                    MessageBox.Show(this, "No SPR files selected", "Export", MessageBoxType.Information);
+                    _statusLabel.Text = I18n.T("Error.NoPngSelected");
                     return;
                 }
 
-                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.SelectExportFolder") };
+                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
                 if (dialog.ShowDialog(this) != DialogResult.Ok) return;
 
                 int exportedFiles = 0;
@@ -2341,10 +2344,7 @@ namespace PakViewer
                     }
                 }
 
-                var message = $"Exported {exportedFrames} PNG files from {exportedFiles} SPR files";
-                if (failed > 0) message += $" ({failed} failed)";
-                _statusLabel.Text = message;
-                MessageBox.Show(this, message, "Export Complete", MessageBoxType.Information);
+                _statusLabel.Text = I18n.T("Status.SprExported", exportedFrames, exportedFiles) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
             };
 
             copyFileNameMenuItem.Click += (s, e) =>
@@ -3527,15 +3527,15 @@ namespace PakViewer
         {
             if (_fileGrid.SelectedRows.Count() == 0)
             {
-                MessageBox.Show(this, "No files selected", "Export", MessageBoxType.Information);
+                _statusLabel.Text = I18n.T("Status.NoSelection");
                 return;
             }
 
-            using var dialog = new SelectFolderDialog { Title = "Select Export Folder" };
+            using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
             if (dialog.ShowDialog(this) != DialogResult.Ok) return;
 
-            var (exported, _) = ExportFilesToFolder(dialog.Directory);
-            MessageBox.Show(this, $"Exported {exported} files", "Export Complete", MessageBoxType.Information);
+            var (exported, failed) = ExportFilesToFolder(dialog.Directory);
+            _statusLabel.Text = I18n.T("Status.Exported", exported) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
         }
 
         private (int exported, int failed) ExportFilesToFolder(string outputFolder)
@@ -3582,7 +3582,7 @@ namespace PakViewer
         {
             if (_fileGrid.SelectedRows.Count() == 0)
             {
-                MessageBox.Show(this, "No files selected", "Export", MessageBoxType.Information);
+                _statusLabel.Text = I18n.T("Status.NoSelection");
                 return;
             }
 
@@ -3594,11 +3594,11 @@ namespace PakViewer
 
             if (sprItems.Count == 0)
             {
-                MessageBox.Show(this, "No SPR files selected", "Export", MessageBoxType.Information);
+                _statusLabel.Text = I18n.T("Error.NoPngSelected");
                 return;
             }
 
-            using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.SelectExportFolder") };
+            using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
             if (!string.IsNullOrEmpty(_selectedFolder))
                 dialog.Directory = _selectedFolder;
             if (dialog.ShowDialog(this) != DialogResult.Ok) return;
@@ -3623,7 +3623,6 @@ namespace PakViewer
                         continue;
                     }
 
-                    // 取得不含副檔名的檔名
                     var baseName = Path.GetFileNameWithoutExtension(item.FileName);
 
                     for (int i = 0; i < frames.Length; i++)
@@ -3636,8 +3635,6 @@ namespace PakViewer
                             frames[i].Image.Save(fs, new PngEncoder());
                         }
                         exportedFrames++;
-
-                        // 釋放圖片資源
                         frames[i].Image.Dispose();
                     }
 
@@ -3650,12 +3647,7 @@ namespace PakViewer
                 }
             }
 
-            var message = $"Exported {exportedFrames} PNG files from {exportedFiles} SPR files";
-            if (failed > 0)
-                message += $" ({failed} failed)";
-
-            _statusLabel.Text = message;
-            MessageBox.Show(this, message, "Export Complete", MessageBoxType.Information);
+            _statusLabel.Text = I18n.T("Status.SprExported", exportedFrames, exportedFiles) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
         }
 
         private void OnDeleteSelected(object sender, EventArgs e)
@@ -4091,68 +4083,49 @@ namespace PakViewer
         {
             if (_currentProvider == null)
             {
-                MessageBox.Show(this, "No PAK file loaded", "Export", MessageBoxType.Information);
+                _statusLabel.Text = I18n.T("Error.NoFileLoaded");
                 return;
             }
 
-            // 從 Provider 取得 PakFiles
-            IEnumerable<KeyValuePair<string, PakFile>> pakSources;
-            if (_currentProvider is LinClientProvider linProvider)
-            {
-                pakSources = linProvider.PakFiles;
-            }
-            else if (_currentProvider is SinglePakProvider singleProvider)
-            {
-                pakSources = new[] { new KeyValuePair<string, PakFile>(singleProvider.IdxName, singleProvider.PakFile) };
-            }
-            else
-            {
-                MessageBox.Show(this, "Export not supported for this provider type", "Export", MessageBoxType.Information);
-                return;
-            }
-
-            using var dialog = new SelectFolderDialog { Title = "Select Export Folder" };
+            using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
             if (dialog.ShowDialog(this) != DialogResult.Ok) return;
 
+            var files = _currentProvider.Files;
             int exported = 0;
-            int total = pakSources.Sum(kv => kv.Value.Count);
-            int processed = 0;
+            int failed = 0;
+            int total = files.Count;
 
-            foreach (var kv in pakSources)
+            for (int i = 0; i < total; i++)
             {
-                var pak = kv.Value;
-                for (int i = 0; i < pak.Count; i++)
+                try
                 {
-                    try
-                    {
-                        var file = pak.Files[i];
-                        var data = pak.Extract(i);
-                        var outputPath = Path.Combine(dialog.Directory, file.FileName);
-                        File.WriteAllBytes(outputPath, data);
-                        exported++;
+                    var file = files[i];
+                    var data = _currentProvider.Extract(file);
+                    var outputPath = Path.Combine(dialog.Directory, file.FileName);
+                    var dir = Path.GetDirectoryName(outputPath);
+                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                    File.WriteAllBytes(outputPath, data);
+                    exported++;
 
-                        // 加密 XML 額外匯出解密版本
-                        if (Path.GetExtension(file.FileName).Equals(".xml", StringComparison.OrdinalIgnoreCase)
-                            && XmlCracker.IsEncrypted(data))
-                        {
-                            var decrypted = XmlCracker.Decrypt((byte[])data.Clone());
-                            var decryptedPath = Path.Combine(dialog.Directory,
-                                Path.GetFileNameWithoutExtension(file.FileName) + ".decrypted.xml");
-                            File.WriteAllBytes(decryptedPath, decrypted);
-                        }
-                    }
-                    catch { }
-
-                    processed++;
-                    if (processed % 100 == 0)
+                    // 加密 XML 額外匯出解密版本
+                    if (Path.GetExtension(file.FileName).Equals(".xml", StringComparison.OrdinalIgnoreCase)
+                        && XmlCracker.IsEncrypted(data))
                     {
-                        _statusLabel.Text = $"Exporting... {processed}/{total}";
+                        var decrypted = XmlCracker.Decrypt((byte[])data.Clone());
+                        var decryptedPath = Path.Combine(dialog.Directory,
+                            Path.GetFileNameWithoutExtension(file.FileName) + ".decrypted.xml");
+                        File.WriteAllBytes(decryptedPath, decrypted);
                     }
+                }
+                catch { failed++; }
+
+                if ((i + 1) % 100 == 0)
+                {
+                    _statusLabel.Text = $"Exporting... {i + 1}/{total}";
                 }
             }
 
-            _statusLabel.Text = $"Export complete: {exported} files";
-            MessageBox.Show(this, $"Exported {exported} files", "Export Complete", MessageBoxType.Information);
+            _statusLabel.Text = I18n.T("Status.Exported", exported) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
         }
 
         private void OnMergePngToSpr(object sender, EventArgs e)
@@ -5268,7 +5241,7 @@ namespace PakViewer
             string exportPath = _selectedFolder;
             if (selectFolder)
             {
-                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.SelectExportFolder") };
+                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
                 if (!string.IsNullOrEmpty(_selectedFolder))
                     dialog.Directory = _selectedFolder;
                 if (dialog.ShowDialog(this) != DialogResult.Ok)

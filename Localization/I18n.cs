@@ -256,6 +256,7 @@ namespace PakViewer.Localization
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "正在轉換 PNG 為 SPR..." },
             { "Status.SprCreated", "已從 {0} 個 PNG 建立 SPR: {1}" },
+            { "Status.SprExported", "已匯出 {0} 個 PNG (來自 {1} 個 SPR)" },
 
             // Dialog
             { "Dialog.SaveAs", "另存新檔" },
@@ -572,6 +573,7 @@ namespace PakViewer.Localization
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "PNGをSPRに変換中..." },
             { "Status.SprCreated", "{0}個のPNGからSPRを作成しました: {1}" },
+            { "Status.SprExported", "{0}個のPNGをエクスポートしました ({1}個のSPR)" },
 
             // Dialog
             { "Dialog.SaveAs", "名前を付けて保存" },
@@ -888,6 +890,7 @@ namespace PakViewer.Localization
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "Converting PNG to SPR..." },
             { "Status.SprCreated", "Created SPR from {0} PNG files: {1}" },
+            { "Status.SprExported", "Exported {0} PNG from {1} SPR files" },
 
             // Dialog
             { "Dialog.SaveAs", "Save As" },
@@ -1203,6 +1206,7 @@ namespace PakViewer.Localization
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "PNG를 SPR로 변환 중..." },
             { "Status.SprCreated", "{0}개의 PNG에서 SPR 생성: {1}" },
+            { "Status.SprExported", "{0}개 PNG 내보내기 완료 ({1}개 SPR)" },
 
             // Dialog
             { "Dialog.SaveAs", "다른 이름으로 저장" },
