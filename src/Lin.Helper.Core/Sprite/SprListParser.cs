@@ -248,8 +248,22 @@ namespace Lin.Helper.Core.Sprite
             else
             {
                 var parts = line.TrimStart('#').Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length >= 1 && int.TryParse(parts[0], out int id))
-                    entry.Id = id;
+                if (parts.Length >= 1)
+                {
+                    // 處理 #ID=LinkedId 格式 (無 ImageCount，如 #2257=2230)
+                    if (parts[0].Contains("="))
+                    {
+                        var idParts = parts[0].Split('=');
+                        if (int.TryParse(idParts[0], out int id0))
+                            entry.Id = id0;
+                        if (idParts.Length > 1 && int.TryParse(idParts[1], out int linked0))
+                            entry.LinkedId = linked0;
+                    }
+                    else if (int.TryParse(parts[0], out int id))
+                    {
+                        entry.Id = id;
+                    }
+                }
                 if (parts.Length >= 2)
                 {
                     var countPart = parts[1];
