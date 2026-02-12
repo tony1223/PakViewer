@@ -11,7 +11,7 @@
 
     <!-- NuGet 套件屬性 -->
     <PackageId>Lin.Helper.Core</PackageId>
-    <Version>1.5.0</Version>
+    <Version>1.5.1</Version>
     <Authors>Flyworld</Authors>
     <Company></Company>
     <Description>Cross-platform Lineage 1 file format library - PAK, SPR, DAT, IMG, TIL, S32/SEG map files, MarketRegion, and XML encryption/decryption tools</Description>
@@ -30,6 +30,7 @@
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.4" />
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.1" />
+    <PackageReference Include="SharpZipLib" Version="1.4.2" />
   </ItemGroup>
 
   <!-- 內嵌資源 (Map1-Map5 for PAK encryption) -->

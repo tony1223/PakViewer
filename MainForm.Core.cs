@@ -108,6 +108,10 @@ namespace PakViewer
             openLcxCmd.Executed += OnOpenLcxFile;
             fileMenu.Items.Add(openLcxCmd);
 
+            var openMDatCmd = new Command { MenuText = I18n.T("Menu.File.OpenMDat"), Shortcut = Keys.Control | Keys.D };
+            openMDatCmd.Executed += OnOpenMDatFile;
+            fileMenu.Items.Add(openMDatCmd);
+
             fileMenu.Items.Add(new SeparatorMenuItem());
 
             var openFileFolderCmd = new Command { MenuText = I18n.T("Menu.File.OpenFileFolder"), Shortcut = Keys.Control | Keys.Shift | Keys.O };
@@ -883,7 +887,7 @@ namespace PakViewer
 
         private void RefreshRightGalleryForNormalMode()
         {
-            var imageExtensions = new HashSet<string> { ".spr", ".tbt", ".img", ".png", ".til", ".gif" };
+            var imageExtensions = new HashSet<string> { ".spr", ".tbt", ".img", ".png", ".til", ".ti2", ".gif" };
 
             // 從 _fileGrid 的 DataStore 取得已過濾的項目 (包含正確的 SourcePak)
             var fileItems = _fileGrid.DataStore as IEnumerable<FileItem>;
@@ -1083,6 +1087,10 @@ namespace PakViewer
 
                     case ".til":
                         image = RenderTilThumbnail(data);
+                        break;
+
+                    case ".ti2":
+                        image = RenderTi2Thumbnail(data);
                         break;
                 }
             }
@@ -1594,7 +1602,7 @@ namespace PakViewer
             {
                 Title = I18n.T("Dialog.SelectFile"),
                 Filters = {
-                    new FileFilter("Image Files", ".tbt", ".spr", ".img", ".til", ".png", ".gif", ".jpg", ".bmp"),
+                    new FileFilter("Image Files", ".tbt", ".spr", ".img", ".til", ".ti2", ".png", ".gif", ".jpg", ".bmp"),
                     new FileFilter("All Files", ".*")
                 }
             };
@@ -1957,6 +1965,7 @@ namespace PakViewer
             var exportMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelected") };
             var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             var exportSprAsPngMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSprAsPng") };
+            var exportTi2AsTilMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportTi2AsTil") };
             var copyFileNameMenuItem = new ButtonMenuItem { Text = I18n.T("Context.CopyFilename") };
             var selectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.SelectAll") };
             var unselectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.UnselectAll") };
@@ -1964,6 +1973,7 @@ namespace PakViewer
             fileContextMenu.Items.Add(exportMenuItem);
             fileContextMenu.Items.Add(exportToMenuItem);
             fileContextMenu.Items.Add(exportSprAsPngMenuItem);
+            fileContextMenu.Items.Add(exportTi2AsTilMenuItem);
             fileContextMenu.Items.Add(new SeparatorMenuItem());
             fileContextMenu.Items.Add(copyFileNameMenuItem);
             fileContextMenu.Items.Add(new SeparatorMenuItem());
@@ -1979,7 +1989,12 @@ namespace PakViewer
                 sourceDropDown.Items.Add(option);
             }
             if (sourceDropDown.Items.Count > 0)
-                sourceDropDown.SelectedIndex = 0;
+            {
+                // 預設選 provider 的 CurrentSourceOption，避免直接選 "All" 導致大量載入
+                var currentOpt = provider.CurrentSourceOption;
+                var matchOpt = sourceDropDown.Items.FirstOrDefault(i => i.Text == currentOpt);
+                sourceDropDown.SelectedIndex = matchOpt != null ? sourceDropDown.Items.IndexOf(matchOpt) : 0;
+            }
 
             // 副檔名下拉選單
             var extDropDown = new DropDown();
@@ -2347,6 +2362,47 @@ namespace PakViewer
                 _statusLabel.Text = I18n.T("Status.SprExported", exportedFrames, exportedFiles) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
             };
 
+            exportTi2AsTilMenuItem.Click += (s, e) =>
+            {
+                if (fileGrid.SelectedRows.Count() == 0) return;
+
+                var ti2Items = fileGrid.SelectedRows
+                    .Select(row => filteredItems[row])
+                    .Where(item => item.FileName.EndsWith(".ti2", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (ti2Items.Count == 0)
+                {
+                    _statusLabel.Text = I18n.T("Status.NoTi2Selected");
+                    return;
+                }
+
+                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
+                if (dialog.ShowDialog(this) != DialogResult.Ok) return;
+
+                int exported = 0;
+                int failed = 0;
+
+                foreach (var item in ti2Items)
+                {
+                    try
+                    {
+                        var data = provider.Extract(item.Index);
+                        var tileBlocks = MTil.ConvertToL1Til(data);
+                        var tilData = L1Til.BuildTilFromTileBlocks(tileBlocks);
+                        var tilName = Path.ChangeExtension(item.FileName, ".til");
+                        var outputPath = Path.Combine(dialog.Directory, tilName);
+                        var dir = Path.GetDirectoryName(outputPath);
+                        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                        File.WriteAllBytes(outputPath, tilData);
+                        exported++;
+                    }
+                    catch { failed++; }
+                }
+
+                _statusLabel.Text = I18n.T("Status.TilExported", exported) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
+            };
+
             copyFileNameMenuItem.Click += (s, e) =>
             {
                 var selectedItems = fileGrid.SelectedRows
@@ -2666,6 +2722,11 @@ namespace PakViewer
             }
         }
 
+        // MDat content password
+        private static readonly string MDatPassword =
+            Encoding.UTF8.GetString(Convert.FromBase64String(
+                "c2UsdXpSV3lnWyo9bFxsPzErMHdkICJZNF1ULCRYXnBdcVgnY21sNkg+YSFyUDhPM3ZOdTEqQT9Lays3JXJ8NGBxK3JyWzd+RjFofGc2dSBhKTsxNiNzJERbKTp8XiNtVDMxZSZ4c1dUMFY6OC1wVVQjeWZGIiRKKC1qbS1pICc="));
+
         // LCX keys
         private static readonly byte[][] LcxKeys = new byte[][]
         {
@@ -2736,6 +2797,72 @@ namespace PakViewer
             catch (Exception ex)
             {
                 MessageBox.Show(this, $"Error opening LCX: {ex.Message}", "Error", MessageBoxType.Error);
+            }
+        }
+
+        private void OnOpenMDatFile(object sender, EventArgs e)
+        {
+            using var dialog = new OpenFileDialog
+            {
+                Title = I18n.T("Menu.File.OpenMDat"),
+                MultiSelect = true,
+                Filters = { new FileFilter("DAT Files", ".dat"), new FileFilter("All Files", ".*") }
+            };
+
+            if (!string.IsNullOrEmpty(_settings.LastFolder) && Directory.Exists(_settings.LastFolder))
+            {
+                dialog.Directory = new Uri(_settings.LastFolder);
+            }
+
+            if (dialog.ShowDialog(this) == DialogResult.Ok)
+            {
+                var paths = dialog.Filenames.ToArray();
+                if (paths.Length > 0)
+                    OpenMDatInNewTab(paths);
+            }
+        }
+
+        private void OpenMDatInNewTab(string[] datPaths)
+        {
+            var tabKey = datPaths.Length == 1
+                ? $"mdat:{datPaths[0]}"
+                : $"mdat:{string.Join("|", datPaths.Select(Path.GetFileName))}";
+
+            if (_openTabs.ContainsKey(tabKey))
+            {
+                _mainTabControl.SelectedPage = _openTabs[tabKey];
+                return;
+            }
+
+            try
+            {
+                var provider = new MDatProvider(datPaths, MDatPassword);
+
+                var tabName = datPaths.Length == 1
+                    ? Path.GetFileName(datPaths[0])
+                    : $"MDat ({datPaths.Length} files)";
+
+                var browserContent = CreateProviderBrowserContent(provider);
+
+                var docPage = new TabPage
+                {
+                    Text = $"\U0001f4e6 {tabName}",
+                    Content = browserContent
+                };
+                docPage.Tag = tabKey;
+
+                _openTabs[tabKey] = docPage;
+                _mainTabControl.Pages.Add(docPage);
+                _mainTabControl.SelectedPage = docPage;
+
+                _settings.LastFolder = Path.GetDirectoryName(datPaths[0]);
+                _settings.Save();
+
+                _statusLabel.Text = $"Opened MDat: {tabName} ({provider.Count} files)";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Error opening MDat: {ex.Message}", "Error", MessageBoxType.Error);
             }
         }
 
@@ -3049,7 +3176,7 @@ namespace PakViewer
         // 跳過的二進制/圖片檔案副檔名（這些不會有可搜尋的文字內容）
         private static readonly HashSet<string> SkipSearchExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".spr", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".img", ".til", ".wav", ".mp3", ".ogg"
+            ".spr", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".img", ".til", ".ti2", ".wav", ".mp3", ".ogg"
         };
 
         private async void OnContentSearch(object sender, EventArgs e)
@@ -3457,6 +3584,59 @@ namespace PakViewer
                 if (blocks == null || blocks.Count == 0) return null;
 
                 var tileSize = L1Til.GetTileSize(data);
+                int cols = Math.Min(8, blocks.Count);
+                int rows = Math.Min(4, (blocks.Count + cols - 1) / cols);
+                int width = cols * tileSize;
+                int height = rows * tileSize;
+
+                var image = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(width, height);
+
+                for (int i = 0; i < Math.Min(blocks.Count, cols * rows); i++)
+                {
+                    int col = i % cols;
+                    int row = i / cols;
+                    int destX = col * tileSize;
+                    int destY = row * tileSize;
+
+                    var rgb555Canvas = new ushort[tileSize * tileSize];
+                    L1Til.RenderBlock(blocks[i], 0, 0, rgb555Canvas, tileSize, tileSize);
+
+                    for (int py = 0; py < tileSize; py++)
+                    {
+                        for (int px = 0; px < tileSize; px++)
+                        {
+                            ushort rgb555 = rgb555Canvas[py * tileSize + px];
+                            if (rgb555 != 0)
+                            {
+                                int r5 = (rgb555 >> 10) & 0x1F;
+                                int g5 = (rgb555 >> 5) & 0x1F;
+                                int b5 = rgb555 & 0x1F;
+                                byte r = (byte)((r5 << 3) | (r5 >> 2));
+                                byte g = (byte)((g5 << 3) | (g5 >> 2));
+                                byte b = (byte)((b5 << 3) | (b5 >> 2));
+                                image[destX + px, destY + py] = new SixLabors.ImageSharp.PixelFormats.Rgba32(r, g, b, 255);
+                            }
+                        }
+                    }
+                }
+
+                return image;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32> RenderTi2Thumbnail(byte[] data)
+        {
+            try
+            {
+                var tileBlocks = MTil.ConvertToL1Til(data);
+                var blocks = tileBlocks.ToList();
+                if (blocks == null || blocks.Count == 0) return null;
+
+                int tileSize = 24; // MTil always converts to Classic 24x24
                 int cols = Math.Min(8, blocks.Count);
                 int rows = Math.Min(4, (blocks.Count + cols - 1) / cols);
                 int width = cols * tileSize;

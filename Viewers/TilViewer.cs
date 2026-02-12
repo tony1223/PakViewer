@@ -52,7 +52,7 @@ namespace PakViewer.Viewers
             ("☁", "🔥")  // bit 4/5: 雲/煙 (inverted alpha)
         };
 
-        public override string[] SupportedExtensions => new[] { ".til" };
+        public override string[] SupportedExtensions => new[] { ".til", ".ti2" };
         public override bool CanEdit => true;
         public override bool HasChanges => _hasChanges;
 
@@ -65,9 +65,20 @@ namespace PakViewer.Viewers
 
             try
             {
-                _blocks = L1Til.Parse(data);
-                _version = L1Til.GetVersion(data);
-                _tileSize = L1Til.GetTileSize(_version);
+                var ext = Path.GetExtension(fileName)?.ToLowerInvariant();
+                if (ext == ".ti2")
+                {
+                    var tileBlocks = MTil.ConvertToL1Til(data);
+                    _blocks = tileBlocks.ToList();
+                    _version = L1Til.TileVersion.Classic;
+                    _tileSize = 24;
+                }
+                else
+                {
+                    _blocks = L1Til.Parse(data);
+                    _version = L1Til.GetVersion(data);
+                    _tileSize = L1Til.GetTileSize(_version);
+                }
             }
             catch
             {

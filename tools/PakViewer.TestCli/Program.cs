@@ -1,42 +1,37 @@
 // PakViewer.TestCli - 測試用 scratch pad
 using System.Text;
-using Lin.Helper.Core.Sprite;
+using Lin.Helper.Core.Dat;
 
 Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-Console.WriteLine("=== SprListParser — All resources/*.txt Test ===\n");
+// 正確的密碼 (來自 Python 腳本)
+string password = Encoding.UTF8.GetString(Convert.FromBase64String(
+    "c2UsdXpSV3lnWyo9bFxsPzErMHdkICJZNF1ULCRYXnBdcVgnY21sNkg+YSFyUDhPM3ZOdTEqQT9Lays3JXJ8NGBxK3JyWzd+RjFofGc2dSBhKTsxNiNzJERbKTp8XiNtVDMxZSZ4c1dUMFY6OC1wVVQjeWZGIiRKKC1qbS1pICc="));
 
-string resourceDir = @"C:\workspaces\lineage\PakViewer\resources";
-var txtFiles = Directory.GetFiles(resourceDir, "*.txt").OrderBy(f => f).ToArray();
+Console.WriteLine($"Password length: {password.Length}\n");
 
-Console.WriteLine($"Found {txtFiles.Length} .txt files\n");
+string clientDir = @"C:\workspaces\lineage\v381\client_m";
+var contentFiles = Directory.GetFiles(clientDir, "content*.dat").OrderBy(f => f).ToArray();
+Console.WriteLine($"Found {contentFiles.Length} content .dat files\n");
 
-foreach (var path in txtFiles)
+foreach (var path in contentFiles)
 {
     string name = Path.GetFileName(path);
     try
     {
-        var sprList = SprListParser.LoadFromFile(path);
-        var status = sprList.Warnings.Count == 0 ? "OK" : $"WARN({sprList.Warnings.Count})";
-        Console.WriteLine($"[{status,-8}] {name,-35} entries={sprList.Entries.Count,6}  header={sprList.TotalEntries}");
+        using var dat = new MDat(path, password);
+        Console.Write($"[{dat.Status,-9}] {name,-20} entries={dat.Count,5}");
 
-        foreach (var w in sprList.Warnings)
+        if (dat.Count > 0)
         {
-            Console.WriteLine($"           {w}");
+            var first = dat.Entries[0];
+            var data = dat.Extract(0);
+            Console.Write($"  first=[{first.FileName}] size={data.Length}");
         }
-
-        // 驗證 #0 是否正確
-        var e0 = sprList.Entries.FirstOrDefault(e => e.Id == 0);
-        if (e0 != null)
-        {
-            Console.WriteLine($"           #0: ImageCount={e0.ImageCount} LinkedId={e0.LinkedId} Actions={e0.Actions.Count} Attrs={e0.Attributes.Count}");
-        }
+        Console.WriteLine();
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[FAIL    ] {name,-35} {ex.GetType().Name}: {ex.Message}");
+        Console.WriteLine($"[FAIL    ] {name,-20} {ex.GetType().Name}: {ex.Message}");
     }
-    Console.WriteLine();
 }
-
-Console.WriteLine("=== Done ===");

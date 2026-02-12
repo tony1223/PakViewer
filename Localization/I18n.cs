@@ -99,6 +99,7 @@ namespace PakViewer.Localization
             { "Menu.File.OpenSprList", "開啟 SPR List (list.spr)(&L)..." },
             { "Menu.File.OpenDat", "開啟 Lineage M Icon/Image DAT(&M)..." },
             { "Menu.File.OpenLcx", "開啟 LCX 檔案(&L)..." },
+            { "Menu.File.OpenMDat", "開啟 M DAT 容器(&D)..." },
             { "Menu.File.Quit", "結束(&Q)" },
 
             // Menu - Tools
@@ -203,6 +204,7 @@ namespace PakViewer.Localization
             { "Context.ExportSelected", "匯出選取" },
             { "Context.ExportSelectedTo", "匯出選取至..." },
             { "Context.ExportSprAsPng", "匯出 SPR 為 PNG..." },
+            { "Context.ExportTi2AsTil", "匯出 TI2 為 TIL..." },
             { "Context.DeleteSelected", "刪除選取" },
             { "Context.CopyFilename", "複製檔名" },
             { "Context.SelectAll", "全選" },
@@ -257,6 +259,8 @@ namespace PakViewer.Localization
             { "Status.ConvertingPngToSpr", "正在轉換 PNG 為 SPR..." },
             { "Status.SprCreated", "已從 {0} 個 PNG 建立 SPR: {1}" },
             { "Status.SprExported", "已匯出 {0} 個 PNG (來自 {1} 個 SPR)" },
+            { "Status.TilExported", "已匯出 {0} 個 TIL" },
+            { "Status.NoTi2Selected", "未選取 TI2 檔案" },
 
             // Dialog
             { "Dialog.SaveAs", "另存新檔" },
@@ -416,6 +420,7 @@ namespace PakViewer.Localization
             { "Menu.File.OpenSprList", "SPR List を開く (list.spr)(&L)..." },
             { "Menu.File.OpenDat", "Lineage M Icon/Image DAT を開く(&M)..." },
             { "Menu.File.OpenLcx", "LCX ファイルを開く(&L)..." },
+            { "Menu.File.OpenMDat", "M DAT コンテナを開く(&D)..." },
             { "Menu.File.Quit", "終了(&Q)" },
 
             // Menu - Tools
@@ -520,6 +525,7 @@ namespace PakViewer.Localization
             { "Context.ExportSelected", "選択をエクスポート" },
             { "Context.ExportSelectedTo", "選択をエクスポート先..." },
             { "Context.ExportSprAsPng", "SPRをPNGでエクスポート..." },
+            { "Context.ExportTi2AsTil", "TI2をTILでエクスポート..." },
             { "Context.DeleteSelected", "選択を削除" },
             { "Context.CopyFilename", "ファイル名をコピー" },
             { "Context.SelectAll", "すべて選択" },
@@ -574,6 +580,8 @@ namespace PakViewer.Localization
             { "Status.ConvertingPngToSpr", "PNGをSPRに変換中..." },
             { "Status.SprCreated", "{0}個のPNGからSPRを作成しました: {1}" },
             { "Status.SprExported", "{0}個のPNGをエクスポートしました ({1}個のSPR)" },
+            { "Status.TilExported", "{0}個のTILをエクスポートしました" },
+            { "Status.NoTi2Selected", "TI2ファイルが選択されていません" },
 
             // Dialog
             { "Dialog.SaveAs", "名前を付けて保存" },
@@ -733,6 +741,7 @@ namespace PakViewer.Localization
             { "Menu.File.OpenSprList", "Open SPR &List (list.spr)..." },
             { "Menu.File.OpenDat", "Open Lineage &M Icon/Image DAT..." },
             { "Menu.File.OpenLcx", "Open &LCX File..." },
+            { "Menu.File.OpenMDat", "Open M &DAT Container..." },
             { "Menu.File.Quit", "&Quit" },
 
             // Menu - Tools
@@ -837,6 +846,7 @@ namespace PakViewer.Localization
             { "Context.ExportSelected", "Export Selected" },
             { "Context.ExportSelectedTo", "Export Selected To..." },
             { "Context.ExportSprAsPng", "Export SPR as PNG..." },
+            { "Context.ExportTi2AsTil", "Export TI2 as TIL..." },
             { "Context.DeleteSelected", "Delete Selected" },
             { "Context.CopyFilename", "Copy Filename" },
             { "Context.SelectAll", "Select All" },
@@ -891,6 +901,8 @@ namespace PakViewer.Localization
             { "Status.ConvertingPngToSpr", "Converting PNG to SPR..." },
             { "Status.SprCreated", "Created SPR from {0} PNG files: {1}" },
             { "Status.SprExported", "Exported {0} PNG from {1} SPR files" },
+            { "Status.TilExported", "Exported {0} TIL files" },
+            { "Status.NoTi2Selected", "No TI2 files selected" },
 
             // Dialog
             { "Dialog.SaveAs", "Save As" },
@@ -1050,6 +1062,7 @@ namespace PakViewer.Localization
             { "Menu.File.OpenSprList", "SPR List 열기 (list.spr)(&L)..." },
             { "Menu.File.OpenDat", "Lineage M Icon/Image DAT 열기(&M)..." },
             { "Menu.File.OpenLcx", "LCX 파일 열기(&L)..." },
+            { "Menu.File.OpenMDat", "M DAT 컨테이너 열기(&D)..." },
             { "Menu.File.Quit", "종료(&Q)" },
 
             // Menu - Tools
@@ -1153,6 +1166,7 @@ namespace PakViewer.Localization
             { "Context.ExportSelected", "선택 항목 내보내기" },
             { "Context.ExportSelectedTo", "선택 항목 내보내기..." },
             { "Context.ExportSprAsPng", "SPR을 PNG로 내보내기..." },
+            { "Context.ExportTi2AsTil", "TI2를 TIL로 내보내기..." },
             { "Context.DeleteSelected", "선택 항목 삭제" },
             { "Context.CopyFilename", "파일명 복사" },
             { "Context.SelectAll", "모두 선택" },
@@ -1207,6 +1221,8 @@ namespace PakViewer.Localization
             { "Status.ConvertingPngToSpr", "PNG를 SPR로 변환 중..." },
             { "Status.SprCreated", "{0}개의 PNG에서 SPR 생성: {1}" },
             { "Status.SprExported", "{0}개 PNG 내보내기 완료 ({1}개 SPR)" },
+            { "Status.TilExported", "{0}개 TIL 파일 내보내기 완료" },
+            { "Status.NoTi2Selected", "TI2 파일이 선택되지 않았습니다" },
 
             // Dialog
             { "Dialog.SaveAs", "다른 이름으로 저장" },
