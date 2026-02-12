@@ -446,15 +446,7 @@ namespace Lin.Helper.Core.Tile
                     if (maxWidth > 0 && totalRows > 0)
                     {
                         // 輸出一個有效的壓縮格式空 block
-                        // 套用半透明修正規則
-                        byte emptyBlockType = (byte)(block.Flags & 0x3F);
-                        bool isCompressedEmpty = (emptyBlockType & 0x02) != 0;
-                        bool hasSpecialEffectEmpty = (emptyBlockType & 0x30) != 0;
-                        bool hasSemiTransparentEmpty = (emptyBlockType & 0x04) != 0;
-                        if (isCompressedEmpty && !hasSpecialEffectEmpty && !hasSemiTransparentEmpty)
-                        {
-                            emptyBlockType |= 0x04;
-                        }
+                        byte emptyBlockType = (byte)((block.Flags & 0x3F) | 0x02);
                         var emptyResult = new List<byte>();
                         emptyResult.Add(emptyBlockType);
                         emptyResult.Add(0);                    // x_offset
@@ -473,34 +465,18 @@ namespace Lin.Helper.Core.Tile
                 }
 
                 // 真的沒有任何資料，輸出最小有效結構
-                // 套用半透明修正規則
-                byte minBlockType = (byte)(block.Flags & 0x3F);
-                bool isCompressedMin = (minBlockType & 0x02) != 0;
-                bool hasSpecialEffectMin = (minBlockType & 0x30) != 0;
-                bool hasSemiTransparentMin = (minBlockType & 0x04) != 0;
-                if (isCompressedMin && !hasSpecialEffectMin && !hasSemiTransparentMin)
-                {
-                    minBlockType |= 0x04;
-                }
+                byte minBlockType = (byte)((block.Flags & 0x3F) | 0x02);
                 return new byte[] { minBlockType, 0, 0, 1, 1, 0, 0 };
             }
 
             // MTil Flags 轉換為 L1Til block type (排除 bit6 IsDefault)
+            // 輸出始終為壓縮格式，強制設定 bit1 (0x02)
+            // 其餘 bits 保留原始 MTil flags:
             // - bit0 (0x01): flip/左對齊
-            // - bit1 (0x02): 壓縮格式
             // - bit2 (0x04): 半透明 (50%)
-            // - bit3 (0x08): shadow (未使用)
             // - bit4 (0x10): inverted alpha - 雲
             // - bit5 (0x20): inverted alpha - 煙/血
-            // 特殊規則：壓縮格式但非雲/煙效果的 block 應該是半透明
-            byte blockType = (byte)(block.Flags & 0x3F);
-            bool isCompressed = (blockType & 0x02) != 0;
-            bool hasSpecialEffect = (blockType & 0x30) != 0; // cloud or smoke
-            bool hasSemiTransparent = (blockType & 0x04) != 0;
-            if (isCompressed && !hasSpecialEffect && !hasSemiTransparent)
-            {
-                blockType |= 0x04; // 加上半透明效果
-            }
+            byte blockType = (byte)((block.Flags & 0x3F) | 0x02);
             var result = new List<byte>();
             result.Add(blockType);
             result.Add((byte)minX);           // x_offset

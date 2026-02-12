@@ -2035,10 +2035,20 @@ namespace PakViewer
             };
             int cachedThumbSize = 80;  // 快取縮圖大小，避免在背景執行緒存取 UI
 
-            // 搜尋工具列
-            var textSearchBox = new TextBox { PlaceholderText = I18n.T("Placeholder.SearchInText"), Width = 200 };
-            var textSearchPrevBtn = new Button { Text = "◀", Width = 30 };
-            var textSearchNextBtn = new Button { Text = "▶", Width = 30 };
+            // 搜尋工具列容器 - 會動態替換為 viewer 自帶的搜尋工具列
+            var defaultSearchToolbar = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                Padding = new Padding(5),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items =
+                {
+                    new Label { Text = I18n.T("Label.Find") },
+                    new TextBox { PlaceholderText = I18n.T("Placeholder.SearchInText"), Width = 200, Enabled = false }
+                }
+            };
+            var searchToolbarContainer = new Panel { Content = defaultSearchToolbar };
 
             // 右側面板容器
             var rightPanelContainer = new Panel { Content = viewerPanel };
@@ -2488,7 +2498,34 @@ namespace PakViewer
                     currentViewer.LoadData(data, selected.FileName);
 
                     // 顯示 viewer 控件
-                    viewerPanel.Content = currentViewer.GetControl();
+                    var viewerControl = currentViewer.GetControl();
+                    if (currentViewer.CanEdit)
+                    {
+                        var editToolbar = currentViewer.GetEditToolbar();
+                        viewerPanel.Content = new TableLayout
+                        {
+                            Rows =
+                            {
+                                new TableRow(editToolbar),
+                                new TableRow(viewerControl) { ScaleHeight = true }
+                            }
+                        };
+                    }
+                    else
+                    {
+                        viewerPanel.Content = viewerControl;
+                    }
+
+                    // 替換搜尋工具列為 viewer 自帶的
+                    if (currentViewer.CanSearch)
+                    {
+                        var viewerSearchToolbar = currentViewer.GetSearchToolbar();
+                        searchToolbarContainer.Content = viewerSearchToolbar ?? defaultSearchToolbar;
+                    }
+                    else
+                    {
+                        searchToolbarContainer.Content = defaultSearchToolbar;
+                    }
 
                     _statusLabel.Text = $"Selected: {selected.FileName} ({selected.SizeText})";
                 }
@@ -2603,27 +2640,12 @@ namespace PakViewer
                 }
             };
 
-            var rightSearchToolbar = new StackLayout
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 5,
-                Padding = new Padding(5),
-                VerticalContentAlignment = VerticalAlignment.Center,
-                Items =
-                {
-                    new Label { Text = I18n.T("Label.Find") },
-                    textSearchBox,
-                    textSearchPrevBtn,
-                    textSearchNextBtn
-                }
-            };
-
             var rightPanel = new TableLayout
             {
                 Rows =
                 {
                     new TableRow(rightModeToolbar),
-                    new TableRow(rightSearchToolbar),
+                    new TableRow(searchToolbarContainer),
                     new TableRow(rightPanelContainer) { ScaleHeight = true }
                 }
             };
@@ -3179,6 +3201,7 @@ namespace PakViewer
             ".spr", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".img", ".til", ".ti2", ".wav", ".mp3", ".ogg"
         };
 
+
         private async void OnContentSearch(object sender, EventArgs e)
         {
             var keyword = _contentSearchBox.Text?.Trim();
@@ -3726,12 +3749,10 @@ namespace PakViewer
             foreach (var row in _fileGrid.SelectedRows)
             {
                 var item = (FileItem)_fileGrid.DataStore.ElementAt(row);
-                var pak = item.SourcePak;
-                if (pak == null) { failed++; continue; }
 
                 try
                 {
-                    var data = pak.Extract(item.Index);
+                    var data = _currentProvider.Extract(item.Index);
                     var outputPath = Path.Combine(outputFolder, item.FileName);
 
                     // 寫出原始檔案 (加密 XML 保留原始狀態)
