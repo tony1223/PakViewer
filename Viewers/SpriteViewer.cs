@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Eto.Drawing;
 using Eto.Forms;
 using Lin.Helper.Core.Sprite;
@@ -9,7 +11,7 @@ using PakViewer.Localization;
 namespace PakViewer.Viewers
 {
     /// <summary>
-    /// SPR 精靈圖預覽器
+    /// SPR/SPX/SP2 精靈圖預覽器
     /// </summary>
     public class SpriteViewer : BaseViewer
     {
@@ -17,6 +19,10 @@ namespace PakViewer.Viewers
         private UITimer _timer;
         private SprFrame[] _frames;
         private int _frameIndex;
+
+        // SP2 多方向支援
+        private Dictionary<int, SprFrame[]> _directionFrames;
+        private DropDown _dirDropDown;
 
         // 控制項
         private Button _pauseBtn;
@@ -29,14 +35,38 @@ namespace PakViewer.Viewers
         private float _scale = 2.0f;
         private Color _bgColor = Colors.Red;
 
-        public override string[] SupportedExtensions => new[] { ".spr" };
+        public override string[] SupportedExtensions => new[] { ".spr", ".spx", ".sp2" };
 
         public override void LoadData(byte[] data, string fileName)
         {
             _data = data;
             _fileName = fileName;
 
-            _frames = SprReader.Load(data);
+            var ext = Path.GetExtension(fileName)?.ToLower();
+
+            try
+            {
+                if (ext == ".spx")
+                {
+                    _frames = L1SPX.Read(data);
+                }
+                else if (ext == ".sp2")
+                {
+                    _directionFrames = L1SP2.Read(data);
+                    if (_directionFrames.Count > 0)
+                        _frames = _directionFrames[_directionFrames.Keys.Min()];
+                }
+                else
+                {
+                    _frames = SprReader.Load(data);
+                }
+            }
+            catch (Exception ex)
+            {
+                _control = new Label { Text = $"{I18n.T("Error.LoadSpr")}: {ex.Message}" };
+                return;
+            }
+
             if (_frames == null || _frames.Length == 0)
             {
                 _control = new Label { Text = I18n.T("Error.LoadSpr") };
@@ -101,6 +131,21 @@ namespace PakViewer.Viewers
                 }
             };
 
+            // SP2 方向選擇器
+            if (_directionFrames != null && _directionFrames.Count > 1)
+            {
+                _dirDropDown = new DropDown();
+                foreach (var dir in _directionFrames.Keys.OrderBy(k => k))
+                {
+                    _dirDropDown.Items.Add($"Dir {dir}");
+                }
+                _dirDropDown.SelectedIndex = 0;
+                _dirDropDown.SelectedIndexChanged += OnDirectionChanged;
+
+                toolbar.Items.Add(new Label { Text = "Dir:", VerticalAlignment = VerticalAlignment.Center });
+                toolbar.Items.Add(_dirDropDown);
+            }
+
             _control = new TableLayout
             {
                 Rows =
@@ -118,6 +163,31 @@ namespace PakViewer.Viewers
                 var frame = _frames[_frameIndex];
                 _frameInfoLabel.Text = $"Frame {_frameIndex} ({frame.Width}x{frame.Height})";
             }
+        }
+
+        private void OnDirectionChanged(object sender, EventArgs e)
+        {
+            if (_directionFrames == null || _dirDropDown == null) return;
+
+            var dirs = _directionFrames.Keys.OrderBy(k => k).ToList();
+            int idx = _dirDropDown.SelectedIndex;
+            if (idx < 0 || idx >= dirs.Count) return;
+
+            // 清理舊 frames 的 Image
+            DisposeFrames();
+
+            _frames = _directionFrames[dirs[idx]];
+            _frameIndex = 0;
+
+            if (_frames.Length > 1 && !_isPaused)
+                _timer?.Start();
+            else
+                _timer?.Stop();
+
+            _pauseBtn.Text = _frames.Length > 1 ? I18n.T("Button.Pause") : I18n.T("Button.Play");
+            _isPaused = false;
+            UpdateFrameInfo();
+            _drawable?.Invalidate();
         }
 
         private void OnPauseClick(object sender, EventArgs e)
@@ -194,8 +264,20 @@ namespace PakViewer.Viewers
             e.Graphics.DrawImage(bitmap, (float)x, (float)y, frame.Width * _scale, frame.Height * _scale);
 
             // 繪製幀資訊
-            var info = $"Frame {_frameIndex} ({frame.Width}x{frame.Height})";
+            var info = $"Frame {_frameIndex}/{_frames.Length} ({frame.Width}x{frame.Height})";
             e.Graphics.DrawText(new Font(SystemFont.Default), _bgColor, (float)x, (float)y - 20, info);
+        }
+
+        private void DisposeFrames()
+        {
+            // SP2 的 frames 由 _directionFrames 持有，不在這裡 dispose
+            if (_directionFrames != null) return;
+
+            if (_frames != null)
+            {
+                foreach (var frame in _frames)
+                    frame.Image?.Dispose();
+            }
         }
 
         public override void Dispose()
@@ -204,12 +286,19 @@ namespace PakViewer.Viewers
             _timer?.Dispose();
             _timer = null;
 
-            if (_frames != null)
+            if (_directionFrames != null)
+            {
+                foreach (var kv in _directionFrames)
+                    foreach (var frame in kv.Value)
+                        frame.Image?.Dispose();
+                _directionFrames = null;
+            }
+            else if (_frames != null)
             {
                 foreach (var frame in _frames)
                     frame.Image?.Dispose();
-                _frames = null;
             }
+            _frames = null;
 
             base.Dispose();
         }

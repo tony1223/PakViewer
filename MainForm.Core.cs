@@ -467,6 +467,14 @@ namespace PakViewer
             exportSprAsPngMenuItem.Click += OnExportSprAsPng;
             fileContextMenu.Items.Add(exportSprAsPngMenuItem);
 
+            var exportTi2AsTilMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportTi2AsTil") };
+            exportTi2AsTilMenuItem.Click += OnExportTi2AsTil;
+            fileContextMenu.Items.Add(exportTi2AsTilMenuItem);
+
+            var exportToSprMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportToSpr") };
+            exportToSprMenuItem.Click += OnExportToSpr;
+            fileContextMenu.Items.Add(exportToSprMenuItem);
+
             fileContextMenu.Items.Add(new SeparatorMenuItem());
 
             var deleteMenuItem = new ButtonMenuItem { Text = I18n.T("Context.DeleteSelected") };
@@ -488,6 +496,21 @@ namespace PakViewer
             var unselectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.UnselectAll") };
             unselectAllMenuItem.Click += OnUnselectAll;
             fileContextMenu.Items.Add(unselectAllMenuItem);
+
+            fileContextMenu.Opening += (s, ev) =>
+            {
+                var exts = new HashSet<string>();
+                foreach (var row in _fileGrid.SelectedRows)
+                {
+                    var item = (FileItem)_fileGrid.DataStore.ElementAt(row);
+                    exts.Add(Path.GetExtension(item.FileName).ToLowerInvariant());
+                }
+                var spriteExts = new[] { ".spr", ".spx", ".sp2" };
+                var spxSp2Exts = new[] { ".spx", ".sp2" };
+                exportSprAsPngMenuItem.Visible = exts.Any(e => spriteExts.Contains(e));
+                exportTi2AsTilMenuItem.Visible = exts.Contains(".ti2");
+                exportToSprMenuItem.Visible = exts.Any(e => spxSp2Exts.Contains(e));
+            };
 
             _fileGrid.ContextMenu = fileContextMenu;
 
@@ -1966,6 +1989,7 @@ namespace PakViewer
             var exportToMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSelectedTo") };
             var exportSprAsPngMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportSprAsPng") };
             var exportTi2AsTilMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportTi2AsTil") };
+            var exportToSprMenuItem = new ButtonMenuItem { Text = I18n.T("Context.ExportToSpr") };
             var copyFileNameMenuItem = new ButtonMenuItem { Text = I18n.T("Context.CopyFilename") };
             var selectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.SelectAll") };
             var unselectAllMenuItem = new ButtonMenuItem { Text = I18n.T("Context.UnselectAll") };
@@ -1974,11 +1998,30 @@ namespace PakViewer
             fileContextMenu.Items.Add(exportToMenuItem);
             fileContextMenu.Items.Add(exportSprAsPngMenuItem);
             fileContextMenu.Items.Add(exportTi2AsTilMenuItem);
+            fileContextMenu.Items.Add(exportToSprMenuItem);
             fileContextMenu.Items.Add(new SeparatorMenuItem());
             fileContextMenu.Items.Add(copyFileNameMenuItem);
             fileContextMenu.Items.Add(new SeparatorMenuItem());
             fileContextMenu.Items.Add(selectAllMenuItem);
             fileContextMenu.Items.Add(unselectAllMenuItem);
+
+            fileContextMenu.Opening += (s, ev) =>
+            {
+                var exts = new HashSet<string>();
+                if (filteredItems != null)
+                {
+                    foreach (var row in fileGrid.SelectedRows)
+                    {
+                        if (row >= 0 && row < filteredItems.Count)
+                            exts.Add(Path.GetExtension(filteredItems[row].FileName).ToLowerInvariant());
+                    }
+                }
+                var spriteExts = new[] { ".spr", ".spx", ".sp2" };
+                var spxSp2Exts = new[] { ".spx", ".sp2" };
+                exportSprAsPngMenuItem.Visible = exts.Any(e => spriteExts.Contains(e));
+                exportTi2AsTilMenuItem.Visible = exts.Contains(".ti2");
+                exportToSprMenuItem.Visible = exts.Any(e => spxSp2Exts.Contains(e));
+            };
 
             fileGrid.ContextMenu = fileContextMenu;
 
@@ -2315,14 +2358,15 @@ namespace PakViewer
             {
                 if (fileGrid.SelectedRows.Count() == 0) return;
 
+                var spriteExts = new[] { ".spr", ".spx", ".sp2" };
                 var sprItems = fileGrid.SelectedRows
                     .Select(row => filteredItems[row])
-                    .Where(item => item.FileName.EndsWith(".spr", StringComparison.OrdinalIgnoreCase))
+                    .Where(item => spriteExts.Contains(Path.GetExtension(item.FileName).ToLowerInvariant()))
                     .ToList();
 
                 if (sprItems.Count == 0)
                 {
-                    _statusLabel.Text = I18n.T("Error.NoPngSelected");
+                    _statusLabel.Text = I18n.T("Status.NoSpriteSelected");
                     return;
                 }
 
@@ -2338,27 +2382,44 @@ namespace PakViewer
                     try
                     {
                         var data = provider.Extract(item.Index);
-                        var frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
-
-                        if (frames == null || frames.Length == 0)
-                        {
-                            failed++;
-                            continue;
-                        }
-
                         var baseName = Path.GetFileNameWithoutExtension(item.FileName);
+                        var ext = Path.GetExtension(item.FileName).ToLowerInvariant();
 
-                        for (int i = 0; i < frames.Length; i++)
+                        if (ext == ".sp2")
                         {
-                            if (frames[i].Image == null) continue;
-
-                            var pngPath = Path.Combine(dialog.Directory, $"{baseName}_{i}.png");
-                            using (var fs = new FileStream(pngPath, FileMode.Create))
+                            var dirFrames = Lin.Helper.Core.Sprite.L1SP2.Read(data);
+                            foreach (var kv in dirFrames)
                             {
-                                frames[i].Image.Save(fs, new PngEncoder());
+                                for (int i = 0; i < kv.Value.Length; i++)
+                                {
+                                    if (kv.Value[i].Image == null) continue;
+                                    var pngPath = Path.Combine(dialog.Directory, $"{baseName}_d{kv.Key}_{i}.png");
+                                    using (var fs = new FileStream(pngPath, FileMode.Create))
+                                        kv.Value[i].Image.Save(fs, new PngEncoder());
+                                    exportedFrames++;
+                                    kv.Value[i].Image.Dispose();
+                                }
                             }
-                            exportedFrames++;
-                            frames[i].Image.Dispose();
+                        }
+                        else
+                        {
+                            Lin.Helper.Core.Sprite.SprFrame[] frames;
+                            if (ext == ".spx")
+                                frames = Lin.Helper.Core.Sprite.L1SPX.Read(data);
+                            else
+                                frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
+
+                            if (frames == null || frames.Length == 0) { failed++; continue; }
+
+                            for (int i = 0; i < frames.Length; i++)
+                            {
+                                if (frames[i].Image == null) continue;
+                                var pngPath = Path.Combine(dialog.Directory, $"{baseName}_{i}.png");
+                                using (var fs = new FileStream(pngPath, FileMode.Create))
+                                    frames[i].Image.Save(fs, new PngEncoder());
+                                exportedFrames++;
+                                frames[i].Image.Dispose();
+                            }
                         }
 
                         exportedFiles++;
@@ -2370,6 +2431,69 @@ namespace PakViewer
                 }
 
                 _statusLabel.Text = I18n.T("Status.SprExported", exportedFrames, exportedFiles) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
+            };
+
+            exportToSprMenuItem.Click += (s, e) =>
+            {
+                if (fileGrid.SelectedRows.Count() == 0) return;
+
+                var spxSp2Exts = new[] { ".spx", ".sp2" };
+                var items = fileGrid.SelectedRows
+                    .Select(row => filteredItems[row])
+                    .Where(item => spxSp2Exts.Contains(Path.GetExtension(item.FileName).ToLowerInvariant()))
+                    .ToList();
+
+                if (items.Count == 0)
+                {
+                    _statusLabel.Text = I18n.T("Status.NoSpxSp2Selected");
+                    return;
+                }
+
+                var selectedExts = items.Select(i => Path.GetExtension(i.FileName).ToLowerInvariant()).Distinct().ToList();
+                double defaultScale = selectedExts.Contains(".spx") ? 0.5 : 1.0;
+
+                var scaleResult = ShowScaleDialog(defaultScale);
+                if (scaleResult == null) return;
+                double scale = scaleResult.Value;
+
+                using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
+                if (dialog.ShowDialog(this) != DialogResult.Ok) return;
+
+                int exported = 0;
+                int failed = 0;
+
+                foreach (var item in items)
+                {
+                    try
+                    {
+                        var data = provider.Extract(item.Index);
+                        var baseName = Path.GetFileNameWithoutExtension(item.FileName);
+                        var ext = Path.GetExtension(item.FileName).ToLowerInvariant();
+                        var dir = Path.GetDirectoryName(Path.Combine(dialog.Directory, item.FileName));
+                        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+                        if (ext == ".spx")
+                        {
+                            var sprData = Lin.Helper.Core.Sprite.L1SPX.ToSpr(data, scale);
+                            var outputPath = Path.Combine(dialog.Directory, Path.ChangeExtension(item.FileName, ".spr"));
+                            File.WriteAllBytes(outputPath, sprData);
+                            exported++;
+                        }
+                        else if (ext == ".sp2")
+                        {
+                            var dirSprData = Lin.Helper.Core.Sprite.L1SP2.ToSpr(data, scale);
+                            foreach (var kv in dirSprData)
+                            {
+                                var outputPath = Path.Combine(dialog.Directory, $"{baseName}-{kv.Key}.spr");
+                                File.WriteAllBytes(outputPath, kv.Value);
+                            }
+                            exported++;
+                        }
+                    }
+                    catch { failed++; }
+                }
+
+                _statusLabel.Text = I18n.T("Status.SprConverted", exported) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
             };
 
             exportTi2AsTilMenuItem.Click += (s, e) =>
@@ -3787,15 +3911,15 @@ namespace PakViewer
                 return;
             }
 
-            // 過濾只選取 .spr 檔案
+            var spriteExts = new[] { ".spr", ".spx", ".sp2" };
             var sprItems = _fileGrid.SelectedRows
                 .Select(row => (FileItem)_fileGrid.DataStore.ElementAt(row))
-                .Where(item => item.FileName.EndsWith(".spr", StringComparison.OrdinalIgnoreCase))
+                .Where(item => spriteExts.Contains(Path.GetExtension(item.FileName).ToLowerInvariant()))
                 .ToList();
 
             if (sprItems.Count == 0)
             {
-                _statusLabel.Text = I18n.T("Error.NoPngSelected");
+                _statusLabel.Text = I18n.T("Status.NoSpriteSelected");
                 return;
             }
 
@@ -3816,39 +3940,234 @@ namespace PakViewer
                 try
                 {
                     var data = pak.Extract(item.Index);
-                    var frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
-
-                    if (frames == null || frames.Length == 0)
-                    {
-                        failed++;
-                        continue;
-                    }
-
                     var baseName = Path.GetFileNameWithoutExtension(item.FileName);
+                    var ext = Path.GetExtension(item.FileName).ToLowerInvariant();
 
-                    for (int i = 0; i < frames.Length; i++)
+                    if (ext == ".sp2")
                     {
-                        if (frames[i].Image == null) continue;
-
-                        var pngPath = Path.Combine(dialog.Directory, $"{baseName}_{i}.png");
-                        using (var fs = new FileStream(pngPath, FileMode.Create))
+                        var dirFrames = Lin.Helper.Core.Sprite.L1SP2.Read(data);
+                        foreach (var kv in dirFrames)
                         {
-                            frames[i].Image.Save(fs, new PngEncoder());
+                            for (int i = 0; i < kv.Value.Length; i++)
+                            {
+                                if (kv.Value[i].Image == null) continue;
+                                var pngPath = Path.Combine(dialog.Directory, $"{baseName}_d{kv.Key}_{i}.png");
+                                using (var fs = new FileStream(pngPath, FileMode.Create))
+                                    kv.Value[i].Image.Save(fs, new PngEncoder());
+                                exportedFrames++;
+                                kv.Value[i].Image.Dispose();
+                            }
                         }
-                        exportedFrames++;
-                        frames[i].Image.Dispose();
+                    }
+                    else
+                    {
+                        Lin.Helper.Core.Sprite.SprFrame[] frames;
+                        if (ext == ".spx")
+                            frames = Lin.Helper.Core.Sprite.L1SPX.Read(data);
+                        else
+                            frames = Lin.Helper.Core.Sprite.SprReader.Load(data);
+
+                        if (frames == null || frames.Length == 0) { failed++; continue; }
+
+                        for (int i = 0; i < frames.Length; i++)
+                        {
+                            if (frames[i].Image == null) continue;
+                            var pngPath = Path.Combine(dialog.Directory, $"{baseName}_{i}.png");
+                            using (var fs = new FileStream(pngPath, FileMode.Create))
+                                frames[i].Image.Save(fs, new PngEncoder());
+                            exportedFrames++;
+                            frames[i].Image.Dispose();
+                        }
                     }
 
                     exportedFiles++;
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Export SPR as PNG failed: {item.FileName} - {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"Export Sprite as PNG failed: {item.FileName} - {ex.Message}");
                     failed++;
                 }
             }
 
             _statusLabel.Text = I18n.T("Status.SprExported", exportedFrames, exportedFiles) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
+        }
+
+        private void OnExportTi2AsTil(object sender, EventArgs e)
+        {
+            if (_fileGrid.SelectedRows.Count() == 0)
+            {
+                _statusLabel.Text = I18n.T("Status.NoSelection");
+                return;
+            }
+
+            var ti2Items = _fileGrid.SelectedRows
+                .Select(row => (FileItem)_fileGrid.DataStore.ElementAt(row))
+                .Where(item => item.FileName.EndsWith(".ti2", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (ti2Items.Count == 0)
+            {
+                _statusLabel.Text = I18n.T("Status.NoTi2Selected");
+                return;
+            }
+
+            using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
+            if (!string.IsNullOrEmpty(_selectedFolder))
+                dialog.Directory = _selectedFolder;
+            if (dialog.ShowDialog(this) != DialogResult.Ok) return;
+
+            int exported = 0;
+            int failed = 0;
+
+            foreach (var item in ti2Items)
+            {
+                var pak = item.SourcePak;
+                if (pak == null) continue;
+
+                try
+                {
+                    var data = pak.Extract(item.Index);
+                    var tileBlocks = Lin.Helper.Core.Tile.MTil.ConvertToL1Til(data);
+                    var tilData = Lin.Helper.Core.Tile.L1Til.BuildTilFromTileBlocks(tileBlocks);
+                    var tilName = Path.ChangeExtension(item.FileName, ".til");
+                    var outputPath = Path.Combine(dialog.Directory, tilName);
+                    var dir = Path.GetDirectoryName(outputPath);
+                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                    File.WriteAllBytes(outputPath, tilData);
+                    exported++;
+                }
+                catch { failed++; }
+            }
+
+            _statusLabel.Text = I18n.T("Status.TilExported", exported) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
+        }
+
+        private void OnExportToSpr(object sender, EventArgs e)
+        {
+            if (_fileGrid.SelectedRows.Count() == 0)
+            {
+                _statusLabel.Text = I18n.T("Status.NoSelection");
+                return;
+            }
+
+            var spxSp2Exts = new[] { ".spx", ".sp2" };
+            var items = _fileGrid.SelectedRows
+                .Select(row => (FileItem)_fileGrid.DataStore.ElementAt(row))
+                .Where(item => spxSp2Exts.Contains(Path.GetExtension(item.FileName).ToLowerInvariant()))
+                .ToList();
+
+            if (items.Count == 0)
+            {
+                _statusLabel.Text = I18n.T("Status.NoSpxSp2Selected");
+                return;
+            }
+
+            // 判斷預設 scale：SPX=0.5, SP2=1.0
+            var selectedExts = items.Select(i => Path.GetExtension(i.FileName).ToLowerInvariant()).Distinct().ToList();
+            double defaultScale = selectedExts.Contains(".spx") ? 0.5 : 1.0;
+
+            var scaleResult = ShowScaleDialog(defaultScale);
+            if (scaleResult == null) return;
+            double scale = scaleResult.Value;
+
+            using var dialog = new SelectFolderDialog { Title = I18n.T("Dialog.ExportFolder") };
+            if (!string.IsNullOrEmpty(_selectedFolder))
+                dialog.Directory = _selectedFolder;
+            if (dialog.ShowDialog(this) != DialogResult.Ok) return;
+
+            int exported = 0;
+            int failed = 0;
+
+            foreach (var item in items)
+            {
+                var pak = item.SourcePak;
+                if (pak == null) continue;
+
+                try
+                {
+                    var data = pak.Extract(item.Index);
+                    var baseName = Path.GetFileNameWithoutExtension(item.FileName);
+                    var ext = Path.GetExtension(item.FileName).ToLowerInvariant();
+                    var outDir = Path.GetDirectoryName(Path.Combine(dialog.Directory, item.FileName));
+                    if (!Directory.Exists(outDir)) Directory.CreateDirectory(outDir);
+
+                    if (ext == ".spx")
+                    {
+                        var sprData = Lin.Helper.Core.Sprite.L1SPX.ToSpr(data, scale);
+                        var outputPath = Path.Combine(dialog.Directory, Path.ChangeExtension(item.FileName, ".spr"));
+                        File.WriteAllBytes(outputPath, sprData);
+                        exported++;
+                    }
+                    else if (ext == ".sp2")
+                    {
+                        var dirSprData = Lin.Helper.Core.Sprite.L1SP2.ToSpr(data, scale);
+                        foreach (var kv in dirSprData)
+                        {
+                            var outputPath = Path.Combine(dialog.Directory, $"{baseName}-{kv.Key}.spr");
+                            File.WriteAllBytes(outputPath, kv.Value);
+                        }
+                        exported++;
+                    }
+                }
+                catch { failed++; }
+            }
+
+            _statusLabel.Text = I18n.T("Status.SprConverted", exported) + (failed > 0 ? $" ({I18n.T("Status.ExportFailed", failed)})" : "");
+        }
+
+        /// <summary>
+        /// 顯示 scale 輸入對話框，回傳 null 代表取消
+        /// </summary>
+        private double? ShowScaleDialog(double defaultValue)
+        {
+            var dlg = new Dialog<double?>
+            {
+                Title = I18n.T("Label.Scale"),
+                MinimumSize = new Size(280, 0),
+                Padding = new Padding(12),
+                Resizable = false
+            };
+
+            var scaleInput = new TextBox { Text = defaultValue.ToString("0.###"), Width = 100 };
+            var okBtn = new Button { Text = "OK" };
+            var cancelBtn = new Button { Text = I18n.T("Button.Cancel") };
+
+            okBtn.Click += (s, ev) =>
+            {
+                if (double.TryParse(scaleInput.Text, out double val) && val > 0)
+                    dlg.Close(val);
+            };
+            cancelBtn.Click += (s, ev) => dlg.Close(null);
+
+            dlg.DefaultButton = okBtn;
+            dlg.AbortButton = cancelBtn;
+
+            dlg.Content = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items =
+                {
+                    new Label { Text = I18n.T("Label.Scale") },
+                    scaleInput
+                }
+            };
+
+            var btnLayout = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Items = { null, okBtn, cancelBtn }
+            };
+
+            dlg.Content = new StackLayout
+            {
+                Spacing = 12,
+                Items = { dlg.Content, btnLayout }
+            };
+
+            return dlg.ShowModal(this);
         }
 
         private void OnDeleteSelected(object sender, EventArgs e)

@@ -204,8 +204,9 @@ namespace PakViewer.Localization
             { "Context.OpenInNewTab", "在新分頁開啟" },
             { "Context.ExportSelected", "匯出選取" },
             { "Context.ExportSelectedTo", "匯出選取至..." },
-            { "Context.ExportSprAsPng", "匯出 SPR 為 PNG..." },
+            { "Context.ExportSprAsPng", "匯出 Sprite 為 PNG..." },
             { "Context.ExportTi2AsTil", "匯出 TI2 為 TIL..." },
+            { "Context.ExportToSpr", "匯出 SPX/SP2 為 SPR..." },
             { "Context.DeleteSelected", "刪除選取" },
             { "Context.CopyFilename", "複製檔名" },
             { "Context.SelectAll", "全選" },
@@ -259,9 +260,12 @@ namespace PakViewer.Localization
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "正在轉換 PNG 為 SPR..." },
             { "Status.SprCreated", "已從 {0} 個 PNG 建立 SPR: {1}" },
-            { "Status.SprExported", "已匯出 {0} 個 PNG (來自 {1} 個 SPR)" },
+            { "Status.SprExported", "已匯出 {0} 個 PNG (來自 {1} 個 Sprite)" },
             { "Status.TilExported", "已匯出 {0} 個 TIL" },
             { "Status.NoTi2Selected", "未選取 TI2 檔案" },
+            { "Status.SprConverted", "已轉換 {0} 個檔案為 SPR" },
+            { "Status.NoSpxSp2Selected", "未選取 SPX/SP2 檔案" },
+            { "Status.NoSpriteSelected", "未選取 Sprite 檔案" },
 
             // Dialog
             { "Dialog.SaveAs", "另存新檔" },
@@ -526,8 +530,9 @@ namespace PakViewer.Localization
             { "Context.OpenInNewTab", "新しいタブで開く" },
             { "Context.ExportSelected", "選択をエクスポート" },
             { "Context.ExportSelectedTo", "選択をエクスポート先..." },
-            { "Context.ExportSprAsPng", "SPRをPNGでエクスポート..." },
+            { "Context.ExportSprAsPng", "SpriteをPNGでエクスポート..." },
             { "Context.ExportTi2AsTil", "TI2をTILでエクスポート..." },
+            { "Context.ExportToSpr", "SPX/SP2をSPRでエクスポート..." },
             { "Context.DeleteSelected", "選択を削除" },
             { "Context.CopyFilename", "ファイル名をコピー" },
             { "Context.SelectAll", "すべて選択" },
@@ -581,9 +586,12 @@ namespace PakViewer.Localization
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "PNGをSPRに変換中..." },
             { "Status.SprCreated", "{0}個のPNGからSPRを作成しました: {1}" },
-            { "Status.SprExported", "{0}個のPNGをエクスポートしました ({1}個のSPR)" },
+            { "Status.SprExported", "{0}個のPNGをエクスポートしました ({1}個のSprite)" },
             { "Status.TilExported", "{0}個のTILをエクスポートしました" },
             { "Status.NoTi2Selected", "TI2ファイルが選択されていません" },
+            { "Status.SprConverted", "{0}個のファイルをSPRに変換しました" },
+            { "Status.NoSpxSp2Selected", "SPX/SP2ファイルが選択されていません" },
+            { "Status.NoSpriteSelected", "Spriteファイルが選択されていません" },
 
             // Dialog
             { "Dialog.SaveAs", "名前を付けて保存" },
@@ -848,8 +856,9 @@ namespace PakViewer.Localization
             { "Context.OpenInNewTab", "Open in New Tab" },
             { "Context.ExportSelected", "Export Selected" },
             { "Context.ExportSelectedTo", "Export Selected To..." },
-            { "Context.ExportSprAsPng", "Export SPR as PNG..." },
+            { "Context.ExportSprAsPng", "Export Sprite as PNG..." },
             { "Context.ExportTi2AsTil", "Export TI2 as TIL..." },
+            { "Context.ExportToSpr", "Export SPX/SP2 as SPR..." },
             { "Context.DeleteSelected", "Delete Selected" },
             { "Context.CopyFilename", "Copy Filename" },
             { "Context.SelectAll", "Select All" },
@@ -903,9 +912,12 @@ namespace PakViewer.Localization
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "Converting PNG to SPR..." },
             { "Status.SprCreated", "Created SPR from {0} PNG files: {1}" },
-            { "Status.SprExported", "Exported {0} PNG from {1} SPR files" },
+            { "Status.SprExported", "Exported {0} PNG from {1} Sprite files" },
             { "Status.TilExported", "Exported {0} TIL files" },
             { "Status.NoTi2Selected", "No TI2 files selected" },
+            { "Status.SprConverted", "Converted {0} files to SPR" },
+            { "Status.NoSpxSp2Selected", "No SPX/SP2 files selected" },
+            { "Status.NoSpriteSelected", "No Sprite files selected" },
 
             // Dialog
             { "Dialog.SaveAs", "Save As" },
@@ -1169,8 +1181,9 @@ namespace PakViewer.Localization
             { "Context.OpenInNewTab", "새 탭에서 열기" },
             { "Context.ExportSelected", "선택 항목 내보내기" },
             { "Context.ExportSelectedTo", "선택 항목 내보내기..." },
-            { "Context.ExportSprAsPng", "SPR을 PNG로 내보내기..." },
+            { "Context.ExportSprAsPng", "Sprite를 PNG로 내보내기..." },
             { "Context.ExportTi2AsTil", "TI2를 TIL로 내보내기..." },
+            { "Context.ExportToSpr", "SPX/SP2를 SPR로 내보내기..." },
             { "Context.DeleteSelected", "선택 항목 삭제" },
             { "Context.CopyFilename", "파일명 복사" },
             { "Context.SelectAll", "모두 선택" },
@@ -1224,9 +1237,12 @@ namespace PakViewer.Localization
             // Status (Convert)
             { "Status.ConvertingPngToSpr", "PNG를 SPR로 변환 중..." },
             { "Status.SprCreated", "{0}개의 PNG에서 SPR 생성: {1}" },
-            { "Status.SprExported", "{0}개 PNG 내보내기 완료 ({1}개 SPR)" },
+            { "Status.SprExported", "{0}개 PNG 내보내기 완료 ({1}개 Sprite)" },
             { "Status.TilExported", "{0}개 TIL 파일 내보내기 완료" },
             { "Status.NoTi2Selected", "TI2 파일이 선택되지 않았습니다" },
+            { "Status.SprConverted", "{0}개 파일을 SPR로 변환 완료" },
+            { "Status.NoSpxSp2Selected", "SPX/SP2 파일이 선택되지 않았습니다" },
+            { "Status.NoSpriteSelected", "Sprite 파일이 선택되지 않았습니다" },
 
             // Dialog
             { "Dialog.SaveAs", "다른 이름으로 저장" },

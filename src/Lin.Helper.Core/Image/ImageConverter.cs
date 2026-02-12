@@ -69,9 +69,52 @@ namespace Lin.Helper.Core.Image
             return Rgb555ToRgba32(rgb555);
         }
 
+        /// <summary>
+        /// RGB565 轉換為 Rgba32
+        /// </summary>
+        public static Rgba32 Rgb565ToRgba32(int rgb565)
+        {
+            // RGB565: RRRRRGGGGGGBBBBB
+            int r = (rgb565 >> 11) & 0x1F;
+            int g = (rgb565 >> 5) & 0x3F;
+            int b = rgb565 & 0x1F;
+
+            r = (r << 3) | (r >> 2);
+            g = (g << 2) | (g >> 4);
+            b = (b << 3) | (b >> 2);
+
+            return new Rgba32((byte)r, (byte)g, (byte)b, 255);
+        }
+
+        /// <summary>
+        /// RGB565 轉換為 RGB555
+        /// </summary>
+        public static ushort Rgb565ToRgb555(ushort rgb565)
+        {
+            int r = (rgb565 >> 11) & 0x1F;
+            int g = (rgb565 >> 5) & 0x3F;
+            int b = rgb565 & 0x1F;
+            return (ushort)((r << 10) | ((g >> 1) << 5) | b);
+        }
+
         #endregion
 
         #region byte[] 版本 (無 ImageSharp 依賴)
+
+        /// <summary>
+        /// RGB565 轉換為 RGBA byte 陣列 (4 bytes: R, G, B, A)
+        /// </summary>
+        public static void Rgb565ToRgba(int rgb565, byte[] dest, int destIndex)
+        {
+            int r = (rgb565 >> 11) & 0x1F;
+            int g = (rgb565 >> 5) & 0x3F;
+            int b = rgb565 & 0x1F;
+
+            dest[destIndex] = (byte)((r << 3) | (r >> 2));
+            dest[destIndex + 1] = (byte)((g << 2) | (g >> 4));
+            dest[destIndex + 2] = (byte)((b << 3) | (b >> 2));
+            dest[destIndex + 3] = 255;
+        }
 
         /// <summary>
         /// RGB555 轉換為 RGBA byte 陣列 (4 bytes: R, G, B, A)
