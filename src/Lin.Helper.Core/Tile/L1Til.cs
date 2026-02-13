@@ -437,6 +437,7 @@ namespace Lin.Helper.Core.Tile
                     }
 
                     var uniqueBlocks = new Dictionary<int, byte[]>();
+                    int truncatedCount = 0;
 
                     for (int i = 0; i < offsetList.Count - 1; i++)
                     {
@@ -457,17 +458,75 @@ namespace Lin.Helper.Core.Tile
 
                             br.BaseStream.Seek(nPosition, SeekOrigin.Begin);
                             byte[] data = br.ReadBytes(nSize);
+
+                            if (validateFormat && !ValidateBlockData(data))
+                                truncatedCount++;
+
                             uniqueBlocks[offset] = data;
                         }
                     }
 
+                    if (validateFormat && truncatedCount > 0)
+                        throw new InvalidDataException(
+                            $"TIL format error: {truncatedCount}/{uniqueBlocks.Count} blocks have truncated scan data. " +
+                            "This may be caused by a build tool that incorrectly strips the last byte of each block.");
+
                     return new TileBlocks(nsBlockOffset, uniqueBlocks);
                 }
+            }
+            catch (InvalidDataException)
+            {
+                throw; // 格式驗證錯誤直接拋出
             }
             catch
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 驗證壓縮格式 block 的 scan data 完整性
+        /// </summary>
+        private static bool ValidateBlockData(byte[] block)
+        {
+            if (block == null || block.Length < 2)
+                return true; // 空 block 不驗證
+
+            byte type = block[0];
+
+            // 只驗證壓縮格式 (bit1 set)
+            if ((type & 0x02) == 0)
+                return true;
+
+            if (block.Length < 5)
+                return false;
+
+            int yLen = block[4];
+            int idx = 5;
+
+            for (int y = 0; y < yLen; y++)
+            {
+                if (idx >= block.Length)
+                    return false;
+
+                int segCount = block[idx++];
+                for (int s = 0; s < segCount; s++)
+                {
+                    if (idx + 1 >= block.Length)
+                        return false;
+
+                    idx++; // skip
+                    int pxCount = block[idx++];
+                    int needed = pxCount * 2;
+
+                    if (idx + needed > block.Length)
+                        return false;
+
+                    idx += needed;
+                }
+            }
+
+            return true;
         }
 
         #endregion
@@ -488,15 +547,13 @@ namespace Lin.Helper.Core.Tile
                 for (int i = 0; i < blocks.Count; i++)
                 {
                     bw.Write(currentOffset);
-                    currentOffset += blocks[i].Length - 1;
+                    currentOffset += blocks[i].Length;
                 }
                 bw.Write(currentOffset);
 
                 foreach (var block in blocks)
                 {
-                    int writeLen = block.Length - 1;
-                    if (writeLen > 0)
-                        bw.Write(block, 0, writeLen);
+                    bw.Write(block);
                 }
 
                 return ms.ToArray();
@@ -536,7 +593,7 @@ namespace Lin.Helper.Core.Tile
                     if (data != null)
                     {
                         blockDataList.Add(data);
-                        newOffset += data.Length - 1;
+                        newOffset += data.Length;
                     }
                 }
 
@@ -550,9 +607,7 @@ namespace Lin.Helper.Core.Tile
 
                 foreach (var block in blockDataList)
                 {
-                    int writeLen = block.Length - 1;
-                    if (writeLen > 0)
-                        bw.Write(block, 0, writeLen);
+                    bw.Write(block);
                 }
 
                 return ms.ToArray();

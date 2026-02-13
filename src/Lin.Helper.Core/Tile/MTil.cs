@@ -446,7 +446,7 @@ namespace Lin.Helper.Core.Tile
                     if (maxWidth > 0 && totalRows > 0)
                     {
                         // 輸出一個有效的壓縮格式空 block
-                        byte emptyBlockType = (byte)((block.Flags & 0x3F) | 0x02);
+                        byte emptyBlockType = MakeCompressedBlockType(block.Flags);
                         var emptyResult = new List<byte>();
                         emptyResult.Add(emptyBlockType);
                         emptyResult.Add(0);                    // x_offset
@@ -465,18 +465,17 @@ namespace Lin.Helper.Core.Tile
                 }
 
                 // 真的沒有任何資料，輸出最小有效結構
-                byte minBlockType = (byte)((block.Flags & 0x3F) | 0x02);
+                byte minBlockType = MakeCompressedBlockType(block.Flags);
                 return new byte[] { minBlockType, 0, 0, 1, 1, 0, 0 };
             }
 
             // MTil Flags 轉換為 L1Til block type (排除 bit6 IsDefault)
             // 輸出始終為壓縮格式，強制設定 bit1 (0x02)
-            // 其餘 bits 保留原始 MTil flags:
+            // 非 cloud/特效 block 還需設定 bit2 (0x04)
             // - bit0 (0x01): flip/左對齊
-            // - bit2 (0x04): 半透明 (50%)
             // - bit4 (0x10): inverted alpha - 雲
             // - bit5 (0x20): inverted alpha - 煙/血
-            byte blockType = (byte)((block.Flags & 0x3F) | 0x02);
+            byte blockType = MakeCompressedBlockType(block.Flags);
             var result = new List<byte>();
             result.Add(blockType);
             result.Add((byte)minX);           // x_offset
@@ -557,13 +556,13 @@ namespace Lin.Helper.Core.Tile
                 }
                 else
                 {
-                    // 空 block
-                    blockData = new byte[] { 0, 0 };
+                    // 空 block: type 0x00 (未壓縮) + 288 個 RGB555=0 像素 = 577 bytes
+                    blockData = new byte[1 + 288 * 2];
                 }
 
                 offsets[i] = currentOffset;
                 uniqueBlocks[currentOffset] = blockData;
-                currentOffset += blockData.Length - 1;
+                currentOffset += blockData.Length;
             }
 
             return new L1Til.TileBlocks(offsets, uniqueBlocks);
@@ -590,6 +589,19 @@ namespace Lin.Helper.Core.Tile
         #endregion
 
         #region Utility
+
+        /// <summary>
+        /// 將 MTil flags 轉換為 L1Til 壓縮格式的 blockType。
+        /// 規則: 強制 bit1 (0x02=壓縮)，非 cloud/特效 (沒有 bit4) 則追加 bit2 (0x04)。
+        /// </summary>
+        private static byte MakeCompressedBlockType(byte mTilFlags)
+        {
+            byte baseBits = (byte)(mTilFlags & 0x3F);
+            byte blockType = (byte)(baseBits | 0x02);
+            if ((baseBits & 0x10) == 0)
+                blockType |= 0x04;
+            return blockType;
+        }
 
         /// <summary>
         /// RGB555 轉 RGBA (用於顯示)
