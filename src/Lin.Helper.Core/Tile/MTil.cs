@@ -469,10 +469,9 @@ namespace Lin.Helper.Core.Tile
                 return new byte[] { minBlockType, 0, 0, 1, 1, 0, 0 };
             }
 
-            // MTil Flags 轉換為 L1Til block type (排除 bit6 IsDefault)
-            // 輸出始終為壓縮格式，強制設定 bit1 (0x02)
-            // 非 cloud/特效 block 還需設定 bit2 (0x04)
+            // MTil Flags 轉換為 L1Til block type (排除 bit6 IsDefault，強制 bit1 壓縮)
             // - bit0 (0x01): flip/左對齊
+            // - bit2 (0x04): 半透明 50%
             // - bit4 (0x10): inverted alpha - 雲
             // - bit5 (0x20): inverted alpha - 煙/血
             byte blockType = MakeCompressedBlockType(block.Flags);
@@ -592,15 +591,11 @@ namespace Lin.Helper.Core.Tile
 
         /// <summary>
         /// 將 MTil flags 轉換為 L1Til 壓縮格式的 blockType。
-        /// 規則: 強制 bit1 (0x02=壓縮)，非 cloud/特效 (沒有 bit4) 則追加 bit2 (0x04)。
+        /// 規則: 取 flags 低 6 bits，強制設定 bit1 (0x02=壓縮)，其餘保留原始值。
         /// </summary>
         private static byte MakeCompressedBlockType(byte mTilFlags)
         {
-            byte baseBits = (byte)(mTilFlags & 0x3F);
-            byte blockType = (byte)(baseBits | 0x02);
-            if ((baseBits & 0x10) == 0)
-                blockType |= 0x04;
-            return blockType;
+            return (byte)(((mTilFlags & 0x3F)) | 0x02);
         }
 
         /// <summary>
