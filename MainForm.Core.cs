@@ -4222,23 +4222,32 @@ namespace PakViewer
                 foreach (var group in groupedByPak)
                 {
                     var pak = group.Key;
-                    // 從大到小排序，避免 index 變動問題
-                    var sortedItems = group.OrderByDescending(item => item.Index).ToList();
 
-                    foreach (var item in sortedItems)
+                    // 用 FileName+Offset 找出 PAK 內部 index（global index 在「全部」模式下不對應）
+                    var pakIndices = new List<int>();
+                    foreach (var item in group)
                     {
-                        pak.Delete(item.Index);
+                        var pakIndex = pak.Files.ToList().FindIndex(f =>
+                            f.FileName == item.FileName && f.Offset == item.Offset);
+                        if (pakIndex >= 0)
+                            pakIndices.Add(pakIndex);
+                    }
+
+                    // 從大到小排序，避免 index 變動問題
+                    foreach (var pakIndex in pakIndices.OrderByDescending(i => i))
+                    {
+                        pak.Delete(pakIndex);
                     }
 
                     // 儲存此 PAK 的變更
                     pak.Save();
                 }
 
-                // 如果是 SinglePakProvider，需要刷新其檔案列表
+                // 刷新 provider 的檔案列表
                 if (_currentProvider is SinglePakProvider singleProvider)
-                {
                     singleProvider.Refresh();
-                }
+                else if (_currentProvider is LinClientProvider linProvider)
+                    linProvider.Refresh();
 
                 // 重新載入檔案列表
                 RefreshFileList();

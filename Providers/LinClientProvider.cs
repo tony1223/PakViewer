@@ -183,6 +183,38 @@ namespace PakViewer.Providers
 
         public bool HasMultipleSourceOptions => _pakFiles.Count > 1;
 
+        /// <summary>
+        /// 重新整理檔案列表（刪除/新增後使用）
+        /// </summary>
+        public void Refresh()
+        {
+            _allFiles.Clear();
+            int globalIndex = 0;
+            foreach (var kvp in _pakFiles.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var idxName = kvp.Key;
+                var pak = kvp.Value;
+                foreach (var record in pak.Files)
+                {
+                    _allFiles.Add(new FileEntry
+                    {
+                        Index = globalIndex++,
+                        FileName = record.FileName,
+                        FileSize = record.FileSize,
+                        Offset = record.Offset,
+                        SourceName = idxName,
+                        Source = this
+                    });
+                }
+            }
+
+            // 重新套用目前的來源篩選
+            if (_currentSourceOption != null && _currentSourceOption != AllSourcesOption)
+                SetSourceOption(_currentSourceOption);
+            else
+                _filteredFiles = null;
+        }
+
         public void Dispose()
         {
             if (!_disposed)
