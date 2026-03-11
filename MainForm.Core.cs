@@ -2158,13 +2158,19 @@ namespace PakViewer
             Action refreshFileList = () =>
             {
                 // 從 provider 重新載入
-                allItems = provider.Files.Select(f => new FileItem
+                allItems = provider.Files.Select(f =>
                 {
-                    Index = f.Index,
-                    FileName = f.FileName,
-                    FileSize = (int)f.FileSize,
-                    Offset = f.Offset,
-                    IdxName = f.SourceName
+                    var item = new FileItem
+                    {
+                        Index = f.Index,
+                        FileName = f.FileName,
+                        FileSize = (int)f.FileSize,
+                        Offset = f.Offset,
+                        IdxName = f.SourceName
+                    };
+                    if (provider is LcxProvider lcxProv)
+                        item.SourceLcx = lcxProv.GetLcxFile(f.SourceName);
+                    return item;
                 }).ToList();
 
                 // 套用篩選
@@ -2631,9 +2637,18 @@ namespace PakViewer
                     var data = provider.Extract(selected.Index);
                     var ext = Path.GetExtension(selected.FileName).ToLowerInvariant();
 
+                    // 記錄當前預覽檔案來源（用於儲存功能）
+                    _currentViewerPak = selected.SourcePak;
+                    _currentViewerLcx = selected.SourceLcx;
+                    _currentViewerFileName = selected.FileName;
+                    _currentViewerIndex = selected.Index;
+
                     // 使用 ViewerFactory 建立適合的 viewer
                     currentViewer = Viewers.ViewerFactory.CreateViewerSmart(ext, data, selected.FileName);
                     currentViewer.LoadData(data, selected.FileName);
+
+                    // 訂閱儲存事件
+                    currentViewer.SaveRequested += OnViewerSaveRequested;
 
                     // 顯示 viewer 控件
                     var viewerControl = currentViewer.GetControl();
