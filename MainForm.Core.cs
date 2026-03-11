@@ -2930,9 +2930,9 @@ namespace PakViewer
 
             try
             {
-                // 嘗試從 lcx.key 檔案載入金鑰，找不到則 fallback 到內建金鑰
-                var lcxDir = Path.GetDirectoryName(lcxPaths[0]);
-                var fileKeys = Lin.Helper.Core.Lcx.LcxKeyLoader.TryLoadFromDirectory(lcxDir);
+                // 嘗試從程式所在目錄的 lcx.key 載入金鑰，找不到則 fallback 到內建金鑰
+                var appDir = AppDomain.CurrentDomain.BaseDirectory;
+                var fileKeys = Lin.Helper.Core.Lcx.LcxKeyLoader.TryLoadFromDirectory(appDir);
                 var effectiveKeys = fileKeys ?? LcxKeys;
 
                 var provider = new LcxProvider(lcxPaths, effectiveKeys);
