@@ -28,7 +28,7 @@ namespace PakViewer.Viewers
         private int _lastSearchIndex;
 
         // 分頁相關
-        private const int PageCharLimit = 200_000;  // 每頁最多 200K 字元
+        private const int PageCharLimit = 1_000_000;  // 每頁最多 1M 字元
         private string _fullText;                    // 完整文字 (大檔案用)
         private bool _isPaginated;
         private List<int> _pageStartChars;           // 每頁起始字元位置
