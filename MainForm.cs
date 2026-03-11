@@ -69,6 +69,7 @@ namespace PakViewer
 
         // 當前預覽檔案的來源（用於儲存功能）
         private PakFile _currentViewerPak;
+        private Lin.Helper.Core.Lcx.LcxFile _currentViewerLcx;
         private int _currentViewerIndex;
         private string _currentViewerFileName;
 
@@ -163,6 +164,7 @@ namespace PakViewer
         public long Offset { get; set; }  // 使用 long 支援超過 2GB 的 PAK
         public string IdxName { get; set; }  // 來源 IDX 檔名
         public PakFile SourcePak { get; set; }  // 來源 PAK 檔案
+        public Lin.Helper.Core.Lcx.LcxFile SourceLcx { get; set; }  // 來源 LCX 檔案
 
         public string SizeText => FileSize >= 1024
             ? $"{FileSize / 1024.0:F1} KB"

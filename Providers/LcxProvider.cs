@@ -150,6 +150,40 @@ namespace PakViewer.Providers
 
         public bool HasMultipleSourceOptions => _lcxFiles.Count > 1;
 
+        /// <summary>
+        /// 取得指定 LCX 檔案名的 LcxFile 實例（用於儲存/刪除操作）
+        /// </summary>
+        public LcxFile GetLcxFile(string lcxName)
+        {
+            return _lcxFiles.TryGetValue(lcxName, out var lcx) ? lcx : null;
+        }
+
+        /// <summary>
+        /// 重新整理檔案列表（刪除/修改後使用）
+        /// </summary>
+        public void Refresh()
+        {
+            _allFiles.Clear();
+            int globalIndex = 0;
+            foreach (var kvp in _lcxFiles.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var lcxName = kvp.Key;
+                var lcx = kvp.Value;
+                foreach (var entry in lcx.Entries)
+                {
+                    _allFiles.Add(new FileEntry
+                    {
+                        Index = globalIndex++,
+                        FileName = entry.FileName,
+                        FileSize = entry.CompressedSize,
+                        SourceName = lcxName,
+                        Source = this
+                    });
+                }
+            }
+            SetSourceOption(_currentSourceOption);
+        }
+
         public void Dispose()
         {
             if (!_disposed)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using Org.BouncyCastle.Crypto.Engines;
 using Org.BouncyCastle.Crypto.Modes;
 using Org.BouncyCastle.Crypto.Parameters;
@@ -49,7 +50,19 @@ namespace Lin.Helper.Core.Lcx
         private readonly string _filePath;
         private readonly byte[][] _keys;
         private readonly List<LcxEntry> _entries;
+        private readonly List<PendingChange> _pendingChanges = new List<PendingChange>();
+        private bool _modified;
         private bool _disposed;
+
+        private enum ChangeType { Replace, Delete }
+
+        private class PendingChange
+        {
+            public ChangeType Type;
+            public string EntryName;  // ZIP entry name (with .lcf)
+            public string FileName;   // Display name (without .lcf)
+            public byte[] Data;       // Raw plaintext data for Replace
+        }
 
         /// <summary>
         /// 開啟 LCX 檔案
@@ -147,6 +160,110 @@ namespace Lin.Helper.Core.Lcx
 
             byte[] decoded = DecodeLcf(lcfData);
             return DecompressZstd(decoded);
+        }
+
+        /// <summary>
+        /// 佇列替換條目 (下次呼叫 Save() 時寫入)
+        /// </summary>
+        public void Replace(string fileName, byte[] newData)
+        {
+            var entry = _entries.FirstOrDefault(e => e.FileName == fileName);
+            if (entry == null)
+                throw new FileNotFoundException($"Entry not found: {fileName}");
+
+            _pendingChanges.Add(new PendingChange
+            {
+                Type = ChangeType.Replace,
+                EntryName = entry.EntryName,
+                FileName = fileName,
+                Data = newData
+            });
+            _modified = true;
+        }
+
+        /// <summary>
+        /// 佇列刪除條目 (下次呼叫 Save() 時寫入)
+        /// </summary>
+        public void Delete(string fileName)
+        {
+            var entry = _entries.FirstOrDefault(e => e.FileName == fileName);
+            if (entry == null)
+                throw new FileNotFoundException($"Entry not found: {fileName}");
+
+            _pendingChanges.Add(new PendingChange
+            {
+                Type = ChangeType.Delete,
+                EntryName = entry.EntryName,
+                FileName = fileName
+            });
+            _modified = true;
+        }
+
+        /// <summary>
+        /// 將佇列中的變更就地寫回 LCX 檔案。
+        /// 建立 .bak 備份，失敗時自動還原。
+        /// </summary>
+        public void Save()
+        {
+            if (!_modified || _pendingChanges.Count == 0)
+                return;
+
+            string backup = _filePath + ".bak";
+            if (File.Exists(backup)) File.Delete(backup);
+            File.Copy(_filePath, backup);
+
+            try
+            {
+                var replacements = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                var deletions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var change in _pendingChanges)
+                {
+                    if (change.Type == ChangeType.Replace)
+                        replacements[change.EntryName] = change.Data;
+                    else if (change.Type == ChangeType.Delete)
+                        deletions.Add(change.EntryName);
+                }
+
+                using (var archive = ZipFile.Open(_filePath, ZipArchiveMode.Update))
+                {
+                    foreach (var entryName in deletions)
+                    {
+                        var existing = archive.GetEntry(entryName);
+                        existing?.Delete();
+                    }
+
+                    foreach (var kv in replacements)
+                    {
+                        var existing = archive.GetEntry(kv.Key);
+                        existing?.Delete();
+
+                        var newEntry = archive.CreateEntry(kv.Key, CompressionLevel.NoCompression);
+                        byte[] compressed = CompressZstd(kv.Value);
+                        byte[] encoded = EncodeLcf(compressed, _keys[0]);
+
+                        using var entryStream = newEntry.Open();
+                        entryStream.Write(encoded, 0, encoded.Length);
+                    }
+                }
+
+                _entries.Clear();
+                LoadEntries();
+
+                _pendingChanges.Clear();
+                _modified = false;
+
+                File.Delete(backup);
+            }
+            catch
+            {
+                if (File.Exists(backup))
+                {
+                    File.Copy(backup, _filePath, true);
+                    File.Delete(backup);
+                }
+                throw;
+            }
         }
 
         /// <summary>

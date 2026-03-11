@@ -1388,9 +1388,9 @@ namespace PakViewer
         /// </summary>
         private void OnViewerSaveRequested(object sender, Viewers.SaveRequestedEventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine($"OnViewerSaveRequested called: pak={_currentViewerPak?.IdxPath}, file={_currentViewerFileName}");
+            System.Diagnostics.Debug.WriteLine($"OnViewerSaveRequested called: pak={_currentViewerPak?.IdxPath}, lcx={_currentViewerLcx?.FilePath}, file={_currentViewerFileName}");
 
-            if (_currentViewerPak == null || string.IsNullOrEmpty(_currentViewerFileName))
+            if (string.IsNullOrEmpty(_currentViewerFileName))
             {
                 MessageBox.Show(this, I18n.T("Error.CannotSaveNoPak"), I18n.T("Dialog.Error"), MessageBoxType.Error);
                 return;
@@ -1398,9 +1398,23 @@ namespace PakViewer
 
             try
             {
-                // 替換 PAK 中的檔案內容
-                _currentViewerPak.Replace(_currentViewerFileName, e.Data);
-                _currentViewerPak.Save();
+                if (_currentViewerPak != null)
+                {
+                    // 替換 PAK 中的檔案內容
+                    _currentViewerPak.Replace(_currentViewerFileName, e.Data);
+                    _currentViewerPak.Save();
+                }
+                else if (_currentViewerLcx != null)
+                {
+                    // 替換 LCX 中的檔案內容
+                    _currentViewerLcx.Replace(_currentViewerFileName, e.Data);
+                    _currentViewerLcx.Save();
+                }
+                else
+                {
+                    MessageBox.Show(this, I18n.T("Error.CannotSaveNoPak"), I18n.T("Dialog.Error"), MessageBoxType.Error);
+                    return;
+                }
 
                 _statusLabel.Text = I18n.T("Status.Saved") + ": " + _currentViewerFileName;
                 ShowToast(I18n.T("Toast.SaveSuccess"), _currentViewerFileName);
@@ -2916,7 +2930,12 @@ namespace PakViewer
 
             try
             {
-                var provider = new LcxProvider(lcxPaths, LcxKeys);
+                // 嘗試從 lcx.key 檔案載入金鑰，找不到則 fallback 到內建金鑰
+                var lcxDir = Path.GetDirectoryName(lcxPaths[0]);
+                var fileKeys = Lin.Helper.Core.Lcx.LcxKeyLoader.TryLoadFromDirectory(lcxDir);
+                var effectiveKeys = fileKeys ?? LcxKeys;
+
+                var provider = new LcxProvider(lcxPaths, effectiveKeys);
 
                 var tabName = lcxPaths.Length == 1
                     ? Path.GetFileName(lcxPaths[0])
@@ -2938,7 +2957,8 @@ namespace PakViewer
                 _settings.LastFolder = Path.GetDirectoryName(lcxPaths[0]);
                 _settings.Save();
 
-                _statusLabel.Text = $"Opened LCX: {tabName} ({provider.Count} files)";
+                var keySource = fileKeys != null ? $"[lcx.key: {fileKeys.Length} keys]" : "[built-in keys]";
+                _statusLabel.Text = $"Opened LCX: {tabName} ({provider.Count} files) {keySource}";
             }
             catch (Exception ex)
             {
@@ -3543,6 +3563,13 @@ namespace PakViewer
                     sourcePak = linProvider.GetPakFile(file.SourceName);
                 }
 
+                // 取得對應的 LcxFile (用於儲存/刪除)
+                Lin.Helper.Core.Lcx.LcxFile sourceLcx = null;
+                if (_currentProvider is LcxProvider lcxProv)
+                {
+                    sourceLcx = lcxProv.GetLcxFile(file.SourceName);
+                }
+
                 _filteredIndexes.Add(i);
                 items.Add(new FileItem
                 {
@@ -3551,7 +3578,8 @@ namespace PakViewer
                     FileSize = (int)file.FileSize,
                     Offset = file.Offset,
                     IdxName = showIdxColumn ? file.SourceName : null,
-                    SourcePak = sourcePak
+                    SourcePak = sourcePak,
+                    SourceLcx = sourceLcx
                 });
             }
 
@@ -3668,7 +3696,8 @@ namespace PakViewer
                 if (_currentProvider == null) return;
 
                 var data = _currentProvider.Extract(selected.Index);
-                _currentViewerPak = selected.SourcePak;  // 用於儲存功能
+                _currentViewerPak = selected.SourcePak;  // 用於 PAK 儲存功能
+                _currentViewerLcx = selected.SourceLcx;  // 用於 LCX 儲存功能
 
                 var ext = Path.GetExtension(selected.FileName).ToLowerInvariant();
 
@@ -4191,7 +4220,13 @@ namespace PakViewer
                 .GroupBy(item => item.SourcePak)
                 .ToList();
 
-            if (groupedByPak.Count == 0)
+            // 按來源 LCX 分組
+            var groupedByLcx = itemsToDelete
+                .Where(item => item.SourceLcx != null)
+                .GroupBy(item => item.SourceLcx)
+                .ToList();
+
+            if (groupedByPak.Count == 0 && groupedByLcx.Count == 0)
             {
                 MessageBox.Show(this, I18n.T("Status.NoSelection"), I18n.T("Context.Delete"), MessageBoxType.Information);
                 return;
@@ -4199,12 +4234,12 @@ namespace PakViewer
 
             // 組建確認訊息
             string confirmMessage = I18n.T("Dialog.DeleteConfirm", count);
-            if (groupedByPak.Count > 1)
+            var totalGroups = groupedByPak.Count + groupedByLcx.Count;
+            if (totalGroups > 1)
             {
-                // 多個 PAK 時顯示詳細資訊
-                var detailLines = groupedByPak
-                    .Select(g => $"  {Path.GetFileName(g.Key.PakPath)}: {g.Count()}")
-                    .ToList();
+                var detailLines = new List<string>();
+                detailLines.AddRange(groupedByPak.Select(g => $"  {Path.GetFileName(g.Key.PakPath)}: {g.Count()}"));
+                detailLines.AddRange(groupedByLcx.Select(g => $"  {g.Key.FileName}: {g.Count()}"));
                 confirmMessage += $"\n\n{string.Join("\n", detailLines)}";
             }
 
@@ -4243,11 +4278,24 @@ namespace PakViewer
                     pak.Save();
                 }
 
+                // 逐個 LCX 處理刪除
+                foreach (var group in groupedByLcx)
+                {
+                    var lcx = group.Key;
+                    foreach (var item in group)
+                    {
+                        lcx.Delete(item.FileName);
+                    }
+                    lcx.Save();
+                }
+
                 // 刷新 provider 的檔案列表
                 if (_currentProvider is SinglePakProvider singleProvider)
                     singleProvider.Refresh();
                 else if (_currentProvider is LinClientProvider linProvider)
                     linProvider.Refresh();
+                else if (_currentProvider is LcxProvider lcxProvider)
+                    lcxProvider.Refresh();
 
                 // 重新載入檔案列表
                 RefreshFileList();
@@ -4265,12 +4313,14 @@ namespace PakViewer
             var selected = _fileGrid.SelectedItem as FileItem;
             if (selected == null) return;
 
-            // 格式: pakFileName#fileName (例如 tile.pak#SummonUi.xml)
+            // 格式: archiveName#fileName (例如 tile.pak#SummonUi.xml)
             var pak = selected.SourcePak;
-            var pakName = pak != null ? Path.GetFileName(pak.PakPath) : "";
-            var copyText = string.IsNullOrEmpty(pakName)
+            var archiveName = pak != null ? Path.GetFileName(pak.PakPath)
+                : selected.SourceLcx != null ? selected.SourceLcx.FileName
+                : "";
+            var copyText = string.IsNullOrEmpty(archiveName)
                 ? selected.FileName
-                : $"{pakName}#{selected.FileName}";
+                : $"{archiveName}#{selected.FileName}";
 
             var clipboard = new Clipboard();
             clipboard.Text = copyText;
