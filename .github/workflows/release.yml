@@ -211,6 +211,19 @@ jobs:
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
+    - name: Import Code Signing Certificate
+      env:
+        CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      run: |
+        echo "$CERTIFICATE_P12" | base64 --decode > certificate.p12
+        security create-keychain -p actions build.keychain
+        security default-keychain -s build.keychain
+        security unlock-keychain -p actions build.keychain
+        security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+        rm certificate.p12
+
     - name: Restore dependencies
       run: |
         dotnet restore PakViewer.csproj -r osx-x64
@@ -246,11 +259,31 @@ jobs:
           fi
         done
 
-        # Ad-hoc 簽署
-        codesign --force --deep --sign - "$UNIVERSAL_APP"
+        # Developer ID 簽署 + hardened runtime
+        IDENTITY="TonyQ CO., LTD. (8JVDJGLLYR)"
+        for dylib in "$MACOS_DIR"/*.dylib; do
+          [ -f "$dylib" ] && codesign --force --options runtime --sign "$IDENTITY" "$dylib" 2>/dev/null || true
+        done
+        codesign --force --deep --options runtime --sign "$IDENTITY" "$UNIVERSAL_APP"
 
         # 建立 DMG
         hdiutil create -volname "${{ env.PROJECT_NAME }}" -srcfolder "$UNIVERSAL_APP" -ov -format UDZO "${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.dmg"
+
+    - name: Notarize DMG
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        DMG_FILE="${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.dmg"
+        echo "Submitting $DMG_FILE for notarization..."
+        xcrun notarytool submit "$DMG_FILE" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait --timeout 30m
+        echo "Stapling notarization ticket..."
+        xcrun stapler staple "$DMG_FILE"
 
     - name: Upload universal artifact
       uses: actions/upload-artifact@v4
@@ -331,11 +364,7 @@ jobs:
           **macOS**:
           1. 下載 DMG 檔案並雙擊掛載
           2. 將 PakViewer.app 拖曳到應用程式資料夾
-          3. 首次開啟時，右鍵點擊 app → 選擇「打開」
-          4. 如果還是無法開啟，在終端機執行：
-          ```bash
-          xattr -cr /Applications/PakViewer.app
-          ```
+          3. 雙擊即可開啟（已完成 Apple 公證）
 
           **Linux**:
           ```bash
