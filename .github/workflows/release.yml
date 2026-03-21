@@ -247,6 +247,12 @@ jobs:
         mkdir -p universal
         cp -R "publish-arm64/$APP_NAME" "$UNIVERSAL_APP"
 
+        # 修正 Info.plist 的 Bundle Identifier
+        PLIST="$UNIVERSAL_APP/Contents/Info.plist"
+        /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.tonyq.pakviewer" "$PLIST"
+        /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.get_version.outputs.VERSION }}" "$PLIST"
+        /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.get_version.outputs.DOTNET_VERSION }}" "$PLIST"
+
         # 使用 lipo 合併所有 Mach-O 檔案 (執行檔和 dylib)
         MACOS_DIR="$UNIVERSAL_APP/Contents/MacOS"
         for file in "$MACOS_DIR"/*; do
@@ -259,12 +265,32 @@ jobs:
           fi
         done
 
-        # Developer ID 簽署 + hardened runtime
+        # 移除 .NET publish 產生的巢狀 app bundle
+        rm -rf "$MACOS_DIR/$APP_NAME"
+
+        # Developer ID 簽署 + hardened runtime + entitlements
         IDENTITY="TonyQ CO., LTD. (8JVDJGLLYR)"
-        for dylib in "$MACOS_DIR"/*.dylib; do
-          [ -f "$dylib" ] && codesign --force --options runtime --sign "$IDENTITY" "$dylib" 2>/dev/null || true
+        ENTITLEMENTS="PakViewer.entitlements"
+        # 簽署 MacOS 目錄下所有檔案 (DLL, dylib, xml, json 等都需要簽署)
+        for file in "$MACOS_DIR"/*; do
+          if [ -f "$file" ] && [ ! -L "$file" ]; then
+            filename=$(basename "$file")
+            if [ "$filename" = "${{ env.PROJECT_NAME }}" ]; then
+              continue  # 主程式最後簽
+            fi
+            if file "$file" | grep -q "Mach-O"; then
+              codesign --force --options runtime --sign "$IDENTITY" --entitlements "$ENTITLEMENTS" "$file"
+            else
+              codesign --force --sign "$IDENTITY" "$file"
+            fi
+          fi
         done
-        codesign --force --deep --options runtime --sign "$IDENTITY" "$UNIVERSAL_APP"
+        # 簽署主程式 (最後簽署 app bundle)
+        codesign --force --options runtime --sign "$IDENTITY" --entitlements "$ENTITLEMENTS" "$UNIVERSAL_APP"
+
+        # 驗證簽署
+        codesign --verify --deep --strict "$UNIVERSAL_APP"
+        echo "Code signing verification passed."
 
         # 建立 DMG
         hdiutil create -volname "${{ env.PROJECT_NAME }}" -srcfolder "$UNIVERSAL_APP" -ov -format UDZO "${{ env.PROJECT_NAME }}-${{ steps.get_version.outputs.TAG }}-osx-universal.dmg"
