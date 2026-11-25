@@ -217,7 +217,9 @@ namespace Lin.Helper.Core.Sprite
 
                     reader.BaseStream.Seek(dataStart + blockOffsets[i], SeekOrigin.Begin);
 
-                    byte startX = reader.ReadByte();
+                    // SPX stores signed horizontal origins (e.g. 0xFE = -2).
+                    // ReadByte turns these into 254 and silently discards valid runs.
+                    int startX = reader.ReadSByte();
                     byte startY = reader.ReadByte();
                     byte blockWidth = reader.ReadByte();
                     byte lineCount = reader.ReadByte();
@@ -242,7 +244,7 @@ namespace Lin.Helper.Core.Sprite
                                     if (idx >= 0) reservedColors[idx] = 0;
                                 }
 
-                                if (line + startY < BlockSize && x < BlockSize)
+                                if (line + startY < BlockSize && x >= 0 && x < BlockSize)
                                     blocks[i][line + startY, x] = color;
                                 x++;
                             }
